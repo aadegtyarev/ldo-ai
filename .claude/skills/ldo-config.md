@@ -1,87 +1,92 @@
 ---
 name: ldo-config
-description: Configure LDO model-to-role routing — set models per role, per complexity tier, understand cache impact
+description: Configure LDO model routing — which model runs which role, and when the optional agents fire
 ---
 
-Walk through configuring model routing for the LDO pipeline.
+Walk through configuring `.claude/ldo-config.json`.
 
-## Procedure
+## The point of the config
 
-### 1. Open the config
-
-File: `.claude/ldo-config.json`
-
-The `models` section has three complexity tiers — `trivial`, `medium`, `complex`. Each tier maps 7 roles to model names:
+The protocol exists so different roles can run on different models. The default puts a stronger model on Review than on Code: cheap to write, careful to check.
 
 ```json
-"medium": {
-  "scout": "sonnet",
-  "planner": "sonnet",
-  "coder": "sonnet",
-  "reviewer": "sonnet",
-  "setup": "sonnet",
-  "docs": "haiku",
-  "bootstrapper": "fable"
+{
+  "models": {
+    "trivial": { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus" },
+    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus" },
+    "complex": { "planner": "opus",   "coder": "sonnet", "reviewer": "opus" }
+  }
 }
 ```
 
-### 2. Understand the roles
+Model names mean whatever your setup routes them to — the pipeline assumes nothing about which is stronger.
 
-| Role | What it does | Model impact |
-|------|-------------|-------------|
-| **bootstrapper** | Research + stack selection (greenfield only) | Runs once, no cache dependency |
-| **scout** | Reads codebase, produces deterministic CTX snapshot | Runs once, cached by resumeFromRunId |
-| **planner** | CTX + task → implementation plan | Runs once |
-| **coder** | Implements plan + writes tests | First model in the cache chain — populates cache |
-| **reviewer** | Reviews diff, returns verdict | Same model as coder = cache hit. Different = adversarial benefit at +1 cold start |
-| **setup** | Installs deps, configures services | Same model as coder = cache hit |
-| **docs** | Updates README/CHANGELOG/API docs | Separate model = separate cache namespace. Skipped on low budget |
+## The roles
 
-### 3. Cache optimization rule
+Three always run:
 
-The CTX prefix (codebase snapshot) is shared across Coder → Reviewer → Setup → Docs. Cache hits happen when the **same model name** sees the **same prefix bytes**.
+| Role | Does | Model choice |
+|------|------|--------------|
+| **planner** | Reads the codebase, writes the plan, rates complexity and security surface | Steps up on `complex`, where a wrong approach is expensive to unwind |
+| **coder** | Sets up the environment, implements, tests, updates docs | Sonnet handles this well; the Reviewer above catches what it misses |
+| **reviewer** | Reads the diff *and* drives the app to prove the criteria | **The reason for the protocol.** Put your strongest model here |
 
-- **Keep Coder, Reviewer, Setup on the same model** for max cache reuse
-- **Reviewer on a different model** costs 1 extra cold start — worth it for complex/ adversarial review
-- **Docs** is usually a different model (separate cache namespace) — acceptable since Docs is formulaic and skippable on low budget
+Three are conditional:
 
-### 4. Per-task override
+| Role | Fires when |
+|------|-----------|
+| **bootstrapper** | `mode: "greenfield"` — new project, nothing to read yet |
+| **researcher** | `research: true`, or `researchByDefault` — task needs knowledge from outside the repo |
+| **security** | The Planner rates `security_surface: "elevated"` — new input, auth, secrets, injection, dependency, or crypto surface |
 
-Pass `args.config` when invoking the workflow:
+## Which tier applies
+
+The Planner rates each task `trivial`, `medium`, or `complex`, and that picks the row from `models`. You don't set it — it's assessed per task.
+
+## Cache impact
+
+Anthropic keys its prompt cache on (model, prompt prefix). The Planner's `codebase_context` is the shared prefix for Coder and Reviewer.
+
+- **Same model for both** → the Reviewer hits a warm cache.
+- **Different models** → separate cache namespaces, one cold start.
+
+The default accepts that cold start deliberately: an independent read is worth more than the cached tokens. If you're optimising purely for cost on a large codebase, matching the models will save more.
+
+## Other keys
+
+| Key | Default | Effect |
+|-----|---------|--------|
+| `maxFixLoops` | `3` | How many Code⇄Review rounds before giving up |
+| `blockingSeverities` | `["critical","major"]` | Which findings buy another round. Minor and nit ride along in the report |
+| `researchByDefault` | `false` | Run the Researcher on every task |
+| `securityByDefault` | *(unset)* | Force the Security agent on or off, overriding the Planner's rating |
+
+## Per-run override
+
+Anything in the file can be overridden for one invocation:
 
 ```js
-Workflow({name:"ldo", args:{
-  task: "refactor auth module",
+Workflow({name: "ldo", args: {
+  task: "refactor the auth module",
+  research: true,
+  security: true,
   config: {
-    models: {
-      medium: {
-        coder: "opus",
-        reviewer: "opus",
-        setup: "sonnet"
-      }
-    },
     maxFixLoops: 5,
-    reviewerDifferentModel: false
+    models: { medium: { coder: "haiku", reviewer: "opus" } }
   }
 }})
 ```
 
-Only the keys you provide are overridden — the rest fall back to `ldo-config.json` defaults.
+## Check it took effect
 
-### 5. Other config keys
-
-| Key | Default | What |
-|-----|---------|------|
-| `maxFixLoops` | 3 | Max code-review iterations before giving up |
-| `reviewerDifferentModel` | false | Use `models[complex].reviewer` when reviewer matches coder |
-| `docsBudgetFloor` | 30000 | Skip Docs if remaining tokens drop below this |
-
-### 6. Verify
-
-After changing config, run `/ldo` on a small task and check the log line:
+Run `/ldo` on something small and read the log line after Plan:
 
 ```
-Complexity: medium  |  Coder:opus  Reviewer:opus  Setup:sonnet  Docs:haiku
+Complexity: medium  |  Security surface: none  |  Coder:sonnet  Reviewer:opus
 ```
 
-This confirms your routing took effect.
+That's the routing that actually applied.
+
+## Note on standalone use
+
+Each agent file carries its own `model:` in frontmatter — that's what applies when you invoke `/coder` or `/reviewer` directly, outside the workflow. Keep it in sync with the config, or accept that direct calls use the frontmatter value.

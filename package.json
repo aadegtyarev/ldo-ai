@@ -1,7 +1,7 @@
 {
   "name": "ldo-ai",
-  "version": "2.0.0",
-  "description": "LDO (Lightweight Dev Orchestrator) — 7-agent AI development pipeline for Claude Code",
+  "version": "1.0.0",
+  "description": "LDO (Lightweight Dev Orchestrator) — Planner, Coder, Reviewer pipeline for Claude Code with per-role model routing",
   "bin": {
     "ldo-install": "./bin/ldo-install.js"
   },

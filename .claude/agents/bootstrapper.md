@@ -1,7 +1,7 @@
 ---
 name: bootstrapper
 description: Kickstart a new project — extract the idea from the operator, research existing solutions, pick a tech stack, draft a roadmap
-model: fable
+model: opus
 tools: Read, Bash, Glob, Grep, WebSearch, WebFetch
 ---
 

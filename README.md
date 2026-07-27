@@ -1,23 +1,25 @@
 # LDO — Lightweight Dev Orchestrator
 
-**LDO** = Lightweight Dev Orchestrator (AI-driven).
+A development pipeline for [Claude Code](https://claude.com/claude-code) built on three agents: **Planner, Coder, Reviewer**.
 
-Three agents — **Planner, Coder, Reviewer** — with a different model behind each. The point is routing: your Reviewer can run on a stronger model than your Coder, so the code gets written cheaply and checked well.
+Each runs on its own model. That's the point — your Reviewer can run stronger than your Coder, so code gets written cheaply and checked carefully.
 
 ## Install
+
+Requires Node 18+ and Claude Code.
 
 ```bash
 # Into the current project
 npx ldo-ai
 
-# Globally (available in all Claude Code sessions)
+# Globally (available in every Claude Code session)
 npx ldo-ai --global
 
-# Custom directory (non-standard config location)
+# Custom directory, if your config lives somewhere non-standard
 npx ldo-ai --target /opt/claude/.claude
 ```
 
-After install, set your model routing in `.claude/ldo-config.json`. Then in Claude Code:
+Set your model routing in `.claude/ldo-config.json`, then in Claude Code:
 
 ```
 /ldo "add rate limiting middleware"
@@ -153,8 +155,14 @@ Walk through it: `/ldo-config` in Claude Code.
 └── ldo-config.json      # Model routing
 ```
 
-The installer touches exactly these files — nothing else in your `.claude/` is modified.
+The installer writes exactly these files — your own settings, hooks, and agents are never touched. Re-running it skips anything you've edited unless you pass `--force`.
+
+## Contributing
+
+The protocol is deliberately small. Before proposing a new agent, apply the test from above: *would this warrant a different model than the Coder?* If the answer is no, it probably belongs inside an existing role.
 
 ## License
 
-MIT
+[MIT](LICENSE) © Alexander Degtyarev
+
+Release notes: [CHANGELOG.md](CHANGELOG.md)

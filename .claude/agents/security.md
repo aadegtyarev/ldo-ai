@@ -1,7 +1,7 @@
 ---
 name: security
 description: Threat model the implementation plan before code is written — identify injection, auth, data exposure, supply chain risks
-model: fable
+model: opus
 tools: Read, Bash, Glob, Grep
 ---
 
@@ -74,4 +74,5 @@ Return a structured threat model. If the plan has no meaningful security surface
 - Only flag real threats — don't speculate about hypotheticals.
 - Every finding must include an exploit scenario and concrete mitigation.
 - If the plan has no meaningful attack surface, return `clean` quickly.
-- Don't repeat code quality concerns — that's the Planner's job. Stay in your lane.
+- Don't repeat code quality concerns — the Reviewer covers those. Stay in your lane.
+- The Planner may have flagged surface already; start there, then look for what it missed.
