@@ -368,7 +368,7 @@ if (DO_RESEARCH) {
 
   researchReport = await agent(
     `Deep-research this topic. Cross-verify claims across independent sources.\n\n## TOPIC\n${task}`,
-    { label: 'researcher', phase: 'Research', model: prePlanModels.researcher, agentType: 'researcher', schema: RESEARCH_SCHEMA }
+    { label: 'researcher', phase: 'Research', model: prePlanModels.researcher, agentType: 'ldo:researcher', schema: RESEARCH_SCHEMA }
   )
 
   if (researchReport) {
@@ -385,7 +385,7 @@ phase('Plan')
 
 const plan = await agentWithRetry(
   renderResearch(researchReport) + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
-  { label: 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'planner', schema: PLAN_SCHEMA }
+  { label: 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA }
 )
 
 if (!plan) {
@@ -418,7 +418,7 @@ if (DO_SECURITY) {
 
   securityReport = await agent(
     CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${flagged}`,
-    { label: 'security', phase: 'Security', model: models.security, agentType: 'security', schema: SECURITY_SCHEMA }
+    { label: 'security', phase: 'Security', model: models.security, agentType: 'ldo:security', schema: SECURITY_SCHEMA }
   )
 
   if (securityReport) {
@@ -451,7 +451,7 @@ while (iteration < MAX_FIX_LOOPS) {
     label: isFirstPass ? 'coder' : `coder-fix-${iteration}`,
     phase: 'Code',
     model: models.coder,
-    agentType: 'coder',
+    agentType: 'ldo:coder',
     schema: CODER_SCHEMA,
   })
 
@@ -472,7 +472,7 @@ while (iteration < MAX_FIX_LOOPS) {
     label: isFirstPass ? 'reviewer' : `reviewer-${iteration}`,
     phase: 'Review',
     model: models.reviewer,
-    agentType: 'reviewer',
+    agentType: 'ldo:reviewer',
     schema: VERDICT_SCHEMA,
   })
 
