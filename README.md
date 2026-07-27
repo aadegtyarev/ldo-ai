@@ -169,6 +169,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-security` | Threat-model a plan |
 | `/ldo-researcher "topic"` | Multi-source web research |
 | `/ldo-docs-audit` | Read the docs cold and find what's drifted |
+| `/ldo-tui` | Design and build a terminal interface (Textual / Ink) |
 | `/ldo-config` | Walk through model routing |
 | `/ldo-init` | Write the self-routing block into the project's `CLAUDE.md` |
 | `/ldo-agent-ux` | Write agent context and output that a model and a human can both read |

@@ -5,6 +5,21 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] — 2026-07-28
+
+### Added
+
+- **`/ldo-tui` — terminal interface design for Textual (Python) and Ink (TypeScript).**
+  The strongest move is usually to not take over the screen at all: a full-screen
+  TUI redraws a cell grid, which breaks the linear stream a screen reader consumes.
+  The skill opens with that decision, then covers keyboard-first conventions,
+  tiered colour degradation with NO_COLOR and TTY detection, density over chrome,
+  honest progress, and surviving resize, tmux, ssh, and Windows. Named anti-patterns
+  — the terminal web-app, colour vomit, the lying progress bar, gradient slop — are
+  the catalog the skill exists to deliver. Framework primitives confirmed against
+  current docs; design principles sourced from clig.dev, Seirdy, and CMU's
+  progress-bar perception research.
+
 ## [2.4.0] — 2026-07-27
 
 ### Added
