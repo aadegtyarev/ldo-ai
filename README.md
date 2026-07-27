@@ -17,6 +17,14 @@ Requires Claude Code v2.1.154+ (the workflow runtime).
 
 Updates come with `/plugin update ldo@ldo-ai`. Scope is user (every project), project (committed to the repo for teammates), or local — Claude Code prompts you to choose.
 
+> **Installed before v1.3.1 and "Update now" is greyed out?** Early marketplaces shipped the plugin as a local source, which can't be updated remotely. Reinstall once to switch to the git source:
+> ```
+> /plugin uninstall ldo@ldo-ai
+> /plugin marketplace update ldo-ai
+> /plugin install ldo@ldo-ai
+> ```
+> After that, `/plugin update ldo@ldo-ai` works.
+
 ## Getting started
 
 **First time, configure routing.** Run `/ldo:config` for a walkthrough, or edit `.claude/ldo-config.json` directly. The default already puts Sonnet on Code and Opus on Review — change it only if your proxy routes models differently or you want a different split.

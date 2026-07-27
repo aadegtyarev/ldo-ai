@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] — 2026-07-27
+
+### Fixed
+
+- **Plugin couldn't be updated — "Local plugins cannot be updated remotely."**
+  The marketplace declared the plugin with `"source": "./"`, a relative path,
+  which Claude Code classifies as a local source and refuses to update remotely.
+  Switched to a `github` source (`{ "source": "github", "repo": "aadegtyarev/ldo-ai" }`),
+  the correct type for a git-distributed, auto-updatable plugin. Existing installs
+  need a one-time reinstall to pick up the new source type (see README).
+
 ## [1.3.0] — 2026-07-27
 
 ### Added
@@ -106,3 +117,4 @@ Each was folded into one of the three core roles after applying a single test:
 *would this warrant a different model than the Coder?* Environment setup and
 documentation belong to whoever writes the code; verification belongs to whoever
 reviews it. Those versions were never published.
+
