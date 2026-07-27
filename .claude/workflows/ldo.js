@@ -81,6 +81,16 @@ const PLAN_SCHEMA = {
   type: 'object',
   properties: {
     complexity: { type: 'string', enum: ['trivial', 'medium', 'complex'] },
+    security_surface: {
+      type: 'string',
+      enum: ['none', 'low', 'elevated'],
+      description: 'none = no attack surface; low = touches data paths, no new entry point; elevated = new input/auth/secrets/injection/dependency/crypto surface',
+    },
+    security_notes: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Specific concerns, one line each — the Security agent starts from these',
+    },
     summary: { type: 'string' },
     steps: {
       type: 'array',
@@ -404,14 +414,22 @@ function renderResearch(r) {
   return lines.join('\n') + '\n\n'
 }
 
-function renderSecurity(sec) {
-  if (!sec || sec.status !== 'findings' || !sec.findings?.length) return ''
-  const lines = ['## SECURITY THREAT MODEL (mitigations are hard requirements)']
-  sec.findings.forEach((f, i) => {
-    lines.push(`${i + 1}. [${f.severity}] ${f.category}: ${f.what}`)
-    lines.push(`   Mitigation: ${f.mitigation}`)
-  })
-  return lines.join('\n') + '\n\n'
+// Full threat model when the Security agent ran; otherwise the Planner's own
+// notes, so a `low` surface still reaches the Coder without a dedicated agent.
+function renderSecurity(sec, plan) {
+  if (sec?.status === 'findings' && sec.findings?.length) {
+    const lines = ['## SECURITY THREAT MODEL (mitigations are hard requirements)']
+    sec.findings.forEach((f, i) => {
+      lines.push(`${i + 1}. [${f.severity}] ${f.category}: ${f.what}`)
+      lines.push(`   Mitigation: ${f.mitigation}`)
+    })
+    return lines.join('\n') + '\n\n'
+  }
+  if (!sec && plan?.security_notes?.length && plan.security_surface !== 'none') {
+    return '## SECURITY NOTES (handle these carefully)\n'
+      + plan.security_notes.map(n => `- ${n}`).join('\n') + '\n\n'
+  }
+  return ''
 }
 
 // ═══════════════════════════════════════════
@@ -454,9 +472,9 @@ const DOCS_BUDGET_FLOOR = CONFIG.docsBudgetFloor || 30000
 // setup, verification, and doc updates behind it; an architectural change should
 // get all three. Explicit args and config always win over these defaults.
 const PHASE_DEFAULTS = {
-  trivial: { security: false, setup: false, verify: false, docs: false },
-  medium:  { security: false, setup: true,  verify: false, docs: true  },
-  complex: { security: true,  setup: true,  verify: true,  docs: true  },
+  trivial: { setup: false, verify: false, docs: false },
+  medium:  { setup: true,  verify: false, docs: true  },
+  complex: { setup: true,  verify: true,  docs: true  },
 }
 
 // args.<phase> → config.<phase>ByDefault → tier default
@@ -465,6 +483,15 @@ function phaseEnabled(name, complexity) {
   const fromConfig = CONFIG[`${name}ByDefault`]
   if (fromConfig !== undefined) return fromConfig
   return PHASE_DEFAULTS[complexity]?.[name] ?? false
+}
+
+// Security is gated on the plan's attack surface, not its size — a one-line
+// change to an auth check is trivial work with elevated risk. The Planner
+// already rated this; a dedicated agent only runs when the surface is elevated.
+function securityEnabled(plan) {
+  if (args?.security !== undefined) return args.security
+  if (CONFIG.securityByDefault !== undefined) return CONFIG.securityByDefault
+  return plan.security_surface === 'elevated'
 }
 
 // Explore and Research run before Plan, so no tier is known yet — opt-in only.
@@ -596,16 +623,20 @@ if (REVIEWER_DIFFERENT_MODEL && models.reviewer === models.coder) {
   models.reviewer = routeModels('complex', CONFIG).reviewer
 }
 
-// Now that complexity is known, decide how much of the tail runs
-const DO_SECURITY = phaseEnabled('security', plan.complexity)
-const DO_SETUP    = phaseEnabled('setup',    plan.complexity)
-const DO_VERIFY   = phaseEnabled('verify',   plan.complexity)
-const DO_DOCS     = phaseEnabled('docs',     plan.complexity)
+// Now that the plan exists, decide how much of the tail runs
+const DO_SECURITY = securityEnabled(plan)
+const DO_SETUP    = phaseEnabled('setup',  plan.complexity)
+const DO_VERIFY   = phaseEnabled('verify', plan.complexity)
+const DO_DOCS     = phaseEnabled('docs',   plan.complexity)
 
 const tail = [DO_SECURITY && 'Security', 'Code', 'Review', DO_SETUP && 'Setup', DO_VERIFY && 'Verify', DO_DOCS && 'Docs'].filter(Boolean)
+const surface = plan.security_surface || 'unrated'
 
-log(`Complexity: ${plan.complexity}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
+log(`Complexity: ${plan.complexity}  |  Security surface: ${surface}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
 log(`Remaining phases: ${tail.join(' → ')}`)
+if (surface !== 'none' && plan.security_notes?.length) {
+  plan.security_notes.forEach(n => log(`  ⚠ ${n}`))
+}
 log(`Plan: ${plan.steps.length} step(s)`)
 plan.steps.forEach(s => log(`  • ${s.what}`))
 
@@ -616,8 +647,12 @@ let securityReport = null
 if (DO_SECURITY) {
   phase('Security')
 
+  const plannerFlags = plan.security_notes?.length
+    ? `\n\n## SURFACE THE PLANNER FLAGGED\n${plan.security_notes.map(n => `- ${n}`).join('\n')}\n\nStart from these, then look for what the Planner missed.`
+    : ''
+
   securityReport = await agent(
-    CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}`,
+    CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${plannerFlags}`,
     { label: 'security', phase: 'Security', model: models.security, agentType: 'security', schema: SECURITY_SCHEMA }
   )
 
@@ -629,7 +664,7 @@ if (DO_SECURITY) {
   }
 }
 
-const SECURITY_BLOCK = renderSecurity(securityReport)
+const SECURITY_BLOCK = renderSecurity(securityReport, plan)
 
 // ── PHASE 4-5: CODE ⇄ REVIEW ────────────────
 
@@ -812,6 +847,7 @@ return {
     approved,
     explored: !!exploreFindings,
     researched: !!researchReport,
+    securitySurface: plan.security_surface || 'unrated',
     securityStatus: securityReport?.status || 'not_run',
     envReady: envReport?.runnable || false,
     verifyVerdict: verifyReport?.verdict || 'not_run',

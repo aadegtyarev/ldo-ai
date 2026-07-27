@@ -32,17 +32,29 @@ only        ONCE     search       research    accept  model      +tests     gate
             ╰──────── opt-in ────────╯          ╰──────── scaled by complexity ────────╯
 ```
 
-**The pipeline scales itself.** The Planner classifies the task, and that classification decides how much of the tail runs:
+**The pipeline scales itself.** The Planner rates every task on two independent axes, and those ratings decide how much of the tail runs.
+
+**Complexity** — how much work it is:
 
 | Complexity | Phases after Plan | Agents total |
 |-----------|-------------------|--------------|
 | `trivial` | Code → Review | 4 |
 | `medium` | Code → Review → Setup → Docs | 6 |
-| `complex` | Security → Code → Review → Setup → Verify → Docs | 8 |
+| `complex` | Code → Review → Setup → Verify → Docs | 7 |
 
-A typo fix runs Scout, Plan, Code, Review — and stops. No environment bootstrap, no doc pass, no threat model. An architectural change gets all of it.
+**Security surface** — what it exposes:
 
-Explore and Research run *before* Plan, so no complexity is known yet — those stay opt-in (`explore: true`, `research: true`). Any phase can be forced on or off per run or in config.
+| Surface | What it means | Result |
+|---------|--------------|--------|
+| `none` | Pure refactor, docs, tests — no attack surface | Nothing added |
+| `low` | Touches data paths, no new entry point | Planner's notes go to the Coder |
+| `elevated` | New input, auth, secrets, injection, dependency, or crypto surface | Dedicated Security agent runs |
+
+The two are independent. A one-line change to an auth check is `trivial` + `elevated`: four agents, one of them Security. A large internal refactor is `complex` + `none`: seven agents, no threat model.
+
+That split is why Security isn't just another complexity tier — risk doesn't scale with diff size. When the rating is ambiguous, the Planner is instructed to round up: a wrong `elevated` costs one agent, a wrong `none` ships the vulnerability.
+
+Explore and Research run *before* Plan, so no rating exists yet — those stay opt-in (`explore: true`, `research: true`). Any phase can be forced on or off per run or in config.
 
 | Phase | Agent | What it does |
 |-------|-------|-------------|

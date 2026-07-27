@@ -46,10 +46,11 @@
   "blockingSeverities": ["critical", "major"],
 
   "_phaseDefaults": {
-    "_comment": "Post-Plan phases scale with the complexity the Planner assigns. Omit a key below to use these; set it to true/false to force it everywhere.",
-    "trivial": "Code, Review only",
+    "_comment": "Post-Plan phases follow the Planner's ratings. Add setupByDefault / verifyByDefault / docsByDefault / securityByDefault to force one on or off regardless.",
+    "trivial": "Code, Review",
     "medium": "Code, Review, Setup, Docs",
-    "complex": "Security, Code, Review, Setup, Verify, Docs"
+    "complex": "Code, Review, Setup, Verify, Docs",
+    "_security": "Gated on security_surface, not complexity — the Security agent runs when the Planner rates the surface 'elevated'."
   },
 
   "exploreByDefault": false,
