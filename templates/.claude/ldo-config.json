@@ -1,0 +1,35 @@
+{
+  "models": {
+    "trivial": {
+      "scout": "haiku",
+      "planner": "haiku",
+      "coder": "haiku",
+      "reviewer": "haiku",
+      "setup": "haiku",
+      "docs": "haiku",
+      "bootstrapper": "sonnet"
+    },
+    "medium": {
+      "scout": "sonnet",
+      "planner": "sonnet",
+      "coder": "sonnet",
+      "reviewer": "sonnet",
+      "setup": "sonnet",
+      "docs": "haiku",
+      "bootstrapper": "fable"
+    },
+    "complex": {
+      "scout": "fable",
+      "planner": "fable",
+      "coder": "fable",
+      "reviewer": "fable",
+      "setup": "fable",
+      "docs": "haiku",
+      "bootstrapper": "fable"
+    }
+  },
+
+  "maxFixLoops": 3,
+  "reviewerDifferentModel": false,
+  "docsBudgetFloor": 30000
+}
