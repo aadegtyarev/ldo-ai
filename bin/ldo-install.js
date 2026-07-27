@@ -7,15 +7,11 @@ const path = require('path')
 // ── Args ──────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
 const isGlobal = args.includes('--global') || args.includes('-g')
-const isForce  = args.includes('--force') || args.includes('-f')
+const isForce = args.includes('--force') || args.includes('-f')
 const showHelp = args.includes('--help') || args.includes('-h')
 
-// Parse --target <path> or -t <path>
-let customTarget = null
-const targetIdx = args.indexOf('--target')
-const tIdx = args.indexOf('-t')
-if (targetIdx > -1 && args[targetIdx + 1]) customTarget = args[targetIdx + 1]
-if (tIdx > -1 && args[tIdx + 1]) customTarget = args[tIdx + 1]
+const targetFlag = args.findIndex(a => a === '--target' || a === '-t')
+const customTarget = targetFlag > -1 ? args[targetFlag + 1] : null
 
 if (showHelp) {
   console.log(`
@@ -45,7 +41,40 @@ After install, invoke in Claude Code:
 }
 
 // ── Paths ─────────────────────────────────────────────────────────
-const templateRoot = path.resolve(__dirname, '..', 'templates', '.claude')
+// Source is the package's own .claude/ — single source of truth, no duplicated
+// templates/ tree to keep in sync.
+const sourceRoot = path.resolve(__dirname, '..', '.claude')
+
+// Only these are LDO's own files. Anything else in .claude/ (settings.local.json,
+// hooks, other projects' agents) belongs to the developer, not the package.
+const INSTALL_MANIFEST = [
+  'workflows/ldo.js',
+  'ldo-config.json',
+  'agents/bootstrapper.md',
+  'agents/ctx-scout.md',
+  'agents/explorer.md',
+  'agents/researcher.md',
+  'agents/planner.md',
+  'agents/security.md',
+  'agents/coder.md',
+  'agents/reviewer.md',
+  'agents/setup.md',
+  'agents/verifier.md',
+  'agents/docs.md',
+  'skills/bootstrapper.md',
+  'skills/ctx-scout.md',
+  'skills/explorer.md',
+  'skills/researcher.md',
+  'skills/planner.md',
+  'skills/security.md',
+  'skills/coder.md',
+  'skills/reviewer.md',
+  'skills/setup.md',
+  'skills/verifier.md',
+  'skills/docs.md',
+  'skills/ldo-config.md',
+]
+
 const targetRoot = customTarget
   ? path.resolve(customTarget)
   : isGlobal
@@ -54,66 +83,65 @@ const targetRoot = customTarget
 
 const mode = customTarget ? 'custom' : isGlobal ? 'global' : 'project'
 
-if (!fs.existsSync(templateRoot)) {
-  console.error('✗  Template directory not found:', templateRoot)
-  console.error('   Make sure the package was installed correctly.')
+if (!fs.existsSync(sourceRoot)) {
+  console.error('✗  Source directory not found:', sourceRoot)
+  console.error('   The package appears to be installed incorrectly.')
   process.exit(1)
 }
 
 // ── Install ───────────────────────────────────────────────────────
 const copied = []
-const skipped = []
-const merged = []
+const identical = []
+const conflicts = []
+const missing = []
 
-function walk(dir, relPath) {
-  const entries = fs.readdirSync(dir, { withFileTypes: true })
-  for (const e of entries) {
-    const src = path.join(dir, e.name)
-    const destRel = path.join(relPath, e.name)
-    const dest = path.join(targetRoot, destRel)
+const label = path.basename(targetRoot)
 
-    if (e.isDirectory()) {
-      fs.mkdirSync(dest, { recursive: true })
-      walk(src, destRel)
-    } else {
-      if (fs.existsSync(dest) && !isForce) {
-        const srcContent = fs.readFileSync(src, 'utf8')
-        const dstContent = fs.readFileSync(dest, 'utf8')
-        if (srcContent === dstContent) {
-          skipped.push(destRel)
-          continue
-        }
-        merged.push(destRel)
-        console.log(`  ~  ${path.basename(targetRoot)}/${destRel}  (unchanged — exists with different content, use --force to overwrite)`)
-      } else {
-        fs.mkdirSync(path.dirname(dest), { recursive: true })
-        fs.copyFileSync(src, dest)
-        copied.push(destRel)
-        console.log(`  ✓  ${path.basename(targetRoot)}/${destRel}`)
-      }
-    }
+for (const rel of INSTALL_MANIFEST) {
+  const src = path.join(sourceRoot, rel)
+  const dest = path.join(targetRoot, rel)
+
+  if (!fs.existsSync(src)) {
+    missing.push(rel)
+    continue
   }
+
+  if (fs.existsSync(dest) && !isForce) {
+    if (fs.readFileSync(src, 'utf8') === fs.readFileSync(dest, 'utf8')) {
+      identical.push(rel)
+      continue
+    }
+    conflicts.push(rel)
+    console.log(`  ~  ${label}/${rel}  (differs — use --force to overwrite)`)
+    continue
+  }
+
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  fs.copyFileSync(src, dest)
+  copied.push(rel)
+  console.log(`  ✓  ${label}/${rel}`)
 }
 
+// ── Summary ───────────────────────────────────────────────────────
 console.log('')
 console.log(`  ╔══════════════════════════════════════╗`)
 console.log(`  ║   LDO installer                      ║`)
 console.log(`  ╚══════════════════════════════════════╝`)
 console.log('')
-console.log(`  Installing to: ${targetRoot}`)
-console.log(`  Mode:          ${mode}`)
+console.log(`  Target: ${targetRoot}`)
+console.log(`  Mode:   ${mode}`)
 console.log('')
+console.log(`  ${copied.length} copied, ${identical.length} already current, ${conflicts.length} kept`)
 
-fs.mkdirSync(targetRoot, { recursive: true })
-walk(templateRoot, '')
-
-// ── Summary ───────────────────────────────────────────────────────
-console.log('')
-console.log(`  ${copied.length} files copied, ${skipped.length} identical, ${merged.length} unchanged`)
-
-if (merged.length > 0 && !isForce) {
+if (missing.length) {
   console.log('')
-  console.log('  ℹ  Some files exist with different content. To overwrite:')
+  console.log(`  ⚠  ${missing.length} file(s) missing from the package:`)
+  missing.forEach(m => console.log(`     ${m}`))
+}
+
+if (conflicts.length && !isForce) {
+  console.log('')
+  console.log('  ℹ  Files with local changes were kept. To overwrite:')
   console.log('     npx ldo-ai --force')
 }
 
@@ -123,3 +151,5 @@ console.log('    1. Edit ldo-config.json to set your model routing')
 console.log('    2. Run /ldo-config in Claude Code for a walkthrough')
 console.log('    3. Start a task: /ldo "your task description"')
 console.log('')
+
+process.exit(missing.length ? 1 : 0)

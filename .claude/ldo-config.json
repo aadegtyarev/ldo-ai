@@ -2,34 +2,40 @@
   "models": {
     "trivial": {
       "scout": "haiku",
+      "explorer": "haiku",
       "planner": "haiku",
       "coder": "haiku",
       "reviewer": "haiku",
       "security": "fable",
       "researcher": "fable",
       "setup": "haiku",
+      "verifier": "haiku",
       "docs": "haiku",
       "bootstrapper": "sonnet"
     },
     "medium": {
       "scout": "sonnet",
+      "explorer": "sonnet",
       "planner": "sonnet",
       "coder": "sonnet",
       "reviewer": "sonnet",
       "security": "fable",
       "researcher": "fable",
       "setup": "sonnet",
+      "verifier": "sonnet",
       "docs": "haiku",
       "bootstrapper": "fable"
     },
     "complex": {
       "scout": "fable",
+      "explorer": "fable",
       "planner": "fable",
       "coder": "fable",
       "reviewer": "fable",
       "security": "fable",
       "researcher": "fable",
       "setup": "fable",
+      "verifier": "fable",
       "docs": "haiku",
       "bootstrapper": "fable"
     }
@@ -37,5 +43,12 @@
 
   "maxFixLoops": 3,
   "reviewerDifferentModel": false,
+  "blockingSeverities": ["critical", "major"],
+
+  "exploreByDefault": false,
+  "researchByDefault": false,
+  "securityByDefault": false,
+  "verifyByDefault": false,
+
   "docsBudgetFloor": 30000
 }
