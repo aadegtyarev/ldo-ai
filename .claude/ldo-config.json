@@ -45,10 +45,15 @@
   "reviewerDifferentModel": false,
   "blockingSeverities": ["critical", "major"],
 
+  "_phaseDefaults": {
+    "_comment": "Post-Plan phases scale with the complexity the Planner assigns. Omit a key below to use these; set it to true/false to force it everywhere.",
+    "trivial": "Code, Review only",
+    "medium": "Code, Review, Setup, Docs",
+    "complex": "Security, Code, Review, Setup, Verify, Docs"
+  },
+
   "exploreByDefault": false,
   "researchByDefault": false,
-  "securityByDefault": false,
-  "verifyByDefault": false,
 
   "docsBudgetFloor": 30000
 }

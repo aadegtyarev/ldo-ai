@@ -26,12 +26,23 @@ After install, configure model routing in `.claude/ldo-config.json`. Then invoke
 ## Pipeline
 
 ```
-Bootstrap → Scout → [Explore] → [Research] → Plan → [Security] → Code ⇄ Review → Setup → [Verify] → Docs
-greenfield  reads    task-scoped  web         steps+  threat       implement  quality  deps+   prove      README+
-only        ONCE     search       research    accept  model        +tests     gate     env     it runs    CHANGELOG
+Bootstrap → Scout → [Explore] → [Research] → Plan → Security → Code ⇄ Review → Setup → Verify → Docs
+greenfield  reads    task-scoped  web         steps+  threat     implement  quality  deps+   prove    README+
+only        ONCE     search       research    accept  model      +tests     gate     env     it runs  CHANGELOG
+            ╰──────── opt-in ────────╯          ╰──────── scaled by complexity ────────╯
 ```
 
-Phases in `[brackets]` are opt-in — off by default, enabled per-run or in config.
+**The pipeline scales itself.** The Planner classifies the task, and that classification decides how much of the tail runs:
+
+| Complexity | Phases after Plan | Agents total |
+|-----------|-------------------|--------------|
+| `trivial` | Code → Review | 4 |
+| `medium` | Code → Review → Setup → Docs | 6 |
+| `complex` | Security → Code → Review → Setup → Verify → Docs | 8 |
+
+A typo fix runs Scout, Plan, Code, Review — and stops. No environment bootstrap, no doc pass, no threat model. An architectural change gets all of it.
+
+Explore and Research run *before* Plan, so no complexity is known yet — those stay opt-in (`explore: true`, `research: true`). Any phase can be forced on or off per run or in config.
 
 | Phase | Agent | What it does |
 |-------|-------|-------------|
@@ -78,13 +89,13 @@ Every role can use a different model. Configure in `.claude/ldo-config.json`:
   "blockingSeverities": ["critical", "major"],
   "exploreByDefault": false,
   "researchByDefault": false,
-  "securityByDefault": false,
-  "verifyByDefault": false,
   "docsBudgetFloor": 30000
 }
 ```
 
 Same shape for `trivial` and `complex` tiers. Model names are whatever your setup routes them to — the pipeline makes no assumptions about which is stronger.
+
+To override the complexity-scaled defaults, add `securityByDefault`, `setupByDefault`, `verifyByDefault`, or `docsByDefault` — setting one forces that phase on (or off) regardless of tier.
 
 **Cache rule**: Coder, Reviewer, and Setup on the **same model** = cache hits for all three. A different model means a separate cache namespace and one cold start. Setting `reviewerDifferentModel: true` buys an independent second read at that cost.
 
@@ -127,7 +138,7 @@ Walk through setup: `/ldo-config` in Claude Code.
 ## How it works
 
 1. **Planner assesses complexity** → picks the `trivial`, `medium`, or `complex` tier
-2. The routing table maps tier + role → model name
+2. That tier decides two things: which model each role uses, and **which phases run at all**
 3. Each agent returns schema-validated JSON; the orchestrator renders it compactly for the next stage
 4. Coder and Reviewer loop until approved, or until `critical`/`major` issues stop appearing
 5. Security threat-models the plan before code exists — its mitigations become hard requirements for the Coder

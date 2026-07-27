@@ -448,12 +448,28 @@ const MAX_FIX_LOOPS = CONFIG.maxFixLoops || 3
 const REVIEWER_DIFFERENT_MODEL = CONFIG.reviewerDifferentModel || false
 const BLOCKING_SEVERITIES = CONFIG.blockingSeverities || ['critical', 'major']
 const MODE = args?.mode || 'brownfield'
-const SKIP_SETUP = args?.skipSetup || false
+const DOCS_BUDGET_FLOOR = CONFIG.docsBudgetFloor || 30000
+
+// Post-Plan phases scale with what the Planner found. A typo fix shouldn't drag
+// setup, verification, and doc updates behind it; an architectural change should
+// get all three. Explicit args and config always win over these defaults.
+const PHASE_DEFAULTS = {
+  trivial: { security: false, setup: false, verify: false, docs: false },
+  medium:  { security: false, setup: true,  verify: false, docs: true  },
+  complex: { security: true,  setup: true,  verify: true,  docs: true  },
+}
+
+// args.<phase> → config.<phase>ByDefault → tier default
+function phaseEnabled(name, complexity) {
+  if (args?.[name] !== undefined) return args[name]
+  const fromConfig = CONFIG[`${name}ByDefault`]
+  if (fromConfig !== undefined) return fromConfig
+  return PHASE_DEFAULTS[complexity]?.[name] ?? false
+}
+
+// Explore and Research run before Plan, so no tier is known yet — opt-in only.
 const DO_EXPLORE  = args?.explore  ?? CONFIG.exploreByDefault  ?? false
 const DO_RESEARCH = args?.research ?? CONFIG.researchByDefault ?? false
-const DO_SECURITY = args?.security ?? CONFIG.securityByDefault ?? false
-const DO_VERIFY   = args?.verify   ?? CONFIG.verifyByDefault   ?? false
-const DOCS_BUDGET_FLOOR = CONFIG.docsBudgetFloor || 30000
 
 // Phases before Plan run before complexity is known — resolve their models up front
 const prePlanModels = routeModels(MODE === 'greenfield' ? 'complex' : 'medium', CONFIG)
@@ -580,11 +596,20 @@ if (REVIEWER_DIFFERENT_MODEL && models.reviewer === models.coder) {
   models.reviewer = routeModels('complex', CONFIG).reviewer
 }
 
-log(`Complexity: ${plan.complexity}  |  Coder:${models.coder}  Reviewer:${models.reviewer}  Setup:${models.setup}  Docs:${models.docs}`)
+// Now that complexity is known, decide how much of the tail runs
+const DO_SECURITY = phaseEnabled('security', plan.complexity)
+const DO_SETUP    = phaseEnabled('setup',    plan.complexity)
+const DO_VERIFY   = phaseEnabled('verify',   plan.complexity)
+const DO_DOCS     = phaseEnabled('docs',     plan.complexity)
+
+const tail = [DO_SECURITY && 'Security', 'Code', 'Review', DO_SETUP && 'Setup', DO_VERIFY && 'Verify', DO_DOCS && 'Docs'].filter(Boolean)
+
+log(`Complexity: ${plan.complexity}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
+log(`Remaining phases: ${tail.join(' → ')}`)
 log(`Plan: ${plan.steps.length} step(s)`)
 plan.steps.forEach(s => log(`  • ${s.what}`))
 
-// ── PHASE 3: SECURITY (opt-in, pre-code) ────
+// ── PHASE 3: SECURITY (pre-code threat model) ────
 
 let securityReport = null
 
@@ -688,7 +713,7 @@ const approved = finalVerdict.status === 'approved'
 
 let envReport = null
 
-if (!SKIP_SETUP) {
+if (DO_SETUP) {
   phase('Setup')
 
   if (!approved) log('⚠ Review not approved — setting up env anyway (non-blocking)')
@@ -742,7 +767,7 @@ let docsReport = null
 const userFacingSteps = plan.steps.filter(s => s.user_facing !== false)
 const budgetOk = !budget.total || budget.remaining() > DOCS_BUDGET_FLOOR
 
-if (approved && userFacingSteps.length > 0) {
+if (DO_DOCS && approved && userFacingSteps.length > 0) {
   if (!budgetOk) {
     log(`⚠ Skipping Docs — ${Math.round(budget.remaining() / 1000)}k tokens left (floor: ${DOCS_BUDGET_FLOOR / 1000}k). Run /docs manually.`)
   } else {
@@ -760,6 +785,8 @@ if (approved && userFacingSteps.length > 0) {
       log('Docs returned nothing.')
     }
   }
+} else if (!DO_DOCS) {
+  log(`Skipping Docs — not enabled for ${plan.complexity} tasks.`)
 } else if (!approved) {
   log('Skipping Docs — review not approved.')
 } else {
