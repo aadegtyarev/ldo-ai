@@ -1,12 +1,13 @@
 {
   "name": "ldo-ai",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "LDO (Lightweight Dev Orchestrator) — Planner, Coder, Reviewer pipeline for Claude Code with per-role model routing",
   "bin": {
     "ldo-install": "./bin/ldo-install.js"
   },
   "files": [
     "bin/",
+    ".claude-plugin/",
     ".claude/workflows/",
     ".claude/agents/",
     ".claude/skills/",

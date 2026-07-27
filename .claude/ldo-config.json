@@ -7,24 +7,21 @@
       "coder": "sonnet",
       "reviewer": "opus",
       "security": "opus",
-      "researcher": "sonnet",
-      "bootstrapper": "opus"
+      "researcher": "sonnet"
     },
     "medium": {
       "planner": "sonnet",
       "coder": "sonnet",
       "reviewer": "opus",
       "security": "opus",
-      "researcher": "opus",
-      "bootstrapper": "opus"
+      "researcher": "opus"
     },
     "complex": {
       "planner": "opus",
       "coder": "sonnet",
       "reviewer": "opus",
       "security": "opus",
-      "researcher": "opus",
-      "bootstrapper": "opus"
+      "researcher": "opus"
     }
   },
 
@@ -32,8 +29,7 @@
   "blockingSeverities": ["critical", "major"],
 
   "_phases": {
-    "_comment": "Plan, Code, and Review always run. The other three are conditional.",
-    "bootstrapper": "greenfield mode only",
+    "_comment": "Plan, Code, and Review always run. Two are conditional.",
     "researcher": "opt-in — research: true, or researchByDefault",
     "security": "runs when the Planner rates security_surface 'elevated'; force with security: true/false or securityByDefault"
   },

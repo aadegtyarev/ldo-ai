@@ -31,13 +31,14 @@ Three always run:
 | **coder** | Sets up the environment, implements, tests, updates docs | Sonnet handles this well; the Reviewer above catches what it misses |
 | **reviewer** | Reads the diff *and* drives the app to prove the criteria | **The reason for the protocol.** Put your strongest model here |
 
-Three are conditional:
+Two are conditional:
 
 | Role | Fires when |
 |------|-----------|
-| **bootstrapper** | `mode: "greenfield"` — new project, nothing to read yet |
 | **researcher** | `research: true`, or `researchByDefault` — task needs knowledge from outside the repo |
 | **security** | The Planner rates `security_surface: "elevated"` — new input, auth, secrets, injection, dependency, or crypto surface |
+
+Starting a project from scratch isn't part of the pipeline — `/bootstrapper` handles that as a conversation, then hands the first task to `/ldo`.
 
 ## Which tier applies
 

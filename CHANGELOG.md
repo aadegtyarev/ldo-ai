@@ -5,6 +5,32 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-07-27
+
+### Changed
+
+- **Bootstrapping moved out of the pipeline.** It produced decisions, not code, and
+  decisions need a conversation — a subagent hands back JSON and disappears, so you
+  couldn't push back on a stack choice. It's now `/bootstrapper`, an interactive
+  skill that researches prior art, works the stack out with you, and hands the first
+  task to `/ldo`. The workflow lost its greenfield mode and 78 lines with it.
+- **Skills follow the documented layout** — `.claude/skills/<name>/SKILL.md` instead
+  of flat `.md` files. The flat form is the legacy `commands/` format.
+- **Positioning rewritten around model routing.** Claude Code's own `feature-dev`
+  and community pipelines like `superpowers` cover similar phases, but run every one
+  on a single model. Per-role routing is what LDO actually offers.
+
+### Added
+
+- **`.claude-plugin/plugin.json`** — LDO can now be distributed as a Claude Code
+  plugin, which brings `/plugin update` and version tracking. The npx installer
+  remains as a fallback.
+- **Guidance on the built-ins.** `/code-review`, `/security-review`, `/simplify`,
+  and `/deep-research` do things LDO deliberately doesn't rebuild. The Reviewer and
+  Researcher skills now say when to reach for them, and the README lists the plugins
+  worth installing alongside — `security-guidance`, `frontend-design`,
+  `chrome-devtools-mcp`, and the language LSPs.
+
 ## [1.0.0] — 2026-07-27
 
 First public release.

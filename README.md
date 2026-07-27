@@ -1,8 +1,10 @@
 # LDO — Lightweight Dev Orchestrator
 
-A development pipeline for [Claude Code](https://claude.com/claude-code) built on three agents: **Planner, Coder, Reviewer**.
+**Orchestration as code, with cost-aware model routing.** A development pipeline for [Claude Code](https://claude.com/claude-code) where each role runs on a different model — implementation on a cheap one, review on a strong one.
 
-Each runs on its own model. That's the point — your Reviewer can run stronger than your Coder, so code gets written cheaply and checked carefully.
+That routing is the whole point. Claude Code's own `feature-dev`, and community pipelines like `superpowers`, all run every phase on one model. LDO lets you spend where it matters: Sonnet writes, Opus checks.
+
+The plan is held by a deterministic script, not by a model remembering it turn to turn, and every hand-off between roles is a validated JSON schema.
 
 ## Install
 
@@ -28,21 +30,22 @@ Set your model routing in `.claude/ldo-config.json`, then in Claude Code:
 ## Pipeline
 
 ```
-[Bootstrap] → [Research] → Plan → [Security] → Code ⇄ Review
- greenfield     web        read repo  threat     implement  read diff
- only           sources    + rate     model      + test     + drive app
-                           the task              + document
+[Research] → Plan → [Security] → Code ⇄ Review
+  web         read repo  threat     implement  read diff
+  sources     + rate     model      + test     + drive app
+              the task              + document
 ```
 
 **Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff *and* drives the running application to prove the acceptance criteria hold.
 
-Three more run only when they earn their place:
+Two more run only when they earn their place:
 
 | Agent | Runs when |
 |-------|-----------|
-| **Bootstrapper** | `mode: "greenfield"` — new project, no codebase yet |
 | **Researcher** | `research: true` — the task needs domain knowledge from outside the repo |
 | **Security** | The Planner rates the change's attack surface `elevated` |
+
+Starting a project from nothing is a conversation, not a pipeline — use `/bootstrapper "your idea"` for that. It researches prior art, works through the stack with you, and hands the first task to `/ldo`.
 
 ### Why the Planner decides about Security
 
@@ -71,7 +74,9 @@ Every role has to answer: *would I route this to a different model than the Code
 - **Verification** belongs to the Reviewer. Checking your own work is weak review; the same blind spot that wrote the bug will skip the test that catches it. Reading the diff and running the app are two ways to answer one question, and both benefit from a model that didn't write the code.
 - **Codebase reading** belongs to the Planner. You can't plan what you haven't read.
 
-That leaves the three roles the protocol started with — plus three specialists that genuinely want different models and genuinely don't always run.
+That leaves the three roles the protocol started with — plus two specialists that genuinely want different models and genuinely don't always run.
+
+Bootstrapping went the other way: it produces *decisions*, not code, and decisions need a conversation. It lives as `/bootstrapper`, where you can push back on a stack choice and get a revised answer.
 
 ## Token efficiency
 
@@ -99,7 +104,7 @@ That leaves the three roles the protocol started with — plus three specialists
 
 The Coder stays on Sonnet at every tier — it's a solid implementer, and the Reviewer above it catches what it misses. Only the Planner steps up on `complex`, where getting the approach wrong is expensive to unwind.
 
-Model names mean whatever your setup routes them to. Each tier also takes `security`, `researcher`, and `bootstrapper` keys.
+Model names mean whatever your setup routes them to. Each tier also takes `security` and `researcher` keys.
 
 Agent files declare no model of their own — this config is the single source of routing truth.
 
@@ -120,16 +125,35 @@ Walk through it: `/ldo-config` in Claude Code.
 | Command | What |
 |---------|------|
 | `/ldo "task"` | Full pipeline |
-| `/ldo` + `mode: "greenfield"` | Bootstrap a new project first |
 | `/ldo` + `research: true` | Add the web research phase |
 | `/ldo` + `security: true` \| `false` | Force the threat model on or off |
+| `/bootstrapper "idea"` | Start a project — prior art, stack, roadmap (interactive) |
 | `/planner "task"` | Plan only |
 | `/coder "task"` | Implement a plan |
 | `/reviewer` | Review the current diff and drive the app |
 | `/security` | Threat-model a plan |
 | `/researcher "topic"` | Multi-source web research |
-| `/bootstrapper "idea"` | Research + stack + roadmap |
 | `/ldo-config` | Walk through model routing |
+
+## Use with the built-ins
+
+LDO deliberately doesn't rebuild what Claude Code already ships. Reach for these alongside it:
+
+| Instead of asking LDO | Use |
+|---|---|
+| A second opinion on a large diff | `/code-review high` — multi-agent, confidence-filtered, `--fix` and `--comment` available |
+| A dedicated vulnerability pass | `/security-review` |
+| Cleanup only, no bug hunt | `/simplify` |
+| Research where the decision is expensive to reverse | `/deep-research` — parallel search, agents vote on each claim, adversarial verification |
+
+These are user-invoked: run them after the pipeline finishes. A workflow can't call them, so they complement LDO rather than compose into it.
+
+Worth installing from `claude-plugins-official`:
+
+- **`security-guidance`** — reviews every edit, turn, and commit for vulnerabilities as you work. LDO's Security agent threat-models the *plan*; this catches what slips through during *writing*. They layer.
+- **`frontend-design`** — if the project has a web UI. Anthropic's own aesthetic-direction skill; no reason to write another.
+- **`chrome-devtools-mcp`** — for visual verification the Reviewer can drive. Lighter on tokens than the Playwright alternative.
+- **The matching LSP plugin** — `typescript-lsp`, `gopls-lsp`, `rust-analyzer-lsp`, and so on.
 
 ## How it works
 
@@ -144,16 +168,19 @@ Walk through it: `/ldo-config` in Claude Code.
 ## Files
 
 ```
+.claude-plugin/
+└── plugin.json          # Plugin manifest
+
 .claude/
-├── workflows/ldo.js     # Orchestrator (~600 lines)
+├── workflows/ldo.js     # Orchestrator (~520 lines)
 ├── agents/              # Prompts live here
 │   ├── planner.md
 │   ├── coder.md
 │   ├── reviewer.md
 │   ├── security.md
-│   ├── researcher.md
-│   └── bootstrapper.md
-├── skills/              # One slash-command per agent, plus ldo-config
+│   └── researcher.md
+├── skills/              # One slash-command per role, plus bootstrapper and ldo-config
+│   └── <name>/SKILL.md
 └── ldo-config.json      # Model routing
 ```
 

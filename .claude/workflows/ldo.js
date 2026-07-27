@@ -1,8 +1,7 @@
 export const meta = {
   name: 'ldo',
-  description: 'Lightweight Dev Orchestrator: [Bootstrap→][Research→]Plan→[Security→]Code⇄Review',
+  description: 'Lightweight Dev Orchestrator: [Research→]Plan→[Security→]Code⇄Review, with a different model per role',
   phases: [
-    { title: 'Bootstrap', detail: 'Greenfield: research the space, pick a stack, draft a roadmap' },
     { title: 'Research', detail: 'Multi-source web research (opt-in)' },
     { title: 'Plan', detail: 'Read the codebase, plan the change, rate complexity + security surface' },
     { title: 'Security', detail: 'Threat-model the plan before code exists (elevated surface only)' },
@@ -187,38 +186,6 @@ const RESEARCH_SCHEMA = {
   required: ['question', 'summary', 'findings'],
 }
 
-const BOOTSTRAP_SCHEMA = {
-  type: 'object',
-  properties: {
-    idea: {
-      type: 'object',
-      properties: { one_liner: {}, problem: {}, audience: {}, mvp_scope: {} },
-      required: ['one_liner', 'problem'],
-    },
-    research: {
-      type: 'object',
-      properties: {
-        similar_open_source: { type: 'array', items: { type: 'object', properties: { name: {}, url: {}, strengths: {}, gaps: {} }, required: ['name', 'url'] } },
-        commercial_competitors: { type: 'array', items: { type: 'object', properties: { name: {}, url: {}, strengths: {}, gaps: {} }, required: ['name', 'url'] } },
-      },
-    },
-    stack: {
-      type: 'object',
-      properties: {
-        language: { type: 'object', properties: { choice: {}, rationale: {}, alternative: {} } },
-        framework: { type: 'object', properties: { choice: {}, rationale: {}, alternative: {} } },
-        database: { type: 'object', properties: { choice: {}, rationale: {}, alternative: {} } },
-        infrastructure: { type: 'object', properties: { choice: {}, rationale: {} } },
-        key_libraries: { type: 'array', items: { type: 'object', properties: { name: {}, purpose: {} } } },
-      },
-    },
-    roadmap: { type: 'array', items: { type: 'object', properties: { phase: {}, deliverables: { type: 'array', items: { type: 'string' } } }, required: ['phase', 'deliverables'] } },
-    risks: { type: 'array', items: { type: 'string' } },
-    next_action: { type: 'string' },
-  },
-  required: ['idea', 'roadmap', 'next_action'],
-}
-
 // ═══════════════════════════════════════════
 // RENDERING
 // ═══════════════════════════════════════════
@@ -311,37 +278,17 @@ function renderResearch(r) {
   return lines.join('\n') + '\n\n'
 }
 
-function renderBlueprint(bp) {
-  const lines = ['## PROJECT BLUEPRINT', bp.idea?.one_liner || '', '']
-  if (bp.idea?.mvp_scope) lines.push(`**MVP scope**: ${bp.idea.mvp_scope}`, '')
-  const stack = []
-  if (bp.stack?.language?.choice) stack.push(`language: ${bp.stack.language.choice}`)
-  if (bp.stack?.framework?.choice) stack.push(`framework: ${bp.stack.framework.choice}`)
-  if (bp.stack?.database?.choice) stack.push(`database: ${bp.stack.database.choice}`)
-  if (bp.stack?.infrastructure?.choice) stack.push(`infra: ${bp.stack.infrastructure.choice}`)
-  if (stack.length) lines.push(`**Stack**: ${stack.join(', ')}`, '')
-  if (bp.stack?.key_libraries?.length) lines.push(`**Key libraries**: ${bp.stack.key_libraries.map(l => l.name).join(', ')}`, '')
-  const phase0 = bp.roadmap?.[0]
-  if (phase0) {
-    lines.push(`**${phase0.phase}**`)
-    phase0.deliverables.forEach(d => lines.push(`- ${d}`))
-    lines.push('')
-  }
-  if (bp.risks?.length) lines.push(`**Risks**: ${bp.risks.join('; ')}`, '')
-  return lines.join('\n')
-}
-
 // ═══════════════════════════════════════════
 // MODEL ROUTING
 // ═══════════════════════════════════════════
 
-// Six roles, and the reason the protocol exists: Reviewer can run on a stronger
-// model than Coder. Model names mean whatever your setup routes them to — no
-// assumption is made about which is more capable.
+// The reason the protocol exists: Reviewer can run on a stronger model than
+// Coder. Model names mean whatever your setup routes them to — no assumption
+// is made about which is more capable.
 const DEFAULT_MODELS = {
-  trivial: { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'sonnet', bootstrapper: 'opus' },
-  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus',   bootstrapper: 'opus' },
-  complex: { planner: 'opus',   coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus',   bootstrapper: 'opus' },
+  trivial: { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'sonnet' },
+  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus' },
+  complex: { planner: 'opus',   coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus' },
 }
 
 function routeModels(complexity, config) {
@@ -366,7 +313,6 @@ async function agentWithRetry(prompt, opts, attempts = 2) {
 const CONFIG = args?.config || {}
 const MAX_FIX_LOOPS = CONFIG.maxFixLoops || 3
 const BLOCKING_SEVERITIES = CONFIG.blockingSeverities || ['critical', 'major']
-const MODE = args?.mode || 'brownfield'
 const DO_RESEARCH = args?.research ?? CONFIG.researchByDefault ?? false
 
 // Security is gated on attack surface, not task size — a one-line change to an
@@ -378,7 +324,8 @@ function securityEnabled(plan) {
   return plan.security_surface === 'elevated'
 }
 
-const prePlanModels = routeModels(MODE === 'greenfield' ? 'complex' : 'medium', CONFIG)
+// Research and Plan run before complexity is known — resolve their models up front
+const prePlanModels = routeModels('medium', CONFIG)
 
 // ═══════════════════════════════════════════
 // MAIN
@@ -391,32 +338,8 @@ if (!task) {
   return { error: 'No task provided' }
 }
 
-log(`Mode: ${MODE}  |  Budget: ${budget.total ? Math.round(budget.remaining() / 1000) + 'k' : 'unlimited'}`)
+log(`Budget: ${budget.total ? Math.round(budget.remaining() / 1000) + 'k' : 'unlimited'}`)
 log(`Task: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}`)
-
-// ── BOOTSTRAP (greenfield only) ─────────────
-
-let blueprint = null
-
-if (MODE === 'greenfield') {
-  phase('Bootstrap')
-
-  blueprint = await agentWithRetry(
-    `Turn this idea into a concrete, researched project blueprint.\n\n## IDEA\n${task}`,
-    { label: 'bootstrapper', phase: 'Bootstrap', model: prePlanModels.bootstrapper, agentType: 'bootstrapper', schema: BOOTSTRAP_SCHEMA }
-  )
-
-  if (!blueprint) {
-    log('ERROR: Bootstrapper failed.')
-    return { error: 'Bootstrapper failed' }
-  }
-
-  log(`Blueprint: ${blueprint.idea?.one_liner || '?'}`)
-  log(`Stack: ${blueprint.stack?.language?.choice || '?'} + ${blueprint.stack?.framework?.choice || '?'}`)
-  log(`Next: ${blueprint.next_action || '?'}`)
-
-  task = `${renderBlueprint(blueprint)}## FIRST TASK\n${blueprint.next_action || 'Scaffold Phase 0: repo, CI, basic structure.'}`
-}
 
 // ── RESEARCH (opt-in) ───────────────────────
 
@@ -579,7 +502,7 @@ if (!finalVerdict) {
 // ── RESULT ──────────────────────────────────
 
 return {
-  task: MODE === 'greenfield' ? { original_idea: args?.task, blueprint } : task,
+  task,
   plan,
   verdict: finalVerdict,
   researchReport,

@@ -55,14 +55,13 @@ const INSTALL_MANIFEST = [
   'agents/reviewer.md',
   'agents/security.md',
   'agents/researcher.md',
-  'agents/bootstrapper.md',
-  'skills/planner.md',
-  'skills/coder.md',
-  'skills/reviewer.md',
-  'skills/security.md',
-  'skills/researcher.md',
-  'skills/bootstrapper.md',
-  'skills/ldo-config.md',
+  'skills/planner/SKILL.md',
+  'skills/coder/SKILL.md',
+  'skills/reviewer/SKILL.md',
+  'skills/security/SKILL.md',
+  'skills/researcher/SKILL.md',
+  'skills/bootstrapper/SKILL.md',
+  'skills/ldo-config/SKILL.md',
 ]
 
 const targetRoot = customTarget
