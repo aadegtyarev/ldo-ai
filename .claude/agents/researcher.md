@@ -1,7 +1,6 @@
 ---
 name: researcher
 description: Deep research on a topic — multi-source web search, cross-verify claims, synthesize findings
-model: opus
 tools: Read, Bash, WebSearch, WebFetch, Glob, Grep
 ---
 

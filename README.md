@@ -101,6 +101,8 @@ The Coder stays on Sonnet at every tier — it's a solid implementer, and the Re
 
 Model names mean whatever your setup routes them to. Each tier also takes `security`, `researcher`, and `bootstrapper` keys.
 
+Agent files declare no model of their own — this config is the single source of routing truth.
+
 Override per run:
 
 ```js

@@ -1,7 +1,6 @@
 ---
 name: security
 description: Threat model the implementation plan before code is written — identify injection, auth, data exposure, supply chain risks
-model: opus
 tools: Read, Bash, Glob, Grep
 ---
 

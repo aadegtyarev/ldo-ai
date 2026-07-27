@@ -87,6 +87,6 @@ Complexity: medium  |  Security surface: none  |  Coder:sonnet  Reviewer:opus
 
 That's the routing that actually applied.
 
-## Note on standalone use
+## Standalone calls
 
-Each agent file carries its own `model:` in frontmatter — that's what applies when you invoke `/coder` or `/reviewer` directly, outside the workflow. Keep it in sync with the config, or accept that direct calls use the frontmatter value.
+Agent files deliberately declare no model — this config is the only place routing lives. Calling `/coder` or `/reviewer` directly runs it on your session's current model. To pin one, use the workflow, or pass a model when invoking the agent.

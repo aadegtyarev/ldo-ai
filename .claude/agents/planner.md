@@ -1,7 +1,6 @@
 ---
 name: planner
 description: Read the codebase, produce an implementation plan, rate complexity and security surface
-model: sonnet
 tools: Read, Bash, Glob, Grep
 ---
 

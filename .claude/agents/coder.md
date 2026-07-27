@@ -1,7 +1,6 @@
 ---
 name: coder
 description: Set up the environment, implement the plan with tests, update user-facing docs
-model: sonnet
 tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 

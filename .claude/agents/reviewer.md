@@ -1,7 +1,6 @@
 ---
 name: reviewer
 description: Review the diff and drive the running app — plan compliance, correctness, simplification, and proof the criteria hold
-model: opus
 tools: Read, Bash, Glob, Grep
 ---
 
