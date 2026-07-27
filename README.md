@@ -12,6 +12,9 @@ npx ldo-ai
 
 # Globally (available in all Claude Code sessions)
 npx ldo-ai --global
+
+# Custom directory (non-standard config location)
+npx ldo-ai --target /opt/claude/.claude
 ```
 
 After install, configure model routing in `.claude/ldo-config.json`. Then invoke in Claude Code:
@@ -23,12 +26,12 @@ After install, configure model routing in `.claude/ldo-config.json`. Then invoke
 ## Pipeline
 
 ```
-┌───────────┐   ┌───────┐   ┌─────────┐   ┌──────────┐   ┌──────┐   ┌──────┐   ┌────────┐   ┌──────────┐   ┌───────┐   ┌──────┐
-│ Bootstrap │──→│ Scout │──→│ Explore │──→│ Research │──→│ Plan │──→│ Code │──→│ Review │──→│ Security │──→│ Setup │──→│ Docs │
-│           │   │       │   │ (opt-in)│   │ (opt-in) │   │      │   │  ↻   │   │        │   │ (opt-in) │   │       │   │      │
-└───────────┘   └───────┘   └─────────┘   └──────────┘   └──────┘   └──────┘   └────────┘   └──────────┘   └───────┘   └──────┘
-  greenfield     reads repo   codebase      web search    task→plan  implement   quality      OWASP audit    deps+env    README+
-  stack+roadmap  ONCE         deep scan     multi-source  complex.   +tests      gate         threat model   smoke-check CHANGELOG
+┌───────────┐   ┌───────┐   ┌─────────┐   ┌──────────┐   ┌──────┐   ┌──────────┐   ┌──────┐   ┌────────┐   ┌───────┐   ┌──────┐
+│ Bootstrap │──→│ Scout │──→│ Explore │──→│ Research │──→│ Plan │──→│ Security │──→│ Code │──→│ Review │──→│ Setup │──→│ Docs │
+│           │   │       │   │ (opt-in)│   │ (opt-in) │   │      │   │ (opt-in) │   │  ↻   │   │        │   │       │   │      │
+└───────────┘   └───────┘   └─────────┘   └──────────┘   └──────┘   └──────────┘   └──────┘   └────────┘   └───────┘   └──────┘
+  greenfield     reads repo   codebase      web search    task→plan  threat model  implement   quality     deps+env    README+
+  stack+roadmap  ONCE         deep scan     multi-source  complex.   OWASP shift↓  +tests      gate        smoke-check CHANGELOG
 ```
 
 | Phase | Agent | What it does |
@@ -38,9 +41,9 @@ After install, configure model routing in `.claude/ldo-config.json`. Then invoke
 | Explore | Claude Explorer | (Opt-in) Fan-out search for task-specific patterns, usages, call sites |
 | Research | researcher | (Opt-in) Deep web search on the task domain, cross-verify claims |
 | Plan | planner | Task + context → ordered steps with acceptance criteria |
-| Code | coder | Implement the plan, write tests |
-| Review | reviewer | Review the diff, approve or request specific fixes |
-| Security | security | (Opt-in) OWASP threat audit: injection, auth, data exposure, supply chain |
+| Security | security | (Opt-in) Threat model the PLAN — shift-left: catch risks before coding |
+| Code | coder | Implement the plan + security mitigations, write tests |
+| Review | reviewer | Plan compliance + correctness + simplification + efficiency in one pass |
 | Setup | setup | Install dependencies, configure services, smoke-check |
 | Docs | docs | Update README, CHANGELOG, API docs |
 
@@ -117,7 +120,7 @@ Walk through setup: `/ldo-config` in Claude Code.
 2. Model routing table maps tier + role → model name
 3. Each agent receives the previous agent's structured output (JSON Schema validated)
 4. Coder and Reviewer loop until approved or max iterations exhausted
-5. Security audits approved code for OWASP threats (opt-in)
+5. Security threat-models the plan before code is written — shift-left (opt-in)
 6. Setup bootstraps the environment; Docs updates documentation for user-facing changes
 
 **Universal**: the protocol is not tied to Claude Code. Each role has a defined prompt + JSON Schema contract. The orchestrator can be replaced with an external script that calls any LLM runner.

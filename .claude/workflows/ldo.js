@@ -1,6 +1,6 @@
 export const meta = {
   name: 'ldo',
-  description: 'Lightweight Dev Orchestrator: [Bootstrap→][Research→]Scout→Plan→Code⇄Review→[Security→]Setup→Docs',
+  description: 'Lightweight Dev Orchestrator: [Bootstrap→]Scout→[Explore→][Research→]Plan→[Security→]Code⇄Review→Setup→Docs',
   phases: [
     { title: 'Bootstrap', detail: 'Greenfield: research, stack, roadmap' },
     { title: 'Scout', detail: 'Read codebase ONCE → deterministic snapshot (cache-stable)' },
@@ -197,6 +197,7 @@ const RESEARCH_SCHEMA = {
   required: ['question', 'summary', 'findings'],
 }
 
+// Threat model schema — plan-level (no diff, no code yet)
 const SECURITY_SCHEMA = {
   type: 'object',
   properties: {
@@ -209,14 +210,13 @@ const SECURITY_SCHEMA = {
         properties: {
           severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low', 'info'] },
           category: { type: 'string', enum: ['injection', 'auth', 'data_exposure', 'input_validation', 'ssrf', 'supply_chain', 'crypto', 'race_condition', 'resource', 'config'] },
-          file: { type: 'string' },
-          line_hint: { type: 'string' },
-          what: { type: 'string' },
-          exploit_scenario: { type: 'string' },
-          fix: { type: 'string' },
-          cwe: { type: 'string' },
+          plan_step: { type: 'string', description: 'Which plan step this threat relates to' },
+          what: { type: 'string', description: 'What the threat is' },
+          exploit_scenario: { type: 'string', description: 'How an attacker would exploit this' },
+          mitigation: { type: 'string', description: 'Concrete mitigation the Coder must implement' },
+          cwe: { type: 'string', description: 'CWE-XXX if applicable' },
         },
-        required: ['severity', 'category', 'file', 'what', 'exploit_scenario', 'fix'],
+        required: ['severity', 'category', 'what', 'exploit_scenario', 'mitigation'],
       },
     },
     threat_model_notes: { type: 'string' },
@@ -601,7 +601,65 @@ log(`Plan: ${plan.steps.length} step(s)`)
 for (const s of plan.steps) log(`  • ${s.what}`)
 
 // ═══════════════════════════════════════════
-// PHASE 2-3: CODE + REVIEW LOOP
+// PHASE 2: SECURITY (threat model the PLAN, before code is written)
+// ═══════════════════════════════════════════
+
+let securityReport = null
+
+if (DO_SECURITY && !SKIP_SECURITY) {
+  phase('Security')
+
+  securityReport = await agent(
+    `You are a **Security** — the threat modelling stage. Review the IMPLEMENTATION PLAN (not the diff — no code has been written yet) for security risks. This is shift-left: identify threats BEFORE they're coded.
+
+## PLAN
+${renderPlan(plan)}
+
+## INSTRUCTIONS
+
+For each step in the plan, ask: what could go wrong security-wise?
+
+Check 10 threat dimensions:
+- **Injection**: Will this step introduce SQL/command/template injection points?
+- **Auth**: Does this step touch auth? Are there privilege escalation risks?
+- **Data Exposure**: Will this step handle secrets, PII, or sensitive data? Logging risks?
+- **Input Validation**: New inputs introduced? Where does user data enter the system?
+- **SSRF/URL**: User-controlled URLs, redirects, internal network calls?
+- **Supply Chain**: New dependencies? eval() / dynamic imports / deserialisation?
+- **Crypto**: New crypto operations? Key management? Weak algorithms?
+- **Race Conditions**: Concurrent access to shared state? TOCTOU?
+- **Resource Exhaustion**: Unbounded allocations? Missing rate limits?
+- **Config**: Default passwords, debug features, missing security headers?
+
+For each threat: provide an exploit scenario and concrete mitigation that the Coder should implement.
+
+## SEVERITY
+- critical: RCE, auth bypass, data breach, secret leak
+- high: Injection without RCE, privilege escalation, SSRF
+- medium: XSS, CSRF, missing security headers, info disclosure
+- low: Weak config, debug leakage
+- info: Best practice, hardening
+
+## OUTPUT
+Use \`status: "clean"\` if the plan has no meaningful security surface.
+Use \`status: "findings"\` with specific threats and mitigations.`,
+
+    { label: 'security', phase: 'Security', model: models.security, schema: SECURITY_SCHEMA }
+  )
+
+  if (securityReport) {
+    log(`Security: ${securityReport.status} — ${securityReport.summary}`)
+    if (securityReport.findings?.length) {
+      log(`⚠ ${securityReport.findings.length} threat(s):`)
+      for (const f of securityReport.findings) log(`  [${f.severity}] ${f.category}: ${f.what}`)
+    }
+  } else {
+    log('⚠ Security returned nothing — proceeding without threat model.')
+  }
+}
+
+// ═══════════════════════════════════════════
+// PHASE 3-4: CODE + REVIEW LOOP
 // ═══════════════════════════════════════════
 
 let iteration = 0
@@ -618,15 +676,22 @@ while (iteration < MAX_FIX_LOOPS) {
   const coderPrompt = isFirstPass
     ? CTX + `You are a **Coder**. Execute the plan. The PROJECT CONTEXT above is a cached snapshot — do NOT re-read the codebase unless a file path turns out wrong.
 
-${renderPlan(plan)}
+${renderPlan(plan)}${securityReport && securityReport.status === 'findings' ? `
+
+## SECURITY THREAT MODEL (must implement)
+The following threats were identified during planning. You MUST implement the mitigations:
+${securityReport.findings.map((f, i) => `${i + 1}. [${f.severity}] ${f.category}: ${f.what}
+   Mitigation: ${f.mitigation}`).join('\n')}
+` : ''}
 
 ## RULES
 1. Work through steps in order. Read files before editing them.
 2. Write/update tests for every behavior change (happy path + edge cases + error handling).
-3. After ALL steps, run the tests. Then \`git diff\` to review holistically.
-4. Follow the conventions listed in PROJECT CONTEXT.
-5. Return a summary of everything changed, file by file, including tests.
-6. Adapt if the plan's file paths are wrong — note deviations.`
+3. Implement all security mitigations listed above — treat them as hard requirements.
+4. After ALL steps, run the tests. Then \`git diff\` to review holistically.
+5. Follow the conventions listed in PROJECT CONTEXT.
+6. Return a summary of everything changed, file by file, including tests.
+7. Adapt if the plan's file paths are wrong — note deviations.`
     : `You are a **Coder**. Fix the issues found during review. This is a narrow fix pass — only the files below need changes.
 
 ## ISSUES TO FIX
@@ -721,67 +786,6 @@ ${renderCoderSummary(coderResult)}
 if (!finalVerdict) {
   log(`⚠ Max fix loops (${MAX_FIX_LOOPS}) exhausted.`)
   finalVerdict = { status: 'changes_requested', summary: `Max ${MAX_FIX_LOOPS} fix iterations reached.`, issues: reviewIssues }
-}
-
-// ═══════════════════════════════════════════
-// PHASE 3.5: SECURITY (post-review threat audit)
-// ═══════════════════════════════════════════
-
-let securityReport = null
-const securityBudgetOk = !budget.total || budget.remaining() > 40000
-
-if (DO_SECURITY && !SKIP_SECURITY && approved) {
-  if (!securityBudgetOk) {
-    log(`⚠ Skipping Security — insufficient token budget. Run /security manually.`)
-  } else {
-    phase('Security')
-
-    securityReport = await agent(
-      CTX + `You are a **Security** — the threat analysis stage. Audit the approved code changes for vulnerabilities. The PROJECT CONTEXT above is cached.
-
-${renderPlan(plan)}
-
-## INSTRUCTIONS
-
-1. Run \`git diff --stat\` to see what changed.
-2. Read changed files and check for 10 threat categories:
-   - **Injection**: SQL, command, template injection
-   - **Auth**: Broken access control, missing auth, token leaks, session issues
-   - **Data Exposure**: Secrets in code, PII in logs, unencrypted sensitive data
-   - **Input Validation**: Missing validation, XSS, prototype pollution, path traversal
-   - **SSRF/URL**: User-controlled URLs, redirect chains
-   - **Supply Chain**: New deps, eval(), dynamic imports, deserialisation
-   - **Crypto**: Hardcoded keys, weak algorithms, broken RNG
-   - **Race Conditions**: TOCTOU, concurrent state access
-   - **Resource Exhaustion**: Unbounded allocations, missing rate limits, regex DoS
-   - **Config**: Default passwords, debug in prod, missing security headers
-
-3. For each finding: verify it's real (read the file), provide an exploit scenario, suggest a fix.
-4. Reference CWE code where applicable.
-5. If the diff is security-irrelevant, return \`clean\` quickly.
-
-## SEVERITY
-- critical: RCE, auth bypass, data breach, secret leak
-- high: Injection without RCE, privilege escalation, SSRF
-- medium: XSS, CSRF, missing security headers, info disclosure
-- low: Weak config, debug leakage
-- info: Best practice, hardening`,
-
-      { label: 'security', phase: 'Security', model: models.security, schema: SECURITY_SCHEMA }
-    )
-
-    if (securityReport) {
-      log(`Security: ${securityReport.status} — ${securityReport.summary}`)
-      if (securityReport.findings?.length) {
-        log(`⚠ ${securityReport.findings.length} finding(s):`)
-        for (const f of securityReport.findings) log(`  [${f.severity}] ${f.category}: ${f.file} — ${f.what}`)
-      }
-    } else {
-      log('⚠ Security returned nothing.')
-    }
-  }
-} else if (DO_SECURITY && !approved) {
-  log('Skipping Security — review not approved.')
 }
 
 // ═══════════════════════════════════════════
