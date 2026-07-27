@@ -282,13 +282,18 @@ function renderResearch(r) {
 // MODEL ROUTING
 // ═══════════════════════════════════════════
 
-// The reason the protocol exists: Reviewer can run on a stronger model than
-// Coder. Model names mean whatever your setup routes them to — no assumption
-// is made about which is more capable.
+// The reason the protocol exists: Reviewer runs on a stronger model than Coder.
+// Model names mean whatever your setup routes them to — no assumption is made
+// about which is more capable.
+//
+// The tiers genuinely differ. A typo doesn't need Sonnet to plan it or Opus to
+// review it, so trivial work runs cheap end to end. Medium is the default shape:
+// Sonnet writes, Opus checks. Complex additionally buys a stronger Planner,
+// because a wrong approach is the expensive kind of wrong.
 const DEFAULT_MODELS = {
-  trivial: { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'sonnet' },
-  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus' },
-  complex: { planner: 'opus',   coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus' },
+  trivial: { planner: 'haiku',  coder: 'haiku',  reviewer: 'sonnet', security: 'opus', researcher: 'sonnet' },
+  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus',   security: 'opus', researcher: 'opus' },
+  complex: { planner: 'opus',   coder: 'sonnet', reviewer: 'opus',   security: 'opus', researcher: 'opus' },
 }
 
 function routeModels(complexity, config) {

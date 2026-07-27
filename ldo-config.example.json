@@ -3,9 +3,9 @@
 
   "models": {
     "trivial": {
-      "planner": "sonnet",
-      "coder": "sonnet",
-      "reviewer": "opus",
+      "planner": "haiku",
+      "coder": "haiku",
+      "reviewer": "sonnet",
       "security": "opus",
       "researcher": "sonnet"
     },

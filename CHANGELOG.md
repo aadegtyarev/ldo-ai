@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] — 2026-07-27
+
+### Changed
+
+- **Tiers now actually differ.** `trivial` and `medium` shipped byte-identical, so
+  the complexity rating changed one field in one tier — the routing was barely
+  routing. Trivial work now runs Haiku end to end with Sonnet reviewing; medium is
+  Sonnet writing and Opus reviewing; complex adds a stronger Planner. Security stays
+  Opus everywhere: once the Planner says a change can be attacked, that isn't where
+  to save money.
+- **README reordered for a first-time reader.** A transcript of a real run now sits
+  second, before install. The command table moved up out of the design essays, and
+  the rationale sections moved below the mechanics they justify.
+
 ## [2.1.0] — 2026-07-27
 
 ### Fixed — documentation
