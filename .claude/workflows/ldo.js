@@ -501,21 +501,23 @@ if (!finalVerdict) {
 
 // ── RESULT ──────────────────────────────────
 
+// Result shape follows agent-ux: verdict first, then detail. A reader scanning
+// the returned object gets the answer in the first field, not buried after the input.
 return {
-  task,
-  plan,
+  approved: finalVerdict.status === 'approved',
   verdict: finalVerdict,
-  researchReport,
-  securityReport,
+  verification: finalVerdict.verification?.verdict || 'not_run',
   stats: {
     complexity: plan.complexity,
     securitySurface: surface,
     securityStatus: securityReport?.status || 'not_run',
     models,
     coder_passes: iteration + 1,
-    approved: finalVerdict.status === 'approved',
-    verification: finalVerdict.verification?.verdict || 'not_run',
     researched: !!researchReport,
     files_mapped: plan.codebase_context?.relevant_files?.length || 0,
   },
+  plan,
+  researchReport,
+  securityReport,
+  task,
 }
