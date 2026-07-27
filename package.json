@@ -1,7 +1,7 @@
 {
-  "name": "ldo",
+  "name": "ldo-ai",
   "version": "2.0.0",
-  "description": "Lightweight Dev Orchestrator — 7-agent pipeline for LLM-driven development in Claude Code",
+  "description": "LDO (Lightweight Dev Orchestrator) — 7-agent AI development pipeline for Claude Code",
   "bin": {
     "ldo-install": "./bin/ldo-install.js"
   },
@@ -11,6 +11,7 @@
   ],
   "keywords": [
     "claude-code",
+    "ai",
     "agent",
     "orchestrator",
     "workflow",
@@ -20,7 +21,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/adegtyarev/ldo"
+    "url": "https://github.com/adegtyarev/ldo-ai"
   },
   "engines": {
     "node": ">=18"

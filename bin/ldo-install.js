@@ -15,10 +15,10 @@ if (showHelp) {
 ldo-install — Lightweight Dev Orchestrator installer
 
 Usage:
-  npx ldo                install into current project (.claude/)
-  npx ldo --global, -g   install globally (~/.claude/)
-  npx ldo --force, -f    overwrite existing files
-  npx ldo --help, -h     show this help
+  npx ldo-ai               install into current project (.claude/)
+  npx ldo-ai --global, -g  install globally (~/.claude/)
+  npx ldo-ai --force, -f   overwrite existing files
+  npx ldo-ai --help, -h    show this help
 
 Global install adds LDO agents, skills, workflows, and config to
 ~/.claude/ — available in every Claude Code session on this machine.
@@ -99,7 +99,7 @@ console.log(`  ${copied.length} files copied, ${skipped.length} identical, ${mer
 if (merged.length > 0 && !isForce) {
   console.log('')
   console.log('  ℹ  Some files exist with different content. To overwrite:')
-  console.log('     npx ldo --force')
+  console.log('     npx ldo-ai --force')
 }
 
 console.log('')

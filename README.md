@@ -1,15 +1,17 @@
 # LDO — Lightweight Dev Orchestrator
 
-A 7-agent development pipeline for Claude Code. From idea to documented, tested code — with configurable model routing per role.
+**LDO** = Lightweight Dev Orchestrator (AI-driven).
+
+A 7-agent AI development pipeline for Claude Code. From idea to documented, tested code — with configurable model routing per role.
 
 ## Install
 
 ```bash
 # Into the current project
-npx ldo
+npx ldo-ai
 
 # Globally (available in all Claude Code sessions)
-npx ldo --global
+npx ldo-ai --global
 ```
 
 After install, configure model routing in `.claude/ldo-config.json`. Then invoke in Claude Code:
