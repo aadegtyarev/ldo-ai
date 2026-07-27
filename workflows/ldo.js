@@ -132,6 +132,19 @@ const VERDICT_SCHEMA = {
         blockers: { type: 'array', items: { type: 'string' } },
       },
     },
+    attacks: {
+      type: 'array',
+      description: 'What the Reviewer actively tried to break, and whether it held',
+      items: {
+        type: 'object',
+        properties: {
+          vector: { type: 'string', description: 'The input or condition tried' },
+          outcome: { type: 'string', enum: ['broke', 'held'] },
+          evidence: { type: 'string', description: 'Command and captured output' },
+        },
+        required: ['vector', 'outcome'],
+      },
+    },
   },
   required: ['status', 'summary'],
 }
@@ -448,9 +461,12 @@ while (iteration < MAX_FIX_LOOPS) {
 
   phase('Review')
 
+  // First pass gets the full treatment: verify the criteria, then actively try to
+  // break it. Fix passes are narrow — re-attacking the whole surface each round
+  // would triple the cost of a loop that exists to close specific issues.
   const reviewerPrompt = isFirstPass
-    ? CTX + SECURITY_BLOCK + `Review this implementation against the plan, then drive the app to prove the acceptance criteria.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
-    : `Verify these fixes landed, and scan for new problems introduced by them.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
+    ? CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
+    : `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
 
   const verdict = await agent(reviewerPrompt, {
     label: isFirstPass ? 'reviewer' : `reviewer-${iteration}`,
@@ -472,6 +488,15 @@ while (iteration < MAX_FIX_LOOPS) {
     log(`Verification: ${v.verdict}${total ? ` — ${passed}/${total} criteria proven` : ''}`)
     v.criteria?.filter(c => c.status === 'failed').forEach(c => log(`  ✗ ${c.criterion}`))
     if (v.blockers?.length) log(`  ⚠ Blockers: ${v.blockers.join('; ')}`)
+  }
+
+  // Surface what was attacked — an empty attack list on a runnable change means
+  // the Reviewer only checked the happy path, which is worth noticing.
+  const atk = verdict.attacks || []
+  if (atk.length) {
+    const broke = atk.filter(a => a.outcome === 'broke')
+    log(`Attacks: ${atk.length} tried, ${broke.length} broke it`)
+    broke.forEach(a => log(`  ✗ ${a.vector}`))
   }
 
   lastIssues = verdict.issues || []
@@ -512,6 +537,7 @@ return {
   approved: finalVerdict.status === 'approved',
   verdict: finalVerdict,
   verification: finalVerdict.verification?.verdict || 'not_run',
+  attacks: finalVerdict.attacks || [],
   stats: {
     complexity: plan.complexity,
     securitySurface: surface,

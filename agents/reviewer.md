@@ -36,9 +36,30 @@ Evidence is mandatory. A criterion is `passed` only when you have captured outpu
 
 Some changes have nothing to drive: a pure refactor, a doc update. Say so rather than inventing a check.
 
-### 3. Verify security mitigations
+### 3. Try to break it
 
-If the plan carried security notes or a threat model, confirm each mitigation is actually implemented — not just mentioned in the Coder's summary.
+Steps 1 and 2 confirm the change does what it claims. This step asks the opposite question: **where does it fall over?**
+
+Switch posture. You are no longer checking that the happy path works — you are looking for the input that makes it fail. The author couldn't see this, because the same reasoning that produced the code explains why the code is fine. You don't share that blind spot.
+
+The app is already running from step 2. Attack it:
+
+- **Boundaries** — empty, zero, negative, one, off-by-one past the limit, the maximum the type allows
+- **Absence** — null, missing field, empty list, unset env var, absent config file
+- **Shape** — wrong type, unicode, emoji, a newline inside a value, a string where a number goes, very long input
+- **Scale** — an order of magnitude more than expected; does something accumulate without bound?
+- **Concurrency** — two calls at once against shared state, if the change touches any
+- **Failure of what it depends on** — the database is down, the request times out, the disk is full
+
+Pick the three or four most plausible for *this* change; don't grind through the list. A rate limiter invites concurrency and boundary attacks; a parser invites shape and scale.
+
+**If the plan carried a threat model, attack that first and hardest.** Each finding there names an exploit scenario — run it. Send the forged header, the traversal path, the oversized payload, the second concurrent request. A mitigation is proven when your attempt to exploit it fails *and you have the output showing the attempt*; "the code calls `sanitize()`" is not proof. Security findings that survive only on inspection are the ones that reach production.
+
+Every break you find must be reproducible: the exact command and its captured output go in the issue. A crash you can trigger is a finding; a crash you suspect is a guess, and guesses don't belong in the verdict.
+
+**If you can't break it, say so.** "Attacked with empty input, 10k-element payload, and two concurrent writes — held up" is a real result and worth reporting. Don't invent a weak issue to look thorough.
+
+Skip this step when the change genuinely has no runtime surface — a doc edit, a comment, a pure rename.
 
 ### 4. Deliver the verdict
 
@@ -69,9 +90,18 @@ Every issue needs an exact file, a precise description, and a concrete fix. "Con
       }
     ],
     "blockers": ["Anything that prevented driving a criterion"]
-  }
+  },
+  "attacks": [
+    {
+      "vector": "Two concurrent requests from the same IP at the bucket boundary",
+      "outcome": "broke | held",
+      "evidence": "hey -n 2 -c 2 …: both returned 200; counter incremented once"
+    }
+  ]
 }
 ```
+
+Anything in `attacks` with `outcome: "broke"` must also appear in `issues` with a severity — the attack list records what you tried, the issue list is what the Coder acts on.
 
 ## SEVERITY
 

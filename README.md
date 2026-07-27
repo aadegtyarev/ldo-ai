@@ -2,13 +2,13 @@
 
 **The model that checks the work isn't the model that did it — and it has to show receipts.**
 
-A development pipeline for [Claude Code](https://claude.com/claude-code) built on three agents: **Planner, Coder, Reviewer**. Each runs on a model you choose, so you can write with a cheap one and review with a strong one. The Reviewer reads the diff *and* drives your running app, and it can't approve a criterion without captured output proving it holds.
+A development pipeline for [Claude Code](https://claude.com/claude-code) built on three agents: **Planner, Coder, Reviewer**. Each runs on a model you choose, so you can write with a cheap one and review with a strong one. The Reviewer doesn't just confirm the work — it drives your running app and actively tries to break it, and it can't approve anything without captured output proving it holds.
 
 ```
 Plan ──→ Code ⇄ Review
  │        │       │
  reads    writes  reads the diff, runs the app,
- the repo +tests  proves each criterion
+ the repo +tests  tries to break it
 ```
 
 Claude Code's own `feature-dev` and community pipelines like `superpowers` cover similar ground, but run every phase on one model. Per-role routing, and a plan held by a deterministic script instead of a model's memory, is what LDO adds.
@@ -40,6 +40,8 @@ Task: add rate limiting to the API endpoints
 
 ▸ Review
   Verification: verified — 3/3 criteria proven
+  Attacks: 4 tried, 1 broke it
+    ✗ 10k distinct client IPs in one minute
   ✗ 1 issue(s): 1 blocking, 0 advisory
     [major] middleware/rate_limit.go: bucket map grows without bound; no eviction
 
@@ -48,10 +50,11 @@ Task: add rate limiting to the API endpoints
 
 ▸ Review
   Verification: verified — 3/3 criteria proven
+  Attacks: 2 tried, 0 broke it
   ✓ APPROVED — limiter returns 429 past 100 req/min, evicts idle buckets after 10m
 ```
 
-Two things to notice. The Planner flagged the spoofable header **before any code existed**, so the mitigation was a requirement rather than a bug fix. And the Reviewer — a different model than the one that wrote it — caught an unbounded map that all 47 tests passed straight over.
+Three things to notice. The Planner flagged the spoofable header **before any code existed**, so the mitigation was a requirement rather than a bug fix. The Reviewer then went past checking that the feature works and actively tried to break it — 10,000 distinct IPs surfaced an unbounded map that all 47 passing tests walked straight over. And the model that found it wasn't the model that wrote it.
 
 ## Install
 
@@ -105,11 +108,11 @@ The Planner rates the task, and that rating decides what runs. A refactor with n
 ```
 [Research] → Plan → [Security] → Code ⇄ Review
   web         read repo  threat     implement  read diff
-  sources     + rate     model      + test     + drive app
+  sources     + rate     model      + test     + attack it
               the task              + document
 ```
 
-**Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff *and* drives the running application to prove the acceptance criteria hold.
+**Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff, drives the running application to prove each acceptance criterion, then switches posture and attacks it — boundaries, absent input, scale, concurrency, and every exploit the threat model named.
 
 Two more run only when they earn their place:
 
@@ -150,7 +153,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-bootstrap "idea"` | Start a project — prior art, stack, roadmap (interactive) |
 | `/ldo-planner "task"` | Plan only |
 | `/ldo-coder "task"` | Implement a plan |
-| `/ldo-reviewer` | Review the current diff and drive the app |
+| `/ldo-reviewer` | Review the diff, drive the app, try to break it |
 | `/ldo-security` | Threat-model a plan |
 | `/ldo-researcher "topic"` | Multi-source web research |
 | `/ldo-config` | Walk through model routing |

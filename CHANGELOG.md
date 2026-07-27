@@ -5,6 +5,26 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] — 2026-07-27
+
+### Added
+
+- **The Reviewer now attacks the change, not just checks it.** After proving the
+  acceptance criteria, it switches posture and looks for the input that breaks
+  things: boundaries, absent values, wrong shapes, an order-of-magnitude more load,
+  concurrent calls, a failed dependency. Where the Planner flagged a threat model,
+  it runs each named exploit — a mitigation counts as proven only when the attack
+  is attempted and fails, with the output to show it.
+
+  Breaks must be reproducible: command and captured output, or it's a guess and
+  doesn't reach the verdict. A clean result is reported too, so "nothing broke" is
+  distinguishable from "nobody tried". The new `attacks` field records what was
+  tried and what held.
+
+  Only the first review pass attacks; fix rounds re-run what previously broke.
+  Re-attacking the whole surface each iteration would triple the cost of a loop
+  that exists to close specific issues.
+
 ## [2.2.0] — 2026-07-27
 
 ### Changed

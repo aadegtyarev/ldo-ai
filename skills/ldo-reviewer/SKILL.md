@@ -15,10 +15,10 @@ The reviewer will:
 1. Read the diff — plan compliance, correctness, simplification, efficiency
 2. Drive the actual application against each acceptance criterion
 3. Capture real output as evidence — a criterion passes only with proof
-4. Confirm any security mitigations were actually implemented
-5. Return a verdict with specific, actionable issues
+4. **Try to break it** — boundaries, absent input, wrong shapes, scale, concurrency, dependency failure. If a threat model exists, run each exploit it named
+5. Return a verdict with specific, actionable issues, plus what it attacked and what held
 
-Reading and running are both its job: two ways of catching what the Coder missed, done by a model that didn't write the code.
+Confirming the work and attacking it are both its job. The author is blind exactly where they erred — the same reasoning that produced the bug explains why there's no bug. A fresh model doesn't share that blind spot, which is why the attack step belongs here and not in the Coder.
 
 Use after `/ldo-coder`, or standalone on any diff.
 
