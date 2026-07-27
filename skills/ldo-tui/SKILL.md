@@ -21,9 +21,9 @@ When in doubt, build the stream version. It composes with pipes, scripts cleanly
 
 The terminal's native input is the keyboard. Honour the conventions people already carry:
 
-- `q` or `Esc` quits. `Ctrl+C` always.
+- `q` quits; `Esc` cancels or goes back (not always quit); `Ctrl+C` always interrupts, and always works. For a tool where quitting loses work, confirm an accidental `q`/`Esc` — "pressed one too many and lost my place" is a documented complaint, not a nitpick.
 - `?` shows help, `/` searches, `:` opens a command line if you have one.
-- `j`/`k` or arrows scroll; `g`/`G` top and bottom; `Tab` moves focus; `Enter` selects.
+- `j`/`k` or arrows scroll; `g`/`G` top and bottom; `Tab` moves focus; `Enter` confirms, `Space` toggles.
 
 Show the keybindings on screen, at least until the user is fluent. `?` is expected; a hidden keymap is a dead end.
 
@@ -59,6 +59,19 @@ The terminal is hostile: it resizes, it runs inside `tmux` and `screen` and `ssh
 - **Broken on resize** — a layout that collapses or overlaps instead of reflowing.
 - **Gradient and ASCII-art headings** — the "AI slop" look: purple-to-cyan title text, centered everything, decorative art. It reads as effort spent on appearance rather than the tool.
 - **Full-screen redraw flicker** — repainting the whole frame each tick instead of the changed region.
+
+## Keys, and where they break
+
+Terminals encode keys as bytes, and several of those encodings collide. If you bind control-key combos you will hit this — so design for the lowest common denominator, not the terminal you're testing in.
+
+- **`Ctrl` + letter is `key & 0x1F`.** So `Ctrl-M` is Enter, `Ctrl-I` is Tab, `Ctrl-H` is Backspace, `Ctrl-[` is Esc, `Ctrl-D` is end-of-file. You can't bind these as distinct actions.
+- **`Ctrl-S` / `Ctrl-Q` are XON/XOFF.** With default TTY settings the kernel freezes output on `Ctrl-S` and your app never sees the key — the screen just stops. Don't bind them; if you must, tell users to `stty -ixon`.
+- **`Ctrl+Shift+letter` is indistinguishable from `Ctrl+letter`** in the legacy encoding. Shift as a separate modifier needs the Kitty protocol, below.
+- **macOS has no Meta key by default.** Option composes characters; `Alt`/`Meta` bindings silently do nothing until the user changes a terminal setting. Never make a Meta binding essential.
+- **Modifier + arrow is unreliable** — encodings vary across terminals and terminfo has no standard caps for `Ctrl`/`Alt`+arrow. Bare arrows are safe; modified arrows aren't.
+- **`Esc` is ambiguous.** The byte `0x1B` is both a lone Esc and the prefix of every escape sequence, so parsers wait on a timer to decide — and under `tmux` that timer defaults to half a second. A laggy Esc is a terminal problem, not yours, but it's why Esc-to-quit can feel sluggish.
+
+The **Kitty keyboard protocol** (`CSI u`) fixes the ambiguity and is supported by kitty, foot, Ghostty, iTerm2, WezTerm, Alacritty, Windows Terminal, and the libraries Textual (≥0.67), Bubble Tea v2, and crossterm. **But `tmux` does not pass it through** — the enable sequence is silently dropped, and a large share of users run inside a multiplexer. Design for the legacy encoding; opt into Kitty as progressive enhancement when you detect it.
 
 ## Process — two passes, with a critique between
 

@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] — 2026-07-28
+
+### Added
+
+- **`/ldo-tui` gained the keyboard-encoding traps section** it was missing.
+  Terminals encode keys as bytes and several collide: `Ctrl`+letter is `key &
+  0x1F` (so Ctrl-M/I/H/[ collide with Enter/Tab/Backspace/Esc), `Ctrl-S`/`Ctrl-Q`
+  are XON/XOFF and freeze the TTY by default, `Ctrl+Shift+letter` is indistinguishable
+  from `Ctrl+letter`, macOS has no Meta key by default, and modifier+arrow is
+  unreliable across terminals. The Kitty keyboard protocol fixes this but tmux
+  doesn't pass it through — so design for the legacy encoding and treat Kitty as
+  enhancement. Also softened "q or Esc quits" — Esc is better as cancel/go-back,
+  and a tool that loses work on quit should confirm an accidental one.
+
 ## [2.5.0] — 2026-07-28
 
 ### Added
