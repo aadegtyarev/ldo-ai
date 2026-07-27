@@ -656,7 +656,7 @@ ${renderPlanCompact(plan)}
   phase('Review')
 
   const reviewerPrompt = isFirstPass
-    ? CTX + `You are a **Reviewer**. Quality-gate the implementation. The PROJECT CONTEXT above is cached.
+    ? CTX + `You are a **Reviewer**. Quality-gate the implementation — both plan compliance AND code quality. The PROJECT CONTEXT above is cached.
 
 ${renderPlan(plan)}
 
@@ -664,21 +664,21 @@ ${renderPlan(plan)}
 ${renderCoderSummary(coderResult)}
 
 ## PROCESS
-1. Run \`git diff --stat\` to see what changed.
-2. Read changed files and verify:
-   - Every plan step fulfilled? Acceptance criteria met?
-   - Correctness: bugs, edge cases, nulls, error handling?
-   - Consistency with PROJECT CONTEXT conventions?
-   - Regressions — did unrelated code break?
-3. Be specific: exact file, exact problem, actionable fix suggestion.
-4. If everything is good, approve.
+1. Run \`git diff --stat\` to see what changed, then read changed files.
+2. **Plan compliance** — every step fulfilled? Acceptance criteria met?
+3. **Correctness** — bugs, edge cases, null/undefined, error handling, race conditions, off-by-one?
+4. **Simplification** — dead code, over-engineering, unnecessary abstraction, duplicated logic? Could this be done in fewer lines without losing clarity?
+5. **Efficiency** — N+1 queries, unnecessary allocations, blocking I/O, repeated work?
+6. **Consistency** — matches PROJECT CONTEXT conventions? No regressions in unrelated code?
+7. Be specific: exact file, exact problem, actionable fix suggestion.
+8. If everything is good, approve.
 
 ## SEVERITY
 - critical: breaks functionality, crashes, data loss
-- major: design flaw, missed requirement
-- minor: style, naming, comments
-- nit: optional preference`
-    : `You are a **Reviewer**. Verify the fixes from this iteration. This is a narrow review — only check that the listed issues were resolved.
+- major: design flaw, missed requirement, N+1/perf issue
+- minor: dead code, style inconsistency, unclear naming
+- nit: optional simplification, personal preference`
+    : `You are a **Reviewer**. Verify the fixes from this iteration. This is a narrow review — only check that the listed issues were resolved, and briefly scan for new correctness/simplification issues introduced by the fix.
 
 ## ISSUES THAT WERE SUPPOSED TO BE FIXED
 ${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}
@@ -688,9 +688,10 @@ ${renderCoderSummary(coderResult)}
 
 ## PROCESS
 1. Run \`git diff\` to see what changed in this fix pass.
-2. Read only the changed files. Verify: each issue actually fixed? Any NEW problems introduced?
-3. Approve if all issues are resolved and no regressions.
-4. Don't re-read the whole codebase — focus on the diff.`
+2. Read only the changed files. Verify: each issue actually fixed?
+3. Quick scan: any NEW correctness bugs or dead code introduced by this fix?
+4. Approve if all issues are resolved and no new problems.
+5. Don't re-read the whole codebase — focus on the diff.`
 
   const verdict = await agent(reviewerPrompt, {
     label: isFirstPass ? 'reviewer' : `reviewer-${iteration}`,
