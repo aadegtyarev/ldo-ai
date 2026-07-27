@@ -1,5 +1,5 @@
 ---
-name: planner
+name: ldo-planner
 description: Read the codebase and produce an implementation plan with complexity and security ratings
 ---
 
@@ -20,4 +20,4 @@ The planner will:
 
 Its `codebase_context` is the only repo information downstream agents get — they don't re-scan.
 
-Use before `/coder`, or let `/ldo` run the whole pipeline.
+Use before `/ldo-coder`, or let `/ldo:ldo` run the whole pipeline.

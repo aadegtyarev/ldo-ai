@@ -1,5 +1,5 @@
 ---
-name: reviewer
+name: ldo-reviewer
 description: Review the diff and drive the running app to prove acceptance criteria hold
 ---
 
@@ -20,7 +20,7 @@ The reviewer will:
 
 Reading and running are both its job: two ways of catching what the Coder missed, done by a model that didn't write the code.
 
-Use after `/coder`, or standalone on any diff.
+Use after `/ldo-coder`, or standalone on any diff.
 
 ## Layering with the built-ins
 

@@ -1,5 +1,5 @@
 ---
-name: researcher
+name: ldo-researcher
 description: Multi-source web research with cross-verification — decompose, search from several angles, verify claims, report confidence
 ---
 
@@ -18,7 +18,7 @@ The researcher will:
 4. Report confidence per finding (`high` / `medium` / `low`) with the sources behind it
 5. Surface contradictions rather than silently picking a winner, and name what it couldn't answer
 
-Use before `/planner` when the task needs domain knowledge the repo doesn't contain, or standalone for a researched answer.
+Use before `/ldo-planner` when the task needs domain knowledge the repo doesn't contain, or standalone for a researched answer.
 
 ## When to reach for `/deep-research` instead
 

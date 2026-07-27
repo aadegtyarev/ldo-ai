@@ -1,5 +1,5 @@
 ---
-name: bootstrapper
+name: ldo-bootstrap
 description: Turn a rough project idea into a researched blueprint — prior art, stack choice, phased roadmap. Interactive: ask, decide together, then hand the first task to /ldo.
 ---
 

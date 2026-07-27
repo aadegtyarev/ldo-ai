@@ -1,5 +1,5 @@
 ---
-name: coder
+name: ldo-coder
 description: Set up the environment, implement the plan with tests, update user-facing docs
 ---
 
@@ -21,4 +21,4 @@ The coder will:
 
 Environment setup, tests, and docs are all its job — it needs the environment to run tests anyway, and it already knows what changed.
 
-Use after `/planner`, before `/reviewer`.
+Use after `/ldo-planner`, before `/ldo-reviewer`.

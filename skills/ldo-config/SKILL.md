@@ -1,5 +1,5 @@
 ---
-name: config
+name: ldo-config
 description: Configure LDO model routing — which model runs which role, and when the optional agents fire
 ---
 
@@ -18,7 +18,7 @@ Workflow({ name: "ldo", args: {
 
 So "configuring LDO" means one of two things:
 
-1. **Per project (the usual way)** — put the routing in the project's `CLAUDE.md`, inside the LDO block that `/ldo:init` writes. Claude reads that every session and passes it on each run.
+1. **Per project (the usual way)** — put the routing in the project's `CLAUDE.md`, inside the LDO block that `/ldo-init` writes. Claude reads that every session and passes it on each run.
 2. **Per run** — pass `config` inline, as above, to override for one invocation.
 
 `ldo-config.example.json` in the plugin is a reference template of every key with its default. Copy from it; nothing reads it directly.
@@ -56,7 +56,7 @@ Two are conditional:
 | **researcher** | `research: true`, or `researchByDefault` — task needs knowledge from outside the repo |
 | **security** | The Planner rates `security_surface: "elevated"` — new input, auth, secrets, injection, dependency, or crypto surface |
 
-Starting a project from scratch isn't part of the pipeline — `/bootstrapper` handles that as a conversation, then hands the first task to `/ldo`.
+Starting a project from scratch isn't part of the pipeline — `/ldo-bootstrap` handles that as a conversation, then hands the first task to `/ldo:ldo`.
 
 ## Which tier applies
 
@@ -98,7 +98,7 @@ Workflow({name: "ldo", args: {
 
 ## Check it took effect
 
-Run `/ldo` on something small and read the log line after Plan:
+Run `/ldo:ldo` on something small and read the log line after Plan:
 
 ```
 Complexity: medium  |  Security surface: none  |  Coder:sonnet  Reviewer:opus
@@ -108,4 +108,4 @@ That's the routing that actually applied.
 
 ## Standalone calls
 
-Agent files deliberately declare no model — this config is the only place routing lives. Calling `/coder` or `/reviewer` directly runs it on your session's current model. To pin one, use the workflow, or pass a model when invoking the agent.
+Agent files deliberately declare no model — this config is the only place routing lives. Calling `/ldo-coder` or `/ldo-reviewer` directly runs it on your session's current model. To pin one, use the workflow, or pass a model when invoking the agent.

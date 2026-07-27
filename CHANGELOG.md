@@ -5,6 +5,26 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] — 2026-07-27
+
+### Changed — BREAKING
+
+- **Every skill is now prefixed `ldo-`.** Skills are *not* namespaced by plugin the
+  way agents are: the docs say a plugin skill creates a bare `/name` shortcut. So
+  `/init` and `/config` were shadowing Claude Code's own built-in commands of the
+  same name, and nothing clustered under a searchable prefix.
+
+  | Was | Now |
+  |---|---|
+  | `/init` ⚠ clashed with built-in | `/ldo-init` |
+  | `/config` ⚠ clashed with built-in | `/ldo-config` |
+  | `/planner`, `/coder`, `/reviewer` | `/ldo-planner`, `/ldo-coder`, `/ldo-reviewer` |
+  | `/security`, `/researcher` | `/ldo-security`, `/ldo-researcher` |
+  | `/bootstrapper` | `/ldo-bootstrap` |
+  | `/agent-ux` | `/ldo-agent-ux` |
+
+  The workflow is unaffected — workflows *are* namespaced, so it stays `/ldo:ldo`.
+
 ## [1.5.0] — 2026-07-27
 
 ### Fixed
@@ -18,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reaches it only through `args.config` at invocation. The file sat in the repo doing
   nothing while the docs told you to edit it — worse than a visible failure, because
   routing silently stayed on defaults. It's now `ldo-config.example.json`, a labelled
-  reference template, and `/ldo:config`, `/ldo:init`, and the README explain the real
+  reference template, and `/ldo-config`, `/ldo-init`, and the README explain the real
   mechanism: put routing in the project's `CLAUDE.md`, or pass it per run.
 - **Screenshots were committed to the public repo.** `incoming/` (files relayed from
   chat) was tracked and shipped inside the plugin. Untracked and gitignored.
@@ -38,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`/ldo:init` — make LDO self-driving per project.** Writes a short routing
+- **`/ldo-init` — make LDO self-driving per project.** Writes a short routing
   block into the project's `CLAUDE.md` (between idempotent markers). Claude then
   routes work on its own: trivial changes inline, real changes through the pipeline,
   security-sensitive ones with the threat-model phase. No more typing `/ldo` for
@@ -62,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Getting-started and project-setup guide.** The README now walks through the
   actual workflow — first-time routing config, starting a project with
-  `/ldo:bootstrap`, working an existing project with `/ldo:ldo`, and opting extra
+  `/ldo-bootstrap`, working an existing project with `/ldo:ldo`, and opting extra
   phases in for big changes. Plus a team-setup section: commit `.claude/ldo-config.json`
   and an `enabledPlugins` block in `.claude/settings.json`, and teammates get LDO
   plus the recommended companion plugins (`security-guidance`, the language LSP, …)
@@ -71,7 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Commands cluster under the `ldo:` namespace.** Installing as the `ldo` plugin
-  namespaces every skill — `/ldo:planner`, `/ldo:coder`, `/ldo:reviewer`, and so on —
+  namespaces every skill — `/ldo-planner`, `/ldo-coder`, `/ldo-reviewer`, and so on —
   so they group in the command palette. The ecosystem uses a colon prefix, not a
   hyphen; baking `ldo-` into names would double up under the namespace.
 - **Renamed `ldo-config` skill to `config`** to avoid the double `ldo:ldo-config`.

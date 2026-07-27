@@ -1,5 +1,5 @@
 ---
-name: agent-ux
+name: ldo-agent-ux
 description: Design the interface a model works in — context blocks, labels, markers, command names, state — the way you'd design a dense console interface
 ---
 

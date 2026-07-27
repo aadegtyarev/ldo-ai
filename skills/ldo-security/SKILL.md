@@ -1,5 +1,5 @@
 ---
-name: security
+name: ldo-security
 description: Security threat analysis of code changes — OWASP top 10, injection, auth, data exposure, supply chain
 ---
 
@@ -18,4 +18,4 @@ The security agent will:
 4. Provide exploit scenarios and actionable fixes
 5. Reference CWE codes where applicable
 
-Use after `/reviewer` approves changes, or standalone on any diff to audit security posture.
+Use after `/ldo-reviewer` approves changes, or standalone on any diff to audit security posture.

@@ -27,14 +27,14 @@ Updates come with `/plugin update ldo@ldo-ai`. Scope is user (every project), pr
 
 ## Getting started
 
-**First time, configure routing.** The defaults already put Sonnet on Code and Opus on Review, so you can skip this. To change it, run `/ldo:config` — routing is passed to the pipeline at invocation (a workflow can't read config files), so `/ldo:config` helps you put it in the right place.
+**First time, configure routing.** The defaults already put Sonnet on Code and Opus on Review, so you can skip this. To change it, run `/ldo-config` — routing is passed to the pipeline at invocation (a workflow can't read config files), so `/ldo-config` helps you put it in the right place.
 
-**Make it self-driving.** Run `/ldo:init` once in a project. It writes a short block into `CLAUDE.md` that tells Claude how to route work on its own — trivial changes inline, real changes through the pipeline — so you stop typing `/ldo` for every task. Edit the block directly to tune the thresholds to your taste; it loads every session.
+**Make it self-driving.** Run `/ldo-init` once in a project. It writes a short block into `CLAUDE.md` that tells Claude how to route work on its own — trivial changes inline, real changes through the pipeline — so you stop typing `/ldo:ldo` for every task. Edit the block directly to tune the thresholds to your taste; it loads every session.
 
 **Starting a new project** is a conversation, not a pipeline:
 
 ```
-/ldo:bootstrap "a TUI for tracking reading progress, syncing over a plain git repo"
+/ldo-bootstrap "a TUI for tracking reading progress, syncing over a plain git repo"
 ```
 
 It researches what already exists, works the stack out with you, and ends by naming the first task. Hand that to the pipeline:
@@ -63,7 +63,7 @@ A typo runs Plan → Code → Review and stops. A feature adds Setup and Docs. A
 
 Commit two things so teammates get the same behaviour on first open:
 
-**`CLAUDE.md`** — run `/ldo:init` to write the routing block, then commit it. This is where per-project model routing lives; Claude reads it every session and passes it to the pipeline.
+**`CLAUDE.md`** — run `/ldo-init` to write the routing block, then commit it. This is where per-project model routing lives; Claude reads it every session and passes it to the pipeline.
 
 **`.claude/settings.json`** — pin LDO and the plugins worth having alongside it:
 
@@ -97,7 +97,7 @@ Two more run only when they earn their place:
 | **Researcher** | `research: true` — the task needs domain knowledge from outside the repo |
 | **Security** | The Planner rates the change's attack surface `elevated` |
 
-Starting a project from nothing is a conversation, not a pipeline — use `/bootstrapper "your idea"` for that. It researches prior art, works through the stack with you, and hands the first task to `/ldo`.
+Starting a project from nothing is a conversation, not a pipeline — use `/ldo-bootstrap "your idea"` for that. It researches prior art, works through the stack with you, and hands the first task to `/ldo:ldo`.
 
 ### Why the Planner decides about Security
 
@@ -128,7 +128,7 @@ Every role has to answer: *would I route this to a different model than the Code
 
 That leaves the three roles the protocol started with — plus two specialists that genuinely want different models and genuinely don't always run.
 
-Bootstrapping went the other way: it produces *decisions*, not code, and decisions need a conversation. It lives as `/bootstrapper`, where you can push back on a stack choice and get a revised answer.
+Bootstrapping went the other way: it produces *decisions*, not code, and decisions need a conversation. It lives as `/ldo-bootstrap`, where you can push back on a stack choice and get a revised answer.
 
 ## Token efficiency
 
@@ -170,7 +170,7 @@ Workflow({name:"ldo", args:{
 }})
 ```
 
-Walk through it: `/ldo:config` in Claude Code.
+Walk through it: `/ldo-config` in Claude Code.
 
 ## Usage
 
@@ -181,15 +181,15 @@ Installed as the `ldo` plugin, every command is namespaced — type `ldo` in the
 | `/ldo:ldo "task"` | Full pipeline (Plan → Code ⇄ Review) |
 | `/ldo:ldo` + `research: true` | Add the web research phase |
 | `/ldo:ldo` + `security: true` \| `false` | Force the threat model on or off |
-| `/ldo:bootstrap "idea"` | Start a project — prior art, stack, roadmap (interactive) |
-| `/ldo:planner "task"` | Plan only |
-| `/ldo:coder "task"` | Implement a plan |
-| `/ldo:reviewer` | Review the current diff and drive the app |
-| `/ldo:security` | Threat-model a plan |
-| `/ldo:researcher "topic"` | Multi-source web research |
-| `/ldo:config` | Walk through model routing |
-| `/ldo:init` | Write the self-routing block into the project's `CLAUDE.md` |
-| `/ldo:agent-ux` | Shape an agent's output/context for the dual reader |
+| `/ldo-bootstrap "idea"` | Start a project — prior art, stack, roadmap (interactive) |
+| `/ldo-planner "task"` | Plan only |
+| `/ldo-coder "task"` | Implement a plan |
+| `/ldo-reviewer` | Review the current diff and drive the app |
+| `/ldo-security` | Threat-model a plan |
+| `/ldo-researcher "topic"` | Multi-source web research |
+| `/ldo-config` | Walk through model routing |
+| `/ldo-init` | Write the self-routing block into the project's `CLAUDE.md` |
+| `/ldo-agent-ux` | Shape an agent's output/context for the dual reader |
 
 ## Use with the built-ins
 
