@@ -339,9 +339,9 @@ function renderBlueprint(bp) {
 // model than Coder. Model names mean whatever your setup routes them to — no
 // assumption is made about which is more capable.
 const DEFAULT_MODELS = {
-  trivial: { planner: 'haiku',  coder: 'haiku',  reviewer: 'sonnet', security: 'fable', researcher: 'fable', bootstrapper: 'sonnet' },
-  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'fable',  security: 'fable', researcher: 'fable', bootstrapper: 'fable' },
-  complex: { planner: 'fable',  coder: 'fable',  reviewer: 'fable',  security: 'fable', researcher: 'fable', bootstrapper: 'fable' },
+  trivial: { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'sonnet', bootstrapper: 'opus' },
+  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus',   bootstrapper: 'opus' },
+  complex: { planner: 'opus',   coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus',   bootstrapper: 'opus' },
 }
 
 function routeModels(complexity, config) {

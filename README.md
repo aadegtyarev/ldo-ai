@@ -85,9 +85,9 @@ That leaves the three roles the protocol started with — plus three specialists
 ```json
 {
   "models": {
-    "trivial": { "planner": "haiku",  "coder": "haiku",  "reviewer": "sonnet" },
-    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "fable"  },
-    "complex": { "planner": "fable",  "coder": "fable",  "reviewer": "fable"  }
+    "trivial": { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus" },
+    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus" },
+    "complex": { "planner": "opus",   "coder": "sonnet", "reviewer": "opus" }
   },
   "maxFixLoops": 3,
   "blockingSeverities": ["critical", "major"],
@@ -95,9 +95,9 @@ That leaves the three roles the protocol started with — plus three specialists
 }
 ```
 
-Note the defaults: on `trivial` and `medium` the Reviewer runs *above* the Coder. Cheap to write, careful to check.
+The Coder stays on Sonnet at every tier — it's a solid implementer, and the Reviewer above it catches what it misses. Only the Planner steps up on `complex`, where getting the approach wrong is expensive to unwind.
 
-Model names mean whatever your setup routes them to — the pipeline makes no assumption about which is stronger. Each tier also takes `security`, `researcher`, and `bootstrapper` keys.
+Model names mean whatever your setup routes them to. Each tier also takes `security`, `researcher`, and `bootstrapper` keys.
 
 Override per run:
 

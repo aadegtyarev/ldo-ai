@@ -1,30 +1,30 @@
 {
-  "_comment": "Model names mean whatever your setup routes them to. The point of the protocol: Reviewer can run stronger than Coder.",
+  "_comment": "Model names mean whatever your setup routes them to. The point of the protocol: Reviewer runs stronger than Coder.",
 
   "models": {
     "trivial": {
-      "planner": "haiku",
-      "coder": "haiku",
-      "reviewer": "sonnet",
-      "security": "fable",
-      "researcher": "fable",
-      "bootstrapper": "sonnet"
+      "planner": "sonnet",
+      "coder": "sonnet",
+      "reviewer": "opus",
+      "security": "opus",
+      "researcher": "sonnet",
+      "bootstrapper": "opus"
     },
     "medium": {
       "planner": "sonnet",
       "coder": "sonnet",
-      "reviewer": "fable",
-      "security": "fable",
-      "researcher": "fable",
-      "bootstrapper": "fable"
+      "reviewer": "opus",
+      "security": "opus",
+      "researcher": "opus",
+      "bootstrapper": "opus"
     },
     "complex": {
-      "planner": "fable",
-      "coder": "fable",
-      "reviewer": "fable",
-      "security": "fable",
-      "researcher": "fable",
-      "bootstrapper": "fable"
+      "planner": "opus",
+      "coder": "sonnet",
+      "reviewer": "opus",
+      "security": "opus",
+      "researcher": "opus",
+      "bootstrapper": "opus"
     }
   },
 
