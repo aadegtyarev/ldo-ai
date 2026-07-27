@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] — 2026-07-27
+
+### Fixed
+
+- **Plugin failed to install: "Validation errors: agents: Invalid input".** The
+  manifest pointed `agents` at a directory, but that field takes a list of files.
+  Rather than maintain a file list that drifts every time an agent is added, moved
+  the components to the canonical plugin layout — `agents/`, `skills/`, `workflows/`
+  at the plugin root — so no custom path fields are needed at all.
+- **`ldo-config.json` was never read.** A workflow has no filesystem access; config
+  reaches it only through `args.config` at invocation. The file sat in the repo doing
+  nothing while the docs told you to edit it — worse than a visible failure, because
+  routing silently stayed on defaults. It's now `ldo-config.example.json`, a labelled
+  reference template, and `/ldo:config`, `/ldo:init`, and the README explain the real
+  mechanism: put routing in the project's `CLAUDE.md`, or pass it per run.
+- **Screenshots were committed to the public repo.** `incoming/` (files relayed from
+  chat) was tracked and shipped inside the plugin. Untracked and gitignored.
+
 ## [1.4.1] — 2026-07-27
 
 ### Fixed

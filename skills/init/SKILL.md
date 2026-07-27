@@ -35,8 +35,10 @@ test for any behavior change, and update README/CHANGELOG for user-facing change
 For any report or handoff: verdict first, evidence not assertion, name what you're
 unsure of. See `/ldo:agent-ux`.
 
-Models route automatically (Sonnet writes, Opus reviews). Tune per-project in
-`.claude/ldo-config.json`, or `/ldo:config` for a walkthrough.
+Models route automatically: Sonnet writes, Opus reviews. To change that, pass the
+routing on the call — `Workflow({ name: "ldo", args: { task: "...", config: {
+models: { medium: { coder: "haiku", reviewer: "opus" } } } } })`. Keep any
+project-specific routing in this block so it's applied on every run.
 <!-- END ldo -->
 ```
 

@@ -3,9 +3,27 @@ name: config
 description: Configure LDO model routing — which model runs which role, and when the optional agents fire
 ---
 
-Walk through configuring `.claude/ldo-config.json`.
+Walk the operator through LDO's model routing and help them set it for this project.
 
-## The point of the config
+## How config actually reaches the pipeline
+
+A workflow has no filesystem access — it can't read a config file. Routing reaches it **only** through `args.config` at invocation:
+
+```js
+Workflow({ name: "ldo", args: {
+  task: "refactor the auth module",
+  config: { models: { medium: { coder: "haiku", reviewer: "opus" } } }
+}})
+```
+
+So "configuring LDO" means one of two things:
+
+1. **Per project (the usual way)** — put the routing in the project's `CLAUDE.md`, inside the LDO block that `/ldo:init` writes. Claude reads that every session and passes it on each run.
+2. **Per run** — pass `config` inline, as above, to override for one invocation.
+
+`ldo-config.example.json` in the plugin is a reference template of every key with its default. Copy from it; nothing reads it directly.
+
+## The defaults
 
 The protocol exists so different roles can run on different models. The default puts a stronger model on Review than on Code: cheap to write, careful to check.
 
@@ -19,7 +37,7 @@ The protocol exists so different roles can run on different models. The default 
 }
 ```
 
-Model names mean whatever your setup routes them to — the pipeline assumes nothing about which is stronger.
+These apply when nothing is passed. Model names mean whatever your setup routes them to — the pipeline assumes nothing about which is stronger.
 
 ## The roles
 

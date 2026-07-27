@@ -27,7 +27,7 @@ Updates come with `/plugin update ldo@ldo-ai`. Scope is user (every project), pr
 
 ## Getting started
 
-**First time, configure routing.** Run `/ldo:config` for a walkthrough, or edit `.claude/ldo-config.json` directly. The default already puts Sonnet on Code and Opus on Review — change it only if your proxy routes models differently or you want a different split.
+**First time, configure routing.** The defaults already put Sonnet on Code and Opus on Review, so you can skip this. To change it, run `/ldo:config` — routing is passed to the pipeline at invocation (a workflow can't read config files), so `/ldo:config` helps you put it in the right place.
 
 **Make it self-driving.** Run `/ldo:init` once in a project. It writes a short block into `CLAUDE.md` that tells Claude how to route work on its own — trivial changes inline, real changes through the pipeline — so you stop typing `/ldo` for every task. Edit the block directly to tune the thresholds to your taste; it loads every session.
 
@@ -61,11 +61,11 @@ A typo runs Plan → Code → Review and stops. A feature adds Setup and Docs. A
 
 ### Set up a project for a team
 
-Commit two files so teammates get the same routing and companion plugins on first open:
+Commit two things so teammates get the same behaviour on first open:
 
-`.claude/ldo-config.json` — your model routing (run `/ldo:config`, then commit it).
+**`CLAUDE.md`** — run `/ldo:init` to write the routing block, then commit it. This is where per-project model routing lives; Claude reads it every session and passes it to the pipeline.
 
-`.claude/settings.json` — pin LDO and the plugins worth having alongside it:
+**`.claude/settings.json`** — pin LDO and the plugins worth having alongside it:
 
 ```json
 {
@@ -225,22 +225,21 @@ Worth installing from `claude-plugins-official`:
 
 ```
 .claude-plugin/
-└── plugin.json          # Plugin manifest
+└── plugin.json              # Plugin manifest
 
-.claude/
-├── workflows/ldo.js     # Orchestrator (~520 lines)
-├── agents/              # Prompts live here
-│   ├── planner.md
-│   ├── coder.md
-│   ├── reviewer.md
-│   ├── security.md
-│   └── researcher.md
-├── skills/              # One slash-command per role, plus bootstrap, config, agent-ux
-│   └── <name>/SKILL.md
-└── ldo-config.json      # Model routing
+workflows/ldo.js             # Orchestrator (~520 lines)
+agents/                      # Prompts live here
+├── planner.md
+├── coder.md
+├── reviewer.md
+├── security.md
+└── researcher.md
+skills/                      # One slash-command per role, plus bootstrap, config, init, agent-ux
+└── <name>/SKILL.md
+ldo-config.example.json      # Reference template of every config key
 ```
 
-Installing the plugin writes only the files listed above. Your own settings, hooks, and agents are never touched; `/plugin update` carries only LDO's files.
+Installing the plugin adds only these. Your own settings, hooks, and agents are never touched; `/plugin update` carries only LDO's files.
 
 ## Contributing
 
