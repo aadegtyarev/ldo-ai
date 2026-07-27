@@ -29,6 +29,8 @@ Updates come with `/plugin update ldo@ldo-ai`. Scope is user (every project), pr
 
 **First time, configure routing.** Run `/ldo:config` for a walkthrough, or edit `.claude/ldo-config.json` directly. The default already puts Sonnet on Code and Opus on Review — change it only if your proxy routes models differently or you want a different split.
 
+**Make it self-driving.** Run `/ldo:init` once in a project. It writes a short block into `CLAUDE.md` that tells Claude how to route work on its own — trivial changes inline, real changes through the pipeline — so you stop typing `/ldo` for every task. Edit the block directly to tune the thresholds to your taste; it loads every session.
+
 **Starting a new project** is a conversation, not a pipeline:
 
 ```

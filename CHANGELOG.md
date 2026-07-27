@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] — 2026-07-27
+
+### Added
+
+- **`/ldo:init` — make LDO self-driving per project.** Writes a short routing
+  block into the project's `CLAUDE.md` (between idempotent markers). Claude then
+  routes work on its own: trivial changes inline, real changes through the pipeline,
+  security-sensitive ones with the threat-model phase. No more typing `/ldo` for
+  every task. The block is plain prose — edit it to tune the thresholds. Loads every
+  session, so it's kept short.
+
 ## [1.3.1] — 2026-07-27
 
 ### Fixed
