@@ -8,20 +8,16 @@ The plan is held by a deterministic script, not by a model remembering it turn t
 
 ## Install
 
-Requires Node 18+ and Claude Code.
+Requires Claude Code v2.1.154+ (the workflow runtime).
 
-```bash
-# Into the current project
-npx ldo-ai
-
-# Globally (available in every Claude Code session)
-npx ldo-ai --global
-
-# Custom directory, if your config lives somewhere non-standard
-npx ldo-ai --target /opt/claude/.claude
+```
+/plugin marketplace add aadegtyarev/ldo-ai
+/plugin install ldo@ldo-ai
 ```
 
-Set your model routing in `.claude/ldo-config.json`, then in Claude Code:
+Updates come with `/plugin update ldo@ldo-ai`. Scope is user (every project), project (committed to the repo for teammates), or local — Claude Code prompts you to choose.
+
+Set your model routing in `.claude/ldo-config.json`, then:
 
 ```
 /ldo "add rate limiting middleware"
@@ -184,7 +180,7 @@ Worth installing from `claude-plugins-official`:
 └── ldo-config.json      # Model routing
 ```
 
-The installer writes exactly these files — your own settings, hooks, and agents are never touched. Re-running it skips anything you've edited unless you pass `--force`.
+Installing the plugin writes only the files listed above. Your own settings, hooks, and agents are never touched; `/plugin update` carries only LDO's files.
 
 ## Contributing
 

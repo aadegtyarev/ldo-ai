@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-07-27
+
+### Changed
+
+- **Distribution moved to a Claude Code plugin marketplace; npx removed.**
+  The previous `npx ldo-ai` installer copied files into `.claude/` with no version
+  tracking and no update path. A marketplace (`/plugin marketplace add`, then
+  `/plugin install`) is the native mechanism — it carries updates, scope (user /
+  project / local), and discovery. Added `.claude-plugin/marketplace.json`, removed
+  `bin/ldo-install.js` and `package.json`.
+
 ## [1.1.0] — 2026-07-27
 
 ### Changed

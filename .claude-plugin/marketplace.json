@@ -1,0 +1,28 @@
+{
+  "name": "ldo-ai",
+  "owner": {
+    "name": "Alexander Degtyarev",
+    "email": "adegtyarev.ap@gmail.com",
+    "url": "https://github.com/aadegtyarev"
+  },
+  "metadata": {
+    "description": "LDO — Lightweight Dev Orchestrator. Single-plugin marketplace.",
+    "version": "1.2.0"
+  },
+  "plugins": [
+    {
+      "name": "ldo",
+      "source": "./",
+      "description": "Planner, Coder, Reviewer pipeline with a different model per role. Route implementation to a cheap model and review to a strong one.",
+      "version": "1.2.0",
+      "category": "orchestration",
+      "keywords": [
+        "orchestration",
+        "workflow",
+        "code-review",
+        "model-routing",
+        "pipeline"
+      ]
+    }
+  ]
+}
