@@ -188,6 +188,7 @@ Installed as the `ldo` plugin, every command is namespaced — type `ldo` in the
 | `/ldo:security` | Threat-model a plan |
 | `/ldo:researcher "topic"` | Multi-source web research |
 | `/ldo:config` | Walk through model routing |
+| `/ldo:init` | Write the self-routing block into the project's `CLAUDE.md` |
 | `/ldo:agent-ux` | Shape an agent's output/context for the dual reader |
 
 ## Use with the built-ins
