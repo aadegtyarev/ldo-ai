@@ -7,14 +7,14 @@
   },
   "metadata": {
     "description": "LDO — Lightweight Dev Orchestrator. Single-plugin marketplace.",
-    "version": "1.2.0"
+    "version": "1.3.0"
   },
   "plugins": [
     {
       "name": "ldo",
       "source": "./",
       "description": "Planner, Coder, Reviewer pipeline with a different model per role. Route implementation to a cheap model and review to a strong one.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "category": "orchestration",
       "keywords": [
         "orchestration",
@@ -24,5 +24,6 @@
         "pipeline"
       ]
     }
-  ]
+  ],
+  "version": "1.3.0"
 }

@@ -5,6 +5,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-07-27
+
+### Added
+
+- **Getting-started and project-setup guide.** The README now walks through the
+  actual workflow — first-time routing config, starting a project with
+  `/ldo:bootstrap`, working an existing project with `/ldo:ldo`, and opting extra
+  phases in for big changes. Plus a team-setup section: commit `.claude/ldo-config.json`
+  and an `enabledPlugins` block in `.claude/settings.json`, and teammates get LDO
+  plus the recommended companion plugins (`security-guidance`, the language LSP, …)
+  prompted on first open.
+
+### Changed
+
+- **Commands cluster under the `ldo:` namespace.** Installing as the `ldo` plugin
+  namespaces every skill — `/ldo:planner`, `/ldo:coder`, `/ldo:reviewer`, and so on —
+  so they group in the command palette. The ecosystem uses a colon prefix, not a
+  hyphen; baking `ldo-` into names would double up under the namespace.
+- **Renamed `ldo-config` skill to `config`** to avoid the double `ldo:ldo-config`.
+- **Recommended companion plugins** (`security-guidance`, frontend/browser tooling,
+  language LSPs) are now declared via the project `enabledPlugins` block rather than
+  as hard plugin dependencies — declaring cross-marketplace deps risks breaking the
+  install if resolution fails, while `enabledPlugins` prompts safely at project open.
+
 ## [1.2.0] — 2026-07-27
 
 ### Changed

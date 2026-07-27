@@ -1,5 +1,5 @@
 ---
-name: ldo-config
+name: config
 description: Configure LDO model routing — which model runs which role, and when the optional agents fire
 ---
 

@@ -17,11 +17,57 @@ Requires Claude Code v2.1.154+ (the workflow runtime).
 
 Updates come with `/plugin update ldo@ldo-ai`. Scope is user (every project), project (committed to the repo for teammates), or local — Claude Code prompts you to choose.
 
-Set your model routing in `.claude/ldo-config.json`, then:
+## Getting started
+
+**First time, configure routing.** Run `/ldo:config` for a walkthrough, or edit `.claude/ldo-config.json` directly. The default already puts Sonnet on Code and Opus on Review — change it only if your proxy routes models differently or you want a different split.
+
+**Starting a new project** is a conversation, not a pipeline:
 
 ```
-/ldo "add rate limiting middleware"
+/ldo:bootstrap "a TUI for tracking reading progress, syncing over a plain git repo"
 ```
+
+It researches what already exists, works the stack out with you, and ends by naming the first task. Hand that to the pipeline:
+
+```
+/ldo:ldo "scaffold the Go module with Bubble Tea, rendering an empty list view that exits on q"
+```
+
+**Working on an existing project** is one command. The Planner reads the codebase, rates the task, and the pipeline scales itself:
+
+```
+/ldo:ldo "add rate limiting to the API endpoints"
+```
+
+A typo runs Plan → Code → Review and stops. A feature adds Setup and Docs. A change with an attack surface adds a threat model. You don't pick the phases — the rating does.
+
+**For a big or uncertain change**, opt the extra phases in:
+
+```
+/ldo:ldo research:true security:true "switch auth from sessions to JWT"
+```
+
+**After the pipeline**, get a second opinion from the built-ins LDO doesn't duplicate — `/code-review high` for a multi-agent correctness pass, `/security-review`, or `/deep-research` when the call is expensive to reverse.
+
+### Set up a project for a team
+
+Commit two files so teammates get the same routing and companion plugins on first open:
+
+`.claude/ldo-config.json` — your model routing (run `/ldo:config`, then commit it).
+
+`.claude/settings.json` — pin LDO and the plugins worth having alongside it:
+
+```json
+{
+  "enabledPlugins": {
+    "ldo@ldo-ai": true,
+    "security-guidance@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
+  }
+}
+```
+
+When a teammate opens the repo, Claude Code prompts them to install everything listed. Swap the LSP for your language (`gopls-lsp`, `rust-analyzer-lsp`, `pyright-lsp`, …); add `chrome-devtools-mcp` for web UIs, `frontend-design` for design direction. See [Use with the built-ins](#use-with-the-built-ins) below for what each does.
 
 ## Pipeline
 
@@ -114,22 +160,25 @@ Workflow({name:"ldo", args:{
 }})
 ```
 
-Walk through it: `/ldo-config` in Claude Code.
+Walk through it: `/ldo:config` in Claude Code.
 
 ## Usage
 
+Installed as the `ldo` plugin, every command is namespaced — type `ldo` in the command palette and they cluster together.
+
 | Command | What |
 |---------|------|
-| `/ldo "task"` | Full pipeline |
-| `/ldo` + `research: true` | Add the web research phase |
-| `/ldo` + `security: true` \| `false` | Force the threat model on or off |
-| `/bootstrapper "idea"` | Start a project — prior art, stack, roadmap (interactive) |
-| `/planner "task"` | Plan only |
-| `/coder "task"` | Implement a plan |
-| `/reviewer` | Review the current diff and drive the app |
-| `/security` | Threat-model a plan |
-| `/researcher "topic"` | Multi-source web research |
-| `/ldo-config` | Walk through model routing |
+| `/ldo:ldo "task"` | Full pipeline (Plan → Code ⇄ Review) |
+| `/ldo:ldo` + `research: true` | Add the web research phase |
+| `/ldo:ldo` + `security: true` \| `false` | Force the threat model on or off |
+| `/ldo:bootstrap "idea"` | Start a project — prior art, stack, roadmap (interactive) |
+| `/ldo:planner "task"` | Plan only |
+| `/ldo:coder "task"` | Implement a plan |
+| `/ldo:reviewer` | Review the current diff and drive the app |
+| `/ldo:security` | Threat-model a plan |
+| `/ldo:researcher "topic"` | Multi-source web research |
+| `/ldo:config` | Walk through model routing |
+| `/ldo:agent-ux` | Shape an agent's output/context for the dual reader |
 
 ## Use with the built-ins
 
@@ -175,7 +224,7 @@ Worth installing from `claude-plugins-official`:
 │   ├── reviewer.md
 │   ├── security.md
 │   └── researcher.md
-├── skills/              # One slash-command per role, plus bootstrapper and ldo-config
+├── skills/              # One slash-command per role, plus bootstrap, config, agent-ux
 │   └── <name>/SKILL.md
 └── ldo-config.json      # Model routing
 ```
