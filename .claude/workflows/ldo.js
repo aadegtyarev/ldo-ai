@@ -1,81 +1,19 @@
 export const meta = {
   name: 'ldo',
-  description: 'Lightweight Dev Orchestrator: [Bootstrap→]Scout→[Explore→][Research→]Plan→[Security→]Code⇄Review→Setup→[Verify→]Docs',
+  description: 'Lightweight Dev Orchestrator: [Bootstrap→][Research→]Plan→[Security→]Code⇄Review',
   phases: [
-    { title: 'Bootstrap', detail: 'Greenfield: research, stack, roadmap' },
-    { title: 'Scout', detail: 'Read codebase ONCE → deterministic snapshot (cache-stable)' },
-    { title: 'Explore', detail: 'Task-specific codebase search (opt-in)' },
-    { title: 'Research', detail: 'Deep web research on topic (opt-in)' },
-    { title: 'Plan', detail: 'Task + snapshot → plan (no codebase re-read)' },
-    { title: 'Security', detail: 'Threat model the PLAN before coding (opt-in)' },
-    { title: 'Code', detail: 'Implement plan, write tests' },
-    { title: 'Review', detail: 'Plan compliance + correctness + simplification' },
-    { title: 'Setup', detail: 'Install deps, configure env' },
-    { title: 'Verify', detail: 'Drive the app, prove acceptance criteria (opt-in)' },
-    { title: 'Docs', detail: 'Write/update docs' },
+    { title: 'Bootstrap', detail: 'Greenfield: research the space, pick a stack, draft a roadmap' },
+    { title: 'Research', detail: 'Multi-source web research (opt-in)' },
+    { title: 'Plan', detail: 'Read the codebase, plan the change, rate complexity + security surface' },
+    { title: 'Security', detail: 'Threat-model the plan before code exists (elevated surface only)' },
+    { title: 'Code', detail: 'Set up env, implement, test, document' },
+    { title: 'Review', detail: 'Read the diff, drive the app, prove the criteria' },
   ],
 }
 
 // ═══════════════════════════════════════════
 // SCHEMAS
 // ═══════════════════════════════════════════
-
-const CTX_SCOUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    structure: { type: 'string', description: 'Key directories and their purposes. 10-20 lines.' },
-    stack: { type: 'string', description: 'One line per: language, framework, package_manager, test_framework, database, build_tool' },
-    conventions: { type: 'string', description: 'Coding patterns, naming rules, file organization. 5-10 lines.' },
-    key_files: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: { path: { type: 'string' }, purpose: { type: 'string' } },
-        required: ['path', 'purpose'],
-      },
-    },
-    entry_points: { type: 'array', items: { type: 'string' } },
-    dependencies: { type: 'string', description: 'Key third-party packages in use (one line)' },
-  },
-  required: ['structure', 'stack', 'key_files'],
-}
-
-const EXPLORE_SCHEMA = {
-  type: 'object',
-  properties: {
-    relevant_files: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          path: { type: 'string' },
-          why: { type: 'string' },
-          role: { type: 'string', enum: ['primary', 'dependent', 'test', 'config'] },
-        },
-        required: ['path', 'why', 'role'],
-      },
-    },
-    call_sites: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: { path: { type: 'string' }, what: { type: 'string' } },
-        required: ['path', 'what'],
-      },
-    },
-    existing_tests: { type: 'array', items: { type: 'string' } },
-    tricky_spots: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: { path: { type: 'string' }, concern: { type: 'string' } },
-        required: ['path', 'concern'],
-      },
-    },
-    summary: { type: 'string', description: '2-3 sentences on where the logic lives' },
-  },
-  required: ['relevant_files', 'summary'],
-}
 
 const PLAN_SCHEMA = {
   type: 'object',
@@ -84,14 +22,33 @@ const PLAN_SCHEMA = {
     security_surface: {
       type: 'string',
       enum: ['none', 'low', 'elevated'],
-      description: 'none = no attack surface; low = touches data paths, no new entry point; elevated = new input/auth/secrets/injection/dependency/crypto surface',
+      description: 'none = no attack surface; low = data paths, no new entry point; elevated = new input/auth/secrets/injection/dependency/crypto surface',
     },
-    security_notes: {
-      type: 'array',
-      items: { type: 'string' },
-      description: 'Specific concerns, one line each — the Security agent starts from these',
-    },
+    security_notes: { type: 'array', items: { type: 'string' } },
     summary: { type: 'string' },
+    codebase_context: {
+      type: 'object',
+      description: 'The ONLY codebase information downstream agents receive. Becomes the shared cache prefix.',
+      properties: {
+        stack: { type: 'string', description: 'Language, framework, package manager, test framework, database' },
+        conventions: { type: 'string', description: 'Patterns the Coder must match. 3-8 lines.' },
+        relevant_files: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              role: { type: 'string', enum: ['primary', 'dependent', 'test', 'config'] },
+              note: { type: 'string' },
+            },
+            required: ['path', 'role'],
+          },
+        },
+        test_command: { type: 'string' },
+        run_command: { type: 'string', description: 'How to start the app; null if not runnable' },
+      },
+      required: ['stack', 'relevant_files'],
+    },
     steps: {
       type: 'array',
       items: {
@@ -100,15 +57,42 @@ const PLAN_SCHEMA = {
           what: { type: 'string' },
           files: { type: 'array', items: { type: 'string' } },
           acceptance: { type: 'string' },
-          user_facing: { type: 'boolean', description: 'True if affects users (needs docs, changelog)' },
+          user_facing: { type: 'boolean' },
         },
         required: ['what', 'files', 'acceptance'],
       },
     },
     risks: { type: 'array', items: { type: 'string' } },
-    rollback_plan: { type: 'string', description: 'How to revert if this goes wrong (required for complex tasks)' },
+    rollback_plan: { type: 'string' },
   },
-  required: ['complexity', 'summary', 'steps'],
+  required: ['complexity', 'summary', 'steps', 'codebase_context'],
+}
+
+const CODER_SCHEMA = {
+  type: 'object',
+  properties: {
+    files_changed: { type: 'array', items: { type: 'string' } },
+    summary: { type: 'string' },
+    tests: {
+      type: 'object',
+      properties: {
+        written: { type: 'array', items: { type: 'string' } },
+        updated: { type: 'array', items: { type: 'string' } },
+        result: { type: 'string', description: 'e.g. "42 passed, 0 failed"' },
+        pre_existing_failures: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    env: {
+      type: 'object',
+      properties: {
+        actions: { type: 'array', items: { type: 'string' } },
+        unresolved: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    docs_updated: { type: 'array', items: { type: 'string' } },
+    deviations: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['files_changed', 'summary'],
 }
 
 const VERDICT_SCHEMA = {
@@ -129,137 +113,28 @@ const VERDICT_SCHEMA = {
         required: ['file', 'severity', 'what', 'suggestion'],
       },
     },
+    verification: {
+      type: 'object',
+      properties: {
+        verdict: { type: 'string', enum: ['verified', 'partial', 'failed', 'nothing_to_drive'] },
+        criteria: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              criterion: { type: 'string' },
+              status: { type: 'string', enum: ['passed', 'failed', 'skipped'] },
+              evidence: { type: 'string' },
+              note: { type: 'string' },
+            },
+            required: ['criterion', 'status', 'evidence'],
+          },
+        },
+        blockers: { type: 'array', items: { type: 'string' } },
+      },
+    },
   },
   required: ['status', 'summary'],
-}
-
-const CODER_SUMMARY_SCHEMA = {
-  type: 'object',
-  properties: {
-    files_changed: { type: 'array', items: { type: 'string' } },
-    summary: { type: 'string' },
-    tests: {
-      type: 'object',
-      properties: {
-        written: { type: 'array', items: { type: 'string' } },
-        updated: { type: 'array', items: { type: 'string' } },
-      },
-    },
-    deviations: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['files_changed', 'summary'],
-}
-
-const BOOTSTRAP_SCHEMA = {
-  type: 'object',
-  properties: {
-    idea: {
-      type: 'object',
-      properties: { one_liner: {}, problem: {}, audience: {}, mvp_scope: {} },
-      required: ['one_liner', 'problem'],
-    },
-    research: {
-      type: 'object',
-      properties: {
-        similar_open_source: { type: 'array', items: { type: 'object', properties: { name: {}, url: {}, strengths: {}, gaps: {} }, required: ['name', 'url'] } },
-        commercial_competitors: { type: 'array', items: { type: 'object', properties: { name: {}, url: {}, strengths: {}, gaps: {} }, required: ['name', 'url'] } },
-        relevant_libraries: { type: 'array', items: { type: 'object', properties: { name: {}, url: {}, purpose: {} }, required: ['name', 'purpose'] } },
-      },
-    },
-    stack: {
-      type: 'object',
-      properties: {
-        language: { type: 'object', properties: { choice: {}, rationale: {}, alternative: {} } },
-        framework: { type: 'object', properties: { choice: {}, rationale: {}, alternative: {} } },
-        database: { type: 'object', properties: { choice: {}, rationale: {}, alternative: {} } },
-        infrastructure: { type: 'object', properties: { choice: {}, rationale: {} } },
-        key_libraries: { type: 'array', items: { type: 'object', properties: { name: {}, purpose: {} } } },
-      },
-    },
-    roadmap: { type: 'array', items: { type: 'object', properties: { phase: {}, deliverables: { type: 'array', items: { type: 'string' } } }, required: ['phase', 'deliverables'] } },
-    risks: { type: 'array', items: { type: 'string' } },
-    next_action: { type: 'string' },
-  },
-  required: ['idea', 'roadmap', 'next_action'],
-}
-
-const ENV_SETUP_SCHEMA = {
-  type: 'object',
-  properties: {
-    project_type: { type: 'string' },
-    dependencies_installed: { type: 'array', items: { type: 'string' } },
-    services_started: { type: 'array', items: { type: 'string' } },
-    env_vars_configured: { type: 'array', items: { type: 'string' } },
-    issues_found: { type: 'array', items: { type: 'string' } },
-    issues_fixed: { type: 'array', items: { type: 'string' } },
-    unresolved: { type: 'array', items: { type: 'string' } },
-    runnable: { type: 'boolean' },
-    start_command: { type: 'string' },
-  },
-  required: ['project_type', 'runnable'],
-}
-
-const VERIFY_SCHEMA = {
-  type: 'object',
-  properties: {
-    verdict: { type: 'string', enum: ['verified', 'partial', 'failed', 'not_verifiable'] },
-    summary: { type: 'string' },
-    criteria: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          criterion: { type: 'string' },
-          status: { type: 'string', enum: ['passed', 'failed', 'skipped'] },
-          evidence: { type: 'string' },
-          note: { type: 'string' },
-        },
-        required: ['criterion', 'status', 'evidence'],
-      },
-    },
-    blockers: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['verdict', 'summary'],
-}
-
-const DOCS_SCHEMA = {
-  type: 'object',
-  properties: {
-    files_changed: { type: 'array', items: { type: 'string' } },
-    sections_updated: { type: 'array', items: { type: 'object', properties: { file: {}, section: {}, summary: {} }, required: ['file', 'section', 'summary'] } },
-    new_files: { type: 'array', items: { type: 'string' } },
-    docs_written: { type: 'string' },
-    skipped: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['files_changed', 'docs_written'],
-}
-
-const RESEARCH_SCHEMA = {
-  type: 'object',
-  properties: {
-    question: { type: 'string' },
-    summary: { type: 'string' },
-    findings: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          claim: { type: 'string' },
-          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-          sources: { type: 'array', items: { type: 'string' } },
-          contradictions: { type: 'string' },
-        },
-        required: ['claim', 'confidence', 'sources'],
-      },
-    },
-    recommendations: { type: 'array', items: { type: 'string' } },
-    gaps: { type: 'array', items: { type: 'string' } },
-    source_list: {
-      type: 'array',
-      items: { type: 'object', properties: { url: {}, title: {}, relevance: {} }, required: ['url', 'title'] },
-    },
-  },
-  required: ['question', 'summary', 'findings'],
 }
 
 const SECURITY_SCHEMA = {
@@ -288,36 +163,85 @@ const SECURITY_SCHEMA = {
   required: ['status', 'summary'],
 }
 
+const RESEARCH_SCHEMA = {
+  type: 'object',
+  properties: {
+    question: { type: 'string' },
+    summary: { type: 'string' },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          claim: { type: 'string' },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+          sources: { type: 'array', items: { type: 'string' } },
+          contradictions: { type: 'string' },
+        },
+        required: ['claim', 'confidence', 'sources'],
+      },
+    },
+    recommendations: { type: 'array', items: { type: 'string' } },
+    gaps: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['question', 'summary', 'findings'],
+}
+
+const BOOTSTRAP_SCHEMA = {
+  type: 'object',
+  properties: {
+    idea: {
+      type: 'object',
+      properties: { one_liner: {}, problem: {}, audience: {}, mvp_scope: {} },
+      required: ['one_liner', 'problem'],
+    },
+    research: {
+      type: 'object',
+      properties: {
+        similar_open_source: { type: 'array', items: { type: 'object', properties: { name: {}, url: {}, strengths: {}, gaps: {} }, required: ['name', 'url'] } },
+        commercial_competitors: { type: 'array', items: { type: 'object', properties: { name: {}, url: {}, strengths: {}, gaps: {} }, required: ['name', 'url'] } },
+      },
+    },
+    stack: {
+      type: 'object',
+      properties: {
+        language: { type: 'object', properties: { choice: {}, rationale: {}, alternative: {} } },
+        framework: { type: 'object', properties: { choice: {}, rationale: {}, alternative: {} } },
+        database: { type: 'object', properties: { choice: {}, rationale: {}, alternative: {} } },
+        infrastructure: { type: 'object', properties: { choice: {}, rationale: {} } },
+        key_libraries: { type: 'array', items: { type: 'object', properties: { name: {}, purpose: {} } } },
+      },
+    },
+    roadmap: { type: 'array', items: { type: 'object', properties: { phase: {}, deliverables: { type: 'array', items: { type: 'string' } } }, required: ['phase', 'deliverables'] } },
+    risks: { type: 'array', items: { type: 'string' } },
+    next_action: { type: 'string' },
+  },
+  required: ['idea', 'roadmap', 'next_action'],
+}
+
 // ═══════════════════════════════════════════
-// CONTEXT CACHE
+// RENDERING
 // ═══════════════════════════════════════════
 
-// CTX is the shared cache prefix, built once from CtxScout's snapshot.
-// Anthropic prompt cache keys on (model_id + prefix_bytes):
-//   same model + same CTX = HIT (~10× cheaper input)
-//   different model       = MISS (separate cache namespace)
-// On resume, Scout is skipped (resumeFromRunId) → CTX bytes identical → hits persist.
-
+// The Planner's codebase_context becomes the shared cache prefix. Anthropic keys
+// the prompt cache on (model_id + prefix_bytes): Coder and Reviewer on the same
+// model both hit it. A different reviewer model means a separate namespace and
+// one cold start — usually worth it for the independent read.
 function renderContext(ctx) {
   if (!ctx) return ''
   const parts = ['## PROJECT CONTEXT']
-  if (ctx.structure)    parts.push('### Structure\n' + ctx.structure)
-  if (ctx.stack)        parts.push('### Stack\n' + ctx.stack)
-  if (ctx.conventions)  parts.push('### Conventions\n' + ctx.conventions)
-  if (ctx.key_files?.length) parts.push('### Key Files\n' + ctx.key_files.map(f => `- \`${f.path}\` — ${f.purpose}`).join('\n'))
-  if (ctx.dependencies) parts.push('### Dependencies\n' + ctx.dependencies)
-  if (ctx.entry_points?.length) parts.push('### Entry Points\n' + ctx.entry_points.map(e => `- \`${e}\``).join('\n'))
+  if (ctx.stack) parts.push('### Stack\n' + ctx.stack)
+  if (ctx.conventions) parts.push('### Conventions\n' + ctx.conventions)
+  if (ctx.relevant_files?.length) {
+    parts.push('### Files\n' + ctx.relevant_files
+      .map(f => `- \`${f.path}\` (${f.role})${f.note ? ` — ${f.note}` : ''}`)
+      .join('\n'))
+  }
+  const cmds = []
+  if (ctx.test_command) cmds.push(`- test: \`${ctx.test_command}\``)
+  if (ctx.run_command) cmds.push(`- run: \`${ctx.run_command}\``)
+  if (cmds.length) parts.push('### Commands\n' + cmds.join('\n'))
   return parts.join('\n') + '\n\n'
-}
-
-// Setup and Verify only need structure + stack + entry points
-function renderRuntimeContext(ctx) {
-  if (!ctx) return ''
-  const parts = []
-  if (ctx.structure)    parts.push('### Structure\n' + ctx.structure)
-  if (ctx.stack)        parts.push('### Stack\n' + ctx.stack)
-  if (ctx.entry_points?.length) parts.push('### Entry Points\n' + ctx.entry_points.map(e => `- \`${e}\``).join('\n'))
-  return parts.length ? '## PROJECT CONTEXT\n' + parts.join('\n') + '\n\n' : ''
 }
 
 function renderPlan(plan) {
@@ -339,83 +263,23 @@ function renderPlanCompact(plan) {
   return plan.steps.map((s, i) => `${i + 1}. ${s.what} [${s.files.join(', ')}]`).join('\n')
 }
 
-function renderCoderSummary(result) {
-  if (!result) return '(No summary)'
-  if (typeof result === 'string') return result
-  const lines = [`**Files changed**: ${result.files_changed?.join(', ') || '(none)'}`]
-  if (result.summary) lines.push(`**Summary**: ${result.summary}`)
-  if (result.tests?.written?.length) lines.push(`**Tests written**: ${result.tests.written.join(', ')}`)
-  if (result.tests?.updated?.length) lines.push(`**Tests updated**: ${result.tests.updated.join(', ')}`)
-  if (result.deviations?.length) lines.push(`**Deviations**: ${result.deviations.join('; ')}`)
+function renderCoderSummary(r) {
+  if (!r) return '(No summary)'
+  if (typeof r === 'string') return r
+  const lines = [`**Files changed**: ${r.files_changed?.join(', ') || '(none)'}`]
+  if (r.summary) lines.push(`**Summary**: ${r.summary}`)
+  if (r.tests?.result) lines.push(`**Tests**: ${r.tests.result}`)
+  const t = [...(r.tests?.written || []), ...(r.tests?.updated || [])]
+  if (t.length) lines.push(`**Test files**: ${t.join(', ')}`)
+  if (r.tests?.pre_existing_failures?.length) lines.push(`**Pre-existing failures**: ${r.tests.pre_existing_failures.join('; ')}`)
+  if (r.env?.unresolved?.length) lines.push(`**Env unresolved**: ${r.env.unresolved.join('; ')}`)
+  if (r.docs_updated?.length) lines.push(`**Docs**: ${r.docs_updated.join(', ')}`)
+  if (r.deviations?.length) lines.push(`**Deviations**: ${r.deviations.join('; ')}`)
   return lines.join('\n')
-}
-
-// Compact blueprint — only what the Planner needs, not the full research dump
-function renderBlueprint(bp) {
-  const lines = [`## PROJECT BLUEPRINT`, bp.idea?.one_liner || '', '']
-  if (bp.idea?.mvp_scope) lines.push(`**MVP scope**: ${bp.idea.mvp_scope}`, '')
-  const stack = []
-  if (bp.stack?.language?.choice)  stack.push(`language: ${bp.stack.language.choice}`)
-  if (bp.stack?.framework?.choice) stack.push(`framework: ${bp.stack.framework.choice}`)
-  if (bp.stack?.database?.choice)  stack.push(`database: ${bp.stack.database.choice}`)
-  if (bp.stack?.infrastructure?.choice) stack.push(`infra: ${bp.stack.infrastructure.choice}`)
-  if (stack.length) lines.push(`**Stack**: ${stack.join(', ')}`, '')
-  if (bp.stack?.key_libraries?.length) {
-    lines.push(`**Key libraries**: ${bp.stack.key_libraries.map(l => l.name).join(', ')}`, '')
-  }
-  // Only Phase 0 matters for the first task — later phases are future work
-  const phase0 = bp.roadmap?.[0]
-  if (phase0) {
-    lines.push(`**${phase0.phase}**`)
-    phase0.deliverables.forEach(d => lines.push(`- ${d}`))
-    lines.push('')
-  }
-  if (bp.risks?.length) lines.push(`**Risks**: ${bp.risks.join('; ')}`, '')
-  return lines.join('\n')
-}
-
-function renderExplore(ex) {
-  if (!ex) return ''
-  const lines = ['## CODEBASE EXPLORATION', ex.summary, '']
-  const primary = ex.relevant_files?.filter(f => f.role === 'primary') || []
-  const other = ex.relevant_files?.filter(f => f.role !== 'primary') || []
-  if (primary.length) {
-    lines.push('### Files to change')
-    primary.forEach(f => lines.push(`- \`${f.path}\` — ${f.why}`))
-  }
-  if (other.length) {
-    lines.push('', '### Related')
-    other.forEach(f => lines.push(`- \`${f.path}\` (${f.role}) — ${f.why}`))
-  }
-  if (ex.call_sites?.length) {
-    lines.push('', '### Call sites')
-    ex.call_sites.forEach(c => lines.push(`- \`${c.path}\`: ${c.what}`))
-  }
-  if (ex.existing_tests?.length) lines.push('', `### Existing tests\n${ex.existing_tests.map(t => `- \`${t}\``).join('\n')}`)
-  if (ex.tricky_spots?.length) {
-    lines.push('', '### Tricky spots')
-    ex.tricky_spots.forEach(t => lines.push(`- \`${t.path}\`: ${t.concern}`))
-  }
-  return lines.join('\n') + '\n\n'
-}
-
-function renderResearch(r) {
-  if (!r) return ''
-  const lines = ['## RESEARCH FINDINGS', r.summary, '']
-  if (r.findings?.length) {
-    lines.push('### Findings')
-    r.findings.forEach(f => lines.push(`- [${f.confidence}] ${f.claim}`))
-  }
-  if (r.recommendations?.length) {
-    lines.push('', '### Recommendations')
-    r.recommendations.forEach(x => lines.push(`- ${x}`))
-  }
-  if (r.gaps?.length) lines.push('', `### Unanswered\n${r.gaps.map(g => `- ${g}`).join('\n')}`)
-  return lines.join('\n') + '\n\n'
 }
 
 // Full threat model when the Security agent ran; otherwise the Planner's own
-// notes, so a `low` surface still reaches the Coder without a dedicated agent.
+// notes, so a `low` surface still reaches the Coder without an extra agent.
 function renderSecurity(sec, plan) {
   if (sec?.status === 'findings' && sec.findings?.length) {
     const lines = ['## SECURITY THREAT MODEL (mitigations are hard requirements)']
@@ -432,14 +296,52 @@ function renderSecurity(sec, plan) {
   return ''
 }
 
+function renderResearch(r) {
+  if (!r) return ''
+  const lines = ['## RESEARCH FINDINGS', r.summary, '']
+  if (r.findings?.length) {
+    lines.push('### Findings')
+    r.findings.forEach(f => lines.push(`- [${f.confidence}] ${f.claim}`))
+  }
+  if (r.recommendations?.length) {
+    lines.push('', '### Recommendations')
+    r.recommendations.forEach(x => lines.push(`- ${x}`))
+  }
+  if (r.gaps?.length) lines.push('', '### Unanswered\n' + r.gaps.map(g => `- ${g}`).join('\n'))
+  return lines.join('\n') + '\n\n'
+}
+
+function renderBlueprint(bp) {
+  const lines = ['## PROJECT BLUEPRINT', bp.idea?.one_liner || '', '']
+  if (bp.idea?.mvp_scope) lines.push(`**MVP scope**: ${bp.idea.mvp_scope}`, '')
+  const stack = []
+  if (bp.stack?.language?.choice) stack.push(`language: ${bp.stack.language.choice}`)
+  if (bp.stack?.framework?.choice) stack.push(`framework: ${bp.stack.framework.choice}`)
+  if (bp.stack?.database?.choice) stack.push(`database: ${bp.stack.database.choice}`)
+  if (bp.stack?.infrastructure?.choice) stack.push(`infra: ${bp.stack.infrastructure.choice}`)
+  if (stack.length) lines.push(`**Stack**: ${stack.join(', ')}`, '')
+  if (bp.stack?.key_libraries?.length) lines.push(`**Key libraries**: ${bp.stack.key_libraries.map(l => l.name).join(', ')}`, '')
+  const phase0 = bp.roadmap?.[0]
+  if (phase0) {
+    lines.push(`**${phase0.phase}**`)
+    phase0.deliverables.forEach(d => lines.push(`- ${d}`))
+    lines.push('')
+  }
+  if (bp.risks?.length) lines.push(`**Risks**: ${bp.risks.join('; ')}`, '')
+  return lines.join('\n')
+}
+
 // ═══════════════════════════════════════════
 // MODEL ROUTING
 // ═══════════════════════════════════════════
 
+// Six roles, and the reason the protocol exists: Reviewer can run on a stronger
+// model than Coder. Model names mean whatever your setup routes them to — no
+// assumption is made about which is more capable.
 const DEFAULT_MODELS = {
-  trivial: { scout: 'haiku',  explorer: 'haiku',  planner: 'haiku',  coder: 'haiku',  reviewer: 'haiku',  researcher: 'fable', security: 'fable', setup: 'haiku',  verifier: 'haiku',  docs: 'haiku',  bootstrapper: 'sonnet' },
-  medium:  { scout: 'sonnet', explorer: 'sonnet', planner: 'sonnet', coder: 'sonnet', reviewer: 'sonnet', researcher: 'fable', security: 'fable', setup: 'sonnet', verifier: 'sonnet', docs: 'haiku',  bootstrapper: 'fable' },
-  complex: { scout: 'fable',  explorer: 'fable',  planner: 'fable',  coder: 'fable',  reviewer: 'fable',  researcher: 'fable', security: 'fable', setup: 'fable',  verifier: 'fable',  docs: 'haiku',  bootstrapper: 'fable' },
+  trivial: { planner: 'haiku',  coder: 'haiku',  reviewer: 'sonnet', security: 'fable', researcher: 'fable', bootstrapper: 'sonnet' },
+  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'fable',  security: 'fable', researcher: 'fable', bootstrapper: 'fable' },
+  complex: { planner: 'fable',  coder: 'fable',  reviewer: 'fable',  security: 'fable', researcher: 'fable', bootstrapper: 'fable' },
 }
 
 function routeModels(complexity, config) {
@@ -447,7 +349,7 @@ function routeModels(complexity, config) {
   return table[complexity] || table.medium
 }
 
-// Retry wrapper for phases where a transient failure would abort the whole run
+// One transient failure shouldn't abort a run that has already done real work
 async function agentWithRetry(prompt, opts, attempts = 2) {
   for (let i = 0; i < attempts; i++) {
     const result = await agent(prompt, opts)
@@ -463,42 +365,19 @@ async function agentWithRetry(prompt, opts, attempts = 2) {
 
 const CONFIG = args?.config || {}
 const MAX_FIX_LOOPS = CONFIG.maxFixLoops || 3
-const REVIEWER_DIFFERENT_MODEL = CONFIG.reviewerDifferentModel || false
 const BLOCKING_SEVERITIES = CONFIG.blockingSeverities || ['critical', 'major']
 const MODE = args?.mode || 'brownfield'
-const DOCS_BUDGET_FLOOR = CONFIG.docsBudgetFloor || 30000
+const DO_RESEARCH = args?.research ?? CONFIG.researchByDefault ?? false
 
-// Post-Plan phases scale with what the Planner found. A typo fix shouldn't drag
-// setup, verification, and doc updates behind it; an architectural change should
-// get all three. Explicit args and config always win over these defaults.
-const PHASE_DEFAULTS = {
-  trivial: { setup: false, verify: false, docs: false },
-  medium:  { setup: true,  verify: false, docs: true  },
-  complex: { setup: true,  verify: true,  docs: true  },
-}
-
-// args.<phase> → config.<phase>ByDefault → tier default
-function phaseEnabled(name, complexity) {
-  if (args?.[name] !== undefined) return args[name]
-  const fromConfig = CONFIG[`${name}ByDefault`]
-  if (fromConfig !== undefined) return fromConfig
-  return PHASE_DEFAULTS[complexity]?.[name] ?? false
-}
-
-// Security is gated on the plan's attack surface, not its size — a one-line
-// change to an auth check is trivial work with elevated risk. The Planner
-// already rated this; a dedicated agent only runs when the surface is elevated.
+// Security is gated on attack surface, not task size — a one-line change to an
+// auth check is trivial work with elevated risk. The Planner rates this; the
+// dedicated agent runs only when that rating is `elevated`.
 function securityEnabled(plan) {
   if (args?.security !== undefined) return args.security
   if (CONFIG.securityByDefault !== undefined) return CONFIG.securityByDefault
   return plan.security_surface === 'elevated'
 }
 
-// Explore and Research run before Plan, so no tier is known yet — opt-in only.
-const DO_EXPLORE  = args?.explore  ?? CONFIG.exploreByDefault  ?? false
-const DO_RESEARCH = args?.research ?? CONFIG.researchByDefault ?? false
-
-// Phases before Plan run before complexity is known — resolve their models up front
 const prePlanModels = routeModels(MODE === 'greenfield' ? 'complex' : 'medium', CONFIG)
 
 // ═══════════════════════════════════════════
@@ -515,7 +394,7 @@ if (!task) {
 log(`Mode: ${MODE}  |  Budget: ${budget.total ? Math.round(budget.remaining() / 1000) + 'k' : 'unlimited'}`)
 log(`Task: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}`)
 
-// ── PHASE 0: BOOTSTRAP ──────────────────────
+// ── BOOTSTRAP (greenfield only) ─────────────
 
 let blueprint = null
 
@@ -539,46 +418,7 @@ if (MODE === 'greenfield') {
   task = `${renderBlueprint(blueprint)}## FIRST TASK\n${blueprint.next_action || 'Scaffold Phase 0: repo, CI, basic structure.'}`
 }
 
-// ── PHASE 1: SCOUT ──────────────────────────
-
-phase('Scout')
-
-const codebaseContext = await agentWithRetry(
-  'Scan this repository and produce the deterministic snapshot.',
-  { label: 'scout', phase: 'Scout', model: prePlanModels.scout, agentType: 'ctx-scout', schema: CTX_SCOUT_SCHEMA }
-)
-
-if (!codebaseContext) {
-  log('ERROR: CtxScout failed.')
-  return { error: 'CtxScout failed to scan codebase' }
-}
-
-const CTX = renderContext(codebaseContext)
-const CTX_RUNTIME = renderRuntimeContext(codebaseContext)
-
-log(`Scout: ${codebaseContext.key_files?.length || 0} key files  |  Stack: ${codebaseContext.stack?.split('\n')[0] || '?'}`)
-
-// ── PHASE 1.5: EXPLORE (opt-in) ─────────────
-
-let exploreFindings = null
-
-if (DO_EXPLORE) {
-  phase('Explore')
-
-  exploreFindings = await agent(
-    `Find every file, call site, and pattern relevant to this task.\n\n## TASK\n${task}`,
-    { label: 'explorer', phase: 'Explore', model: prePlanModels.explorer, agentType: 'explorer', schema: EXPLORE_SCHEMA }
-  )
-
-  if (exploreFindings) {
-    const primary = exploreFindings.relevant_files?.filter(f => f.role === 'primary').length || 0
-    log(`Explore: ${exploreFindings.relevant_files?.length || 0} files (${primary} primary), ${exploreFindings.call_sites?.length || 0} call sites`)
-  } else {
-    log('⚠ Explore returned nothing — proceeding without it.')
-  }
-}
-
-// ── PHASE 1.6: RESEARCH (opt-in) ────────────
+// ── RESEARCH (opt-in) ───────────────────────
 
 let researchReport = null
 
@@ -598,15 +438,12 @@ if (DO_RESEARCH) {
   }
 }
 
-// ── PHASE 2: PLAN ───────────────────────────
+// ── PLAN ────────────────────────────────────
 
 phase('Plan')
 
-// CTX first (stable cache prefix), then task-specific findings
-const PLAN_CONTEXT = CTX + renderExplore(exploreFindings) + renderResearch(researchReport)
-
 const plan = await agentWithRetry(
-  PLAN_CONTEXT + `Analyze this task using the context above. Do NOT re-scan the repo.\n\n## TASK\n${task}`,
+  renderResearch(researchReport) + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
   { label: 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'planner', schema: PLAN_SCHEMA }
 )
 
@@ -616,43 +453,30 @@ if (!plan) {
 }
 
 const models = routeModels(plan.complexity, CONFIG)
-
-// Fresh-eyes reviewer: swap to the complex-tier reviewer model when it would
-// otherwise match the coder. Costs one cold cache start, buys an independent read.
-if (REVIEWER_DIFFERENT_MODEL && models.reviewer === models.coder) {
-  models.reviewer = routeModels('complex', CONFIG).reviewer
-}
-
-// Now that the plan exists, decide how much of the tail runs
-const DO_SECURITY = securityEnabled(plan)
-const DO_SETUP    = phaseEnabled('setup',  plan.complexity)
-const DO_VERIFY   = phaseEnabled('verify', plan.complexity)
-const DO_DOCS     = phaseEnabled('docs',   plan.complexity)
-
-const tail = [DO_SECURITY && 'Security', 'Code', 'Review', DO_SETUP && 'Setup', DO_VERIFY && 'Verify', DO_DOCS && 'Docs'].filter(Boolean)
+const CTX = renderContext(plan.codebase_context)
 const surface = plan.security_surface || 'unrated'
+const DO_SECURITY = securityEnabled(plan)
 
 log(`Complexity: ${plan.complexity}  |  Security surface: ${surface}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
-log(`Remaining phases: ${tail.join(' → ')}`)
 if (surface !== 'none' && plan.security_notes?.length) {
   plan.security_notes.forEach(n => log(`  ⚠ ${n}`))
 }
-log(`Plan: ${plan.steps.length} step(s)`)
+log(`Plan: ${plan.steps.length} step(s), ${plan.codebase_context?.relevant_files?.length || 0} files mapped`)
 plan.steps.forEach(s => log(`  • ${s.what}`))
 
-// ── PHASE 3: SECURITY (pre-code threat model) ────
+// ── SECURITY (elevated surface only) ────────
 
 let securityReport = null
 
 if (DO_SECURITY) {
   phase('Security')
 
-  const plannerFlags = plan.security_notes?.length
+  const flagged = plan.security_notes?.length
     ? `\n\n## SURFACE THE PLANNER FLAGGED\n${plan.security_notes.map(n => `- ${n}`).join('\n')}\n\nStart from these, then look for what the Planner missed.`
     : ''
 
   securityReport = await agent(
-    CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${plannerFlags}`,
+    CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${flagged}`,
     { label: 'security', phase: 'Security', model: models.security, agentType: 'security', schema: SECURITY_SCHEMA }
   )
 
@@ -666,12 +490,12 @@ if (DO_SECURITY) {
 
 const SECURITY_BLOCK = renderSecurity(securityReport, plan)
 
-// ── PHASE 4-5: CODE ⇄ REVIEW ────────────────
+// ── CODE ⇄ REVIEW ───────────────────────────
 
 let iteration = 0
 let reviewIssues = []
 let finalVerdict = null
-let allIssues = []
+let lastIssues = []
 
 while (iteration < MAX_FIX_LOOPS) {
   const isFirstPass = iteration === 0
@@ -679,7 +503,7 @@ while (iteration < MAX_FIX_LOOPS) {
   phase('Code')
 
   const coderPrompt = isFirstPass
-    ? CTX + SECURITY_BLOCK + `Execute this plan. The PROJECT CONTEXT above is a cached snapshot — do not re-read the codebase unless a path turns out wrong.\n\n${renderPlan(plan)}`
+    ? CTX + SECURITY_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
     : `Fix the review issues below. Narrow pass — touch only these files.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}`
 
   const coderResult = await agent(coderPrompt, {
@@ -687,15 +511,17 @@ while (iteration < MAX_FIX_LOOPS) {
     phase: 'Code',
     model: models.coder,
     agentType: 'coder',
-    schema: CODER_SUMMARY_SCHEMA,
+    schema: CODER_SCHEMA,
   })
 
-  log(`Coder pass ${iteration + 1} complete`)
+  if (coderResult?.tests?.result) log(`Coder pass ${iteration + 1}: ${coderResult.tests.result}`)
+  else log(`Coder pass ${iteration + 1} complete`)
+  if (coderResult?.env?.unresolved?.length) log(`  ⚠ Env: ${coderResult.env.unresolved.join('; ')}`)
 
   phase('Review')
 
   const reviewerPrompt = isFirstPass
-    ? CTX + SECURITY_BLOCK + `Review this implementation against the plan.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
+    ? CTX + SECURITY_BLOCK + `Review this implementation against the plan, then drive the app to prove the acceptance criteria.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
     : `Verify these fixes landed, and scan for new problems introduced by them.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
 
   const verdict = await agent(reviewerPrompt, {
@@ -711,8 +537,16 @@ while (iteration < MAX_FIX_LOOPS) {
     return { error: 'Reviewer failed', plan }
   }
 
-  const issues = verdict.issues || []
-  allIssues = issues
+  const v = verdict.verification
+  if (v) {
+    const passed = v.criteria?.filter(c => c.status === 'passed').length || 0
+    const total = v.criteria?.length || 0
+    log(`Verification: ${v.verdict}${total ? ` — ${passed}/${total} criteria proven` : ''}`)
+    v.criteria?.filter(c => c.status === 'failed').forEach(c => log(`  ✗ ${c.criterion}`))
+    if (v.blockers?.length) log(`  ⚠ Blockers: ${v.blockers.join('; ')}`)
+  }
+
+  lastIssues = verdict.issues || []
 
   if (verdict.status === 'approved') {
     finalVerdict = verdict
@@ -720,16 +554,16 @@ while (iteration < MAX_FIX_LOOPS) {
     break
   }
 
-  // Only critical/major block the loop — minor/nit ride along in the final report
-  const blocking = issues.filter(i => BLOCKING_SEVERITIES.includes(i.severity))
-  const advisory = issues.filter(i => !BLOCKING_SEVERITIES.includes(i.severity))
+  // Only critical/major buy another pass; minor and nit ride along in the report
+  const blocking = lastIssues.filter(i => BLOCKING_SEVERITIES.includes(i.severity))
+  const advisory = lastIssues.filter(i => !BLOCKING_SEVERITIES.includes(i.severity))
 
-  log(`✗ ${issues.length} issue(s): ${blocking.length} blocking, ${advisory.length} advisory`)
-  issues.forEach(iss => log(`  [${iss.severity}] ${iss.file}: ${iss.what}`))
+  log(`✗ ${lastIssues.length} issue(s): ${blocking.length} blocking, ${advisory.length} advisory`)
+  lastIssues.forEach(iss => log(`  [${iss.severity}] ${iss.file}: ${iss.what}`))
 
   if (blocking.length === 0) {
     finalVerdict = { ...verdict, status: 'approved', summary: `${verdict.summary} (${advisory.length} advisory issue(s) left unfixed)` }
-    log(`✓ APPROVED — no blocking issues remain`)
+    log('✓ APPROVED — no blocking issues remain')
     break
   }
 
@@ -739,93 +573,7 @@ while (iteration < MAX_FIX_LOOPS) {
 
 if (!finalVerdict) {
   log(`⚠ Max fix loops (${MAX_FIX_LOOPS}) exhausted.`)
-  finalVerdict = { status: 'changes_requested', summary: `Max ${MAX_FIX_LOOPS} fix iterations reached.`, issues: allIssues }
-}
-
-const approved = finalVerdict.status === 'approved'
-
-// ── PHASE 6: SETUP ──────────────────────────
-
-let envReport = null
-
-if (DO_SETUP) {
-  phase('Setup')
-
-  if (!approved) log('⚠ Review not approved — setting up env anyway (non-blocking)')
-
-  envReport = await agent(
-    CTX_RUNTIME + 'Get this project into a runnable state. Environment only — no tests, no code review.',
-    { label: 'setup', phase: 'Setup', model: models.setup, agentType: 'setup', schema: ENV_SETUP_SCHEMA }
-  )
-
-  if (envReport) {
-    log(`Project: ${envReport.project_type}  |  Runnable: ${envReport.runnable}`)
-    if (envReport.dependencies_installed?.length) log(`Deps: ${envReport.dependencies_installed.join(', ')}`)
-    if (envReport.services_started?.length) log(`Services: ${envReport.services_started.join(', ')}`)
-    if (envReport.unresolved?.length) log(`⚠ Unresolved: ${envReport.unresolved.join(', ')}`)
-  } else {
-    log('⚠ Setup returned nothing.')
-  }
-}
-
-// ── PHASE 7: VERIFY (opt-in) ────────────────
-
-let verifyReport = null
-
-if (DO_VERIFY && approved) {
-  phase('Verify')
-
-  const criteria = plan.steps.map((s, i) => `${i + 1}. ${s.acceptance}`).join('\n')
-  const startCmd = envReport?.start_command ? `\n\n## START COMMAND\n${envReport.start_command}` : ''
-
-  verifyReport = await agent(
-    CTX_RUNTIME + `Drive the application and prove each acceptance criterion holds. Evidence is mandatory.\n\n## ACCEPTANCE CRITERIA\n${criteria}${startCmd}`,
-    { label: 'verifier', phase: 'Verify', model: models.verifier, agentType: 'verifier', schema: VERIFY_SCHEMA }
-  )
-
-  if (verifyReport) {
-    const passed = verifyReport.criteria?.filter(c => c.status === 'passed').length || 0
-    const total = verifyReport.criteria?.length || 0
-    log(`Verify: ${verifyReport.verdict} — ${passed}/${total} criteria proven`)
-    verifyReport.criteria?.filter(c => c.status === 'failed').forEach(c => log(`  ✗ ${c.criterion}`))
-    if (verifyReport.blockers?.length) log(`⚠ Blockers: ${verifyReport.blockers.join(', ')}`)
-  } else {
-    log('⚠ Verify returned nothing.')
-  }
-} else if (DO_VERIFY) {
-  log('Skipping Verify — review not approved.')
-}
-
-// ── PHASE 8: DOCS ───────────────────────────
-
-let docsReport = null
-const userFacingSteps = plan.steps.filter(s => s.user_facing !== false)
-const budgetOk = !budget.total || budget.remaining() > DOCS_BUDGET_FLOOR
-
-if (DO_DOCS && approved && userFacingSteps.length > 0) {
-  if (!budgetOk) {
-    log(`⚠ Skipping Docs — ${Math.round(budget.remaining() / 1000)}k tokens left (floor: ${DOCS_BUDGET_FLOOR / 1000}k). Run /docs manually.`)
-  } else {
-    phase('Docs')
-
-    docsReport = await agent(
-      CTX + `Document these user-facing changes.\n\n## CHANGES\n${userFacingSteps.map((s, i) => `${i + 1}. ${s.what}`).join('\n')}\n\n## IMPLEMENTATION SUMMARY\n${finalVerdict.summary}`,
-      { label: 'docs', phase: 'Docs', model: models.docs, agentType: 'docs', schema: DOCS_SCHEMA }
-    )
-
-    if (docsReport) {
-      log(`Docs: ${docsReport.files_changed?.join(', ') || '(none)'}`)
-      docsReport.sections_updated?.forEach(s => log(`  • ${s.file}: ${s.section}`))
-    } else {
-      log('Docs returned nothing.')
-    }
-  }
-} else if (!DO_DOCS) {
-  log(`Skipping Docs — not enabled for ${plan.complexity} tasks.`)
-} else if (!approved) {
-  log('Skipping Docs — review not approved.')
-} else {
-  log('Skipping Docs — no user-facing changes.')
+  finalVerdict = { status: 'changes_requested', summary: `Max ${MAX_FIX_LOOPS} fix iterations reached.`, issues: lastIssues }
 }
 
 // ── RESULT ──────────────────────────────────
@@ -834,24 +582,17 @@ return {
   task: MODE === 'greenfield' ? { original_idea: args?.task, blueprint } : task,
   plan,
   verdict: finalVerdict,
-  exploreFindings,
   researchReport,
   securityReport,
-  envReport,
-  verifyReport,
-  docsReport,
   stats: {
     complexity: plan.complexity,
+    securitySurface: surface,
+    securityStatus: securityReport?.status || 'not_run',
     models,
     coder_passes: iteration + 1,
-    approved,
-    explored: !!exploreFindings,
+    approved: finalVerdict.status === 'approved',
+    verification: finalVerdict.verification?.verdict || 'not_run',
     researched: !!researchReport,
-    securitySurface: plan.security_surface || 'unrated',
-    securityStatus: securityReport?.status || 'not_run',
-    envReady: envReport?.runnable || false,
-    verifyVerdict: verifyReport?.verdict || 'not_run',
-    docsWritten: !!docsReport?.files_changed?.length,
-    context_files_mapped: codebaseContext?.key_files?.length || 0,
+    files_mapped: plan.codebase_context?.relevant_files?.length || 0,
   },
 }

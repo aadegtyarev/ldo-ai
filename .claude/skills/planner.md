@@ -1,9 +1,9 @@
 ---
 name: planner
-description: Analyze a dev task using a cached codebase snapshot and produce a structured implementation plan
+description: Read the codebase and produce an implementation plan with complexity and security ratings
 ---
 
-Invoke the planner agent to analyze a development task and produce a structured plan.
+Invoke the planner to turn a task into an executable plan.
 
 ## Usage
 
@@ -11,11 +11,13 @@ Invoke the planner agent to analyze a development task and produce a structured 
 /planner "add rate limiting to the API endpoints"
 ```
 
-The planner receives a PROJECT CONTEXT snapshot (from `/ctx-scout`) and will:
-1. Assess task complexity (trivial/medium/complex)
-2. Produce an ordered list of implementation steps with files and acceptance criteria
-3. Identify risks
+The planner will:
+1. Read the parts of the codebase the task touches — call sites, tests, config
+2. Rate complexity (`trivial` / `medium` / `complex`)
+3. Rate the security surface (`none` / `low` / `elevated`) and flag specifics
+4. Produce ordered steps with checkable acceptance criteria
+5. Capture a codebase context snapshot the Coder and Reviewer reuse
 
-Note: the planner does NOT scan the repo itself — run `/ctx-scout` first, or use `/ldo` which runs both automatically.
+Its `codebase_context` is the only repo information downstream agents get — they don't re-scan.
 
-Use before `/coder` or as the second planning stage of `/ldo`.
+Use before `/coder`, or let `/ldo` run the whole pipeline.

@@ -1,60 +1,42 @@
 {
+  "_comment": "Model names mean whatever your setup routes them to. The point of the protocol: Reviewer can run stronger than Coder.",
+
   "models": {
     "trivial": {
-      "scout": "haiku",
-      "explorer": "haiku",
       "planner": "haiku",
       "coder": "haiku",
-      "reviewer": "haiku",
-      "security": "fable",
-      "researcher": "fable",
-      "setup": "haiku",
-      "verifier": "haiku",
-      "docs": "haiku",
-      "bootstrapper": "sonnet"
-    },
-    "medium": {
-      "scout": "sonnet",
-      "explorer": "sonnet",
-      "planner": "sonnet",
-      "coder": "sonnet",
       "reviewer": "sonnet",
       "security": "fable",
       "researcher": "fable",
-      "setup": "sonnet",
-      "verifier": "sonnet",
-      "docs": "haiku",
+      "bootstrapper": "sonnet"
+    },
+    "medium": {
+      "planner": "sonnet",
+      "coder": "sonnet",
+      "reviewer": "fable",
+      "security": "fable",
+      "researcher": "fable",
       "bootstrapper": "fable"
     },
     "complex": {
-      "scout": "fable",
-      "explorer": "fable",
       "planner": "fable",
       "coder": "fable",
       "reviewer": "fable",
       "security": "fable",
       "researcher": "fable",
-      "setup": "fable",
-      "verifier": "fable",
-      "docs": "haiku",
       "bootstrapper": "fable"
     }
   },
 
   "maxFixLoops": 3,
-  "reviewerDifferentModel": false,
   "blockingSeverities": ["critical", "major"],
 
-  "_phaseDefaults": {
-    "_comment": "Post-Plan phases follow the Planner's ratings. Add setupByDefault / verifyByDefault / docsByDefault / securityByDefault to force one on or off regardless.",
-    "trivial": "Code, Review",
-    "medium": "Code, Review, Setup, Docs",
-    "complex": "Code, Review, Setup, Verify, Docs",
-    "_security": "Gated on security_surface, not complexity — the Security agent runs when the Planner rates the surface 'elevated'."
+  "_phases": {
+    "_comment": "Plan, Code, and Review always run. The other three are conditional.",
+    "bootstrapper": "greenfield mode only",
+    "researcher": "opt-in — research: true, or researchByDefault",
+    "security": "runs when the Planner rates security_surface 'elevated'; force with security: true/false or securityByDefault"
   },
 
-  "exploreByDefault": false,
-  "researchByDefault": false,
-
-  "docsBudgetFloor": 30000
+  "researchByDefault": false
 }

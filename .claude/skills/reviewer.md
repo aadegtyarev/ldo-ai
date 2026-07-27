@@ -1,23 +1,23 @@
 ---
 name: reviewer
-description: Review code changes — plan compliance, correctness bugs, simplification, efficiency
+description: Review the diff and drive the running app to prove acceptance criteria hold
 ---
 
-Invoke the reviewer agent to quality-check changes against the plan.
+Invoke the reviewer to quality-gate a change. Usually the strongest model in the pipeline.
 
 ## Usage
 
 ```
-/reviewer "review the current diff against the plan"
+/reviewer
 ```
 
 The reviewer will:
-1. Run `git diff` to see all changes
-2. Read each changed file
-3. Verify acceptance criteria are met (plan compliance)
-4. Check for correctness bugs, simplification opportunities, and efficiency issues
-5. Return a verdict: approved or changes_requested with specific issues
+1. Read the diff — plan compliance, correctness, simplification, efficiency
+2. Drive the actual application against each acceptance criterion
+3. Capture real output as evidence — a criterion passes only with proof
+4. Confirm security mitigations were actually implemented
+5. Return a verdict with specific, actionable issues
 
-Covers both plan-aware review AND built-in code-quality checks in a single pass — no separate code-review phase needed.
+Reading and running are both its job: the two ways of catching what the Coder missed, done by a model that didn't write the code.
 
-Use after `/coder` or standalone on any diff.
+Use after `/coder`, or standalone on any diff.

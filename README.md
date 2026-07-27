@@ -2,7 +2,7 @@
 
 **LDO** = Lightweight Dev Orchestrator (AI-driven).
 
-A 7-agent AI development pipeline for Claude Code. From idea to documented, tested code — with configurable model routing per role.
+Three agents — **Planner, Coder, Reviewer** — with a different model behind each. The point is routing: your Reviewer can run on a stronger model than your Coder, so the code gets written cheaply and checked well.
 
 ## Install
 
@@ -17,7 +17,7 @@ npx ldo-ai --global
 npx ldo-ai --target /opt/claude/.claude
 ```
 
-After install, configure model routing in `.claude/ldo-config.json`. Then invoke in Claude Code:
+After install, set your model routing in `.claude/ldo-config.json`. Then in Claude Code:
 
 ```
 /ldo "add rate limiting middleware"
@@ -26,161 +26,134 @@ After install, configure model routing in `.claude/ldo-config.json`. Then invoke
 ## Pipeline
 
 ```
-Bootstrap → Scout → [Explore] → [Research] → Plan → Security → Code ⇄ Review → Setup → Verify → Docs
-greenfield  reads    task-scoped  web         steps+  threat     implement  quality  deps+   prove    README+
-only        ONCE     search       research    accept  model      +tests     gate     env     it runs  CHANGELOG
-            ╰──────── opt-in ────────╯          ╰──────── scaled by complexity ────────╯
+[Bootstrap] → [Research] → Plan → [Security] → Code ⇄ Review
+ greenfield     web        read repo  threat     implement  read diff
+ only           sources    + rate     model      + test     + drive app
+                           the task              + document
 ```
 
-**The pipeline scales itself.** The Planner rates every task on two independent axes, and those ratings decide how much of the tail runs.
+**Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff *and* drives the running application to prove the acceptance criteria hold.
 
-**Complexity** — how much work it is:
+Three more run only when they earn their place:
 
-| Complexity | Phases after Plan | Agents total |
-|-----------|-------------------|--------------|
-| `trivial` | Code → Review | 4 |
-| `medium` | Code → Review → Setup → Docs | 6 |
-| `complex` | Code → Review → Setup → Verify → Docs | 7 |
+| Agent | Runs when |
+|-------|-----------|
+| **Bootstrapper** | `mode: "greenfield"` — new project, no codebase yet |
+| **Researcher** | `research: true` — the task needs domain knowledge from outside the repo |
+| **Security** | The Planner rates the change's attack surface `elevated` |
 
-**Security surface** — what it exposes:
+### Why the Planner decides about Security
 
-| Surface | What it means | Result |
-|---------|--------------|--------|
-| `none` | Pure refactor, docs, tests — no attack surface | Nothing added |
-| `low` | Touches data paths, no new entry point | Planner's notes go to the Coder |
-| `elevated` | New input, auth, secrets, injection, dependency, or crypto surface | Dedicated Security agent runs |
+The Planner rates every task on two independent axes:
 
-The two are independent. A one-line change to an auth check is `trivial` + `elevated`: four agents, one of them Security. A large internal refactor is `complex` + `none`: seven agents, no threat model.
+**Complexity** (`trivial` / `medium` / `complex`) picks the models.
 
-That split is why Security isn't just another complexity tier — risk doesn't scale with diff size. When the rating is ambiguous, the Planner is instructed to round up: a wrong `elevated` costs one agent, a wrong `none` ships the vulnerability.
+**Security surface** decides whether a threat model is worth an agent:
 
-Explore and Research run *before* Plan, so no rating exists yet — those stay opt-in (`explore: true`, `research: true`). Any phase can be forced on or off per run or in config.
+| Surface | Meaning | Result |
+|---------|---------|--------|
+| `none` | Pure refactor, docs, tests | Nothing added |
+| `low` | Touches data paths, no new entry point | Planner's own notes go to the Coder |
+| `elevated` | New input, auth, secrets, injection, dependency, or crypto surface | Security agent runs |
 
-| Phase | Agent | What it does |
-|-------|-------|-------------|
-| Bootstrap | bootstrapper | (Greenfield) Research similar solutions, pick stack, draft roadmap |
-| Scout | ctx-scout | Read the codebase ONCE — produce a deterministic cache-prefix snapshot |
-| Explore | explorer | (Opt-in) Fan-out search for task-specific files, call sites, tricky spots |
-| Research | researcher | (Opt-in) Deep web search on the task domain, cross-verify claims |
-| Plan | planner | Task + context → ordered steps with acceptance criteria |
-| Security | security | (Opt-in) Threat model the PLAN — shift-left: catch risks before coding |
-| Code | coder | Implement the plan + security mitigations, write tests |
-| Review | reviewer | Plan compliance + correctness + simplification + efficiency in one pass |
-| Setup | setup | Install dependencies, configure services, smoke-check |
-| Verify | verifier | (Opt-in) Drive the running app, prove each acceptance criterion with evidence |
-| Docs | docs | Update README, CHANGELOG, API docs |
+Risk doesn't scale with diff size — a one-line change to an auth check is `trivial` work with an `elevated` surface. When the rating is ambiguous the Planner rounds up: a wrong `elevated` costs one agent, a wrong `none` ships the vulnerability.
 
-**Review finds issues → back to Code.** Up to 3 fix iterations (configurable).
+**Review finds blocking issues → back to Code.** Up to 3 iterations, configurable.
+
+## Why only three core agents
+
+Every role has to answer: *would I route this to a different model than the Coder?* If not, it's taxonomy, not architecture.
+
+- **Environment setup** isn't separate — the Coder needs a working environment to run tests, and tests aren't optional. Splitting it means the setup agent finishes before the code that needs it exists.
+- **Docs** aren't separate — a CHANGELOG line isn't a different skill from the code that earned it, and the Coder already knows what changed.
+- **Verification** belongs to the Reviewer. Checking your own work is weak review; the same blind spot that wrote the bug will skip the test that catches it. Reading the diff and running the app are two ways to answer one question, and both benefit from a model that didn't write the code.
+- **Codebase reading** belongs to the Planner. You can't plan what you haven't read.
+
+That leaves the three roles the protocol started with — plus three specialists that genuinely want different models and genuinely don't always run.
 
 ## Token efficiency
 
-The pipeline is designed to minimize token waste through cold cache starts:
-
-- **Split Scout** — the codebase is read exactly once by a dedicated agent. The snapshot becomes a **shared cache prefix** for all downstream agents (Coder, Reviewer, Setup, Docs). On workflow resume, Scout is skipped — the cache stays hot.
-- **Fix-loop strip** — after the first pass, Coder and Reviewer don't see the full codebase context. Only the specific issues and affected files. Saves ~75% input tokens per fix iteration.
-- **Structured hand-offs** — every agent returns schema-validated JSON, rendered compactly for the next stage. No raw text dumps, no truncation.
-- **Severity-gated loop** — only `critical` and `major` issues trigger another Code pass. Minor findings ride along in the final report instead of burning an iteration.
-- **Prompts live in agents** — the workflow passes a one-line task; the agent definition carries the full instructions. Keeps the orchestrator readable and the prompts editable in one place.
-- **Budget-aware Docs** — the Docs phase is skipped if the remaining token budget drops below a configurable floor. It's non-blocking.
+- **One codebase read** — the Planner's `codebase_context` becomes a shared prefix reused by Coder and Reviewer. They never re-scan.
+- **Prompt cache** — Anthropic keys the cache on (model, prefix bytes). Coder and Reviewer on the same model both hit it. A stronger Reviewer costs one cold start — usually worth it.
+- **Narrow fix loop** — after the first pass, the Coder sees only the specific issues and files, not the whole context. Roughly 75% fewer input tokens per iteration.
+- **Severity gating** — only `critical` and `major` buy another Code pass. Minor findings ride along in the final report instead of burning an iteration.
+- **Structured hand-offs** — every agent returns schema-validated JSON, rendered compactly for the next stage. No raw dumps, no truncation.
+- **Prompts live in agent files** — the workflow passes one line; `.claude/agents/*.md` carries the instructions. One place to edit each role.
 
 ## Model routing
-
-Every role can use a different model. Configure in `.claude/ldo-config.json`:
 
 ```json
 {
   "models": {
-    "medium": {
-      "scout": "sonnet",   "explorer": "sonnet", "planner": "sonnet",
-      "coder": "sonnet",   "reviewer": "sonnet", "setup": "sonnet",
-      "verifier": "sonnet", "docs": "haiku",     "security": "fable",
-      "researcher": "fable", "bootstrapper": "fable"
-    }
+    "trivial": { "planner": "haiku",  "coder": "haiku",  "reviewer": "sonnet" },
+    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "fable"  },
+    "complex": { "planner": "fable",  "coder": "fable",  "reviewer": "fable"  }
   },
   "maxFixLoops": 3,
   "blockingSeverities": ["critical", "major"],
-  "exploreByDefault": false,
-  "researchByDefault": false,
-  "docsBudgetFloor": 30000
+  "researchByDefault": false
 }
 ```
 
-Same shape for `trivial` and `complex` tiers. Model names are whatever your setup routes them to — the pipeline makes no assumptions about which is stronger.
+Note the defaults: on `trivial` and `medium` the Reviewer runs *above* the Coder. Cheap to write, careful to check.
 
-To override the complexity-scaled defaults, add `securityByDefault`, `setupByDefault`, `verifyByDefault`, or `docsByDefault` — setting one forces that phase on (or off) regardless of tier.
-
-**Cache rule**: Coder, Reviewer, and Setup on the **same model** = cache hits for all three. A different model means a separate cache namespace and one cold start. Setting `reviewerDifferentModel: true` buys an independent second read at that cost.
+Model names mean whatever your setup routes them to — the pipeline makes no assumption about which is stronger. Each tier also takes `security`, `researcher`, and `bootstrapper` keys.
 
 Override per run:
 
 ```js
 Workflow({name:"ldo", args:{
   task: "refactor auth module",
-  explore: true,
-  security: true,
-  config: { models: { medium: { coder: "opus", reviewer: "opus" } } }
+  research: true,
+  config: { models: { medium: { coder: "haiku", reviewer: "opus" } } }
 }})
 ```
 
-Walk through setup: `/ldo-config` in Claude Code.
+Walk through it: `/ldo-config` in Claude Code.
 
-## Usage summary
+## Usage
 
 | Command | What |
 |---------|------|
-| `/ldo "task"` | Full pipeline (complexity auto-detected) |
-| `/ldo` + `mode: "greenfield"` | Bootstrap first, then the full pipeline |
-| `/ldo` + `explore: true` | Add the task-scoped codebase search |
+| `/ldo "task"` | Full pipeline |
+| `/ldo` + `mode: "greenfield"` | Bootstrap a new project first |
 | `/ldo` + `research: true` | Add the web research phase |
-| `/ldo` + `security: true` | Add the plan threat model |
-| `/ldo` + `verify: true` | Add end-to-end verification after Setup |
-| `/bootstrapper "idea"` | Research + stack + roadmap only |
-| `/ctx-scout` | Scan codebase, produce snapshot |
-| `/explorer "task"` | Find files, call sites, tricky spots for a task |
+| `/ldo` + `security: true` \| `false` | Force the threat model on or off |
+| `/planner "task"` | Plan only |
+| `/coder "task"` | Implement a plan |
+| `/reviewer` | Review the current diff and drive the app |
+| `/security` | Threat-model a plan |
 | `/researcher "topic"` | Multi-source web research |
-| `/planner "task"` | Plan only (needs `/ctx-scout` first) |
-| `/security` | Threat model a plan |
-| `/coder "task"` | Implement only |
-| `/reviewer` | Review current diff |
-| `/setup` | Bootstrap dev environment |
-| `/verifier` | Drive the app, prove acceptance criteria |
-| `/docs` | Write documentation for current changes |
-| `/ldo-config` | Walk through model routing config |
+| `/bootstrapper "idea"` | Research + stack + roadmap |
+| `/ldo-config` | Walk through model routing |
 
 ## How it works
 
-1. **Planner assesses complexity** → picks the `trivial`, `medium`, or `complex` tier
-2. That tier decides two things: which model each role uses, and **which phases run at all**
-3. Each agent returns schema-validated JSON; the orchestrator renders it compactly for the next stage
-4. Coder and Reviewer loop until approved, or until `critical`/`major` issues stop appearing
-5. Security threat-models the plan before code exists — its mitigations become hard requirements for the Coder
-6. Setup makes the project runnable; Verify drives it and captures evidence; Docs updates user-facing documentation
+1. The Planner reads the codebase, writes the plan, rates complexity and security surface
+2. Complexity picks the models; security surface decides whether a Security agent runs
+3. Each agent returns schema-validated JSON, rendered compactly for the next stage
+4. Coder and Reviewer loop until approved, or until no `critical`/`major` issues remain
+5. The Reviewer's verdict includes captured evidence — a criterion passes only with proof
 
-**Universal**: the protocol is not tied to Claude Code. Each role is a prompt plus a JSON Schema contract. The orchestrator can be replaced with any script that calls any LLM runner.
+**Portable**: the protocol isn't tied to Claude Code. Each role is a prompt plus a JSON Schema contract. The orchestrator can be any script calling any LLM runner.
 
 ## Files
 
 ```
 .claude/
-├── workflows/ldo.js          # Orchestrator (~790 lines)
-├── agents/                   # 11 agent definitions — prompts live here
-│   ├── bootstrapper.md
-│   ├── ctx-scout.md
-│   ├── explorer.md
-│   ├── researcher.md
+├── workflows/ldo.js     # Orchestrator (~600 lines)
+├── agents/              # Prompts live here
 │   ├── planner.md
-│   ├── security.md
 │   ├── coder.md
 │   ├── reviewer.md
-│   ├── setup.md
-│   ├── verifier.md
-│   └── docs.md
-├── skills/                   # 12 slash-commands
-│   └── … one per agent, plus ldo-config
-└── ldo-config.json           # Model routing + phase toggles
+│   ├── security.md
+│   ├── researcher.md
+│   └── bootstrapper.md
+├── skills/              # One slash-command per agent, plus ldo-config
+└── ldo-config.json      # Model routing
 ```
 
-The installer copies exactly these files — nothing else in your `.claude/` is touched.
+The installer touches exactly these files — nothing else in your `.claude/` is modified.
 
 ## License
 
