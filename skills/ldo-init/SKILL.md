@@ -35,15 +35,42 @@ test for any behavior change, and update README/CHANGELOG for user-facing change
 For any report or handoff: verdict first, evidence not assertion, name what you're
 unsure of. See `/ldo-agent-ux`.
 
-Models route automatically: Sonnet writes, Opus reviews. To change that, pass the
-routing on the call — `Workflow({ name: "ldo", args: { task: "...", config: {
-models: { medium: { coder: "haiku", reviewer: "opus" } } } } })`. Keep any
-project-specific routing in this block so it's applied on every run.
+Models route automatically: Haiku for trivial work, Sonnet writing and Opus
+reviewing for real changes. To change that, pass the routing on the call —
+`Workflow({ name: "ldo", args: { task: "...", config: { models: { medium: {
+coder: "haiku", reviewer: "opus" } } } } })`. Keep any project-specific routing
+in this block so it's applied on every run.
+
+**Docs drift log.** Append a line here after each user-facing change. When the
+list reaches roughly eight, offer to run `/ldo-docs-audit` — a full cold read
+that catches contradictions and stale claims no single diff reveals — then clear
+the list. Offer; don't run it unasked.
+
+<!-- ldo:features -->
+<!-- /ldo:features -->
 <!-- END ldo -->
 ```
 
+## About the drift log
+
+The `<!-- ldo:features -->` markers hold one line per user-facing change — a few words each, enough to recognise what moved:
+
+```
+<!-- ldo:features -->
+- rate limiting on the API
+- export endpoint takes a date range
+- config moved to CLAUDE.md
+<!-- /ldo:features -->
+```
+
+It exists because per-change review can't catch cumulative drift. The Reviewer checks that *this* change's docs kept up; it has no way to notice that six changes ago a section stopped describing reality. The counter is a cheap proxy for "enough has moved that a full read is due".
+
+Around eight entries, offer the audit — don't launch it. It's a full documentation read and costs real tokens; the operator decides. Clear the list once it's run.
+
+Eight is a starting point, not a rule. A docs-heavy project might want five; one with a thin README might go twenty. The number lives in prose precisely so it can be argued with.
+
 ## After writing
 
-Tell the operator the block was added and that it loads automatically every session. Suggest they skim it and adjust the routing thresholds to their taste — e.g. some teams want *everything* through the pipeline, others only architectural changes. The block is plain prose in `CLAUDE.md`; editing it directly is the intended way to tune.
+Tell the operator the block was added and that it loads automatically every session. Suggest they skim it and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
 
-Run `/ldo-init` once per project. Re-running updates the block in place.
+Run `/ldo-init` once per project. Re-running updates the block in place, preserving any drift-log entries already there.

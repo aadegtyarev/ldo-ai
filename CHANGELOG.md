@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] — 2026-07-27
+
+### Added
+
+- **`/ldo-docs-audit` — a cold read of the whole documentation set.** Per-change
+  review structurally cannot catch cumulative drift: every edit is locally correct
+  and the whole comes apart across many of them. This reads everything *before*
+  looking at the source, so gaps aren't filled from memory, then reports
+  contradictions, stale claims, undefined jargon, and instructions that quietly do
+  nothing — the category where the reader believes they configured something and
+  no error ever appears.
+- **The Reviewer now checks that a change's own docs kept up.** If the plan marks a
+  step `user_facing` and no documentation moved, that's a finding — as is
+  documentation describing what the plan intended rather than what was built.
+- **A drift log in `CLAUDE.md`.** The Coder appends a line per user-facing change;
+  around eight entries Claude offers the audit. It offers rather than runs, because
+  a full read costs real tokens and the timing belongs to the operator.
+
 ## [2.3.0] — 2026-07-27
 
 ### Added

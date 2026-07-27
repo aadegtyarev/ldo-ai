@@ -46,6 +46,10 @@ For steps marked `user_facing`, update what a reader would need:
 
 Internal refactors get no doc changes. Don't rewrite whole documents; touch the relevant sections. If the project has no docs at all and this is a real feature, create a minimal README.
 
+When you edit a section, read what surrounds it. A flag documented in two places, one of them updated, is worse than one that wasn't documented at all — the reader has no way to know which is current.
+
+If `CLAUDE.md` has an `<!-- ldo:features -->` block, append one short line describing what changed, in the reader's terms. That log is how the project notices when enough has accumulated to warrant a full documentation audit.
+
 ### 6. Review your own diff
 
 `git diff` before finishing. Look for stray debug output, unrelated edits, missing imports.

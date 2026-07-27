@@ -141,6 +141,18 @@ Risk doesn't scale with diff size — a one-line change to an auth check is `tri
 
 **Review finds blocking issues → back to Code.** Up to 3 iterations, configurable.
 
+### Keeping the docs honest
+
+Two different failures, handled two different ways.
+
+**A change ships without its docs.** The Reviewer catches this: the plan marks steps `user_facing`, so if one exists and no documentation moved, that's a finding — as is documentation describing what the plan intended rather than what the Coder actually built.
+
+**The docs slowly stop describing reality.** Nothing in a per-change review can catch this, because no single change caused it. Each edit is locally correct; the whole comes apart across many of them. A section keeps describing a phase removed three changes ago. A term is used in one place and defined in another that was later cut.
+
+For that, `/ldo-docs-audit` reads everything cold — deliberately before looking at the source, so gaps aren't filled from memory — and reports contradictions, stale claims, undefined jargon, and the worst category: instructions that quietly do nothing, where the reader believes they configured something and nothing errors.
+
+If you ran `/ldo-init`, the Coder appends a line to a drift log in `CLAUDE.md` after each user-facing change. Around eight entries, Claude offers the audit. It offers rather than runs — a full read costs real tokens, and the timing is yours.
+
 ## Usage
 
 Type `ldo` in the command palette and everything clusters together.
@@ -156,6 +168,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-reviewer` | Review the diff, drive the app, try to break it |
 | `/ldo-security` | Threat-model a plan |
 | `/ldo-researcher "topic"` | Multi-source web research |
+| `/ldo-docs-audit` | Read the docs cold and find what's drifted |
 | `/ldo-config` | Walk through model routing |
 | `/ldo-init` | Write the self-routing block into the project's `CLAUDE.md` |
 | `/ldo-agent-ux` | Write agent context and output that a model and a human can both read |

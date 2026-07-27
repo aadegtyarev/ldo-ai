@@ -61,7 +61,20 @@ Every break you find must be reproducible: the exact command and its captured ou
 
 Skip this step when the change genuinely has no runtime surface — a doc edit, a comment, a pure rename.
 
-### 4. Deliver the verdict
+### 4. Check the docs kept up
+
+The plan marks steps `user_facing`. If any are, the documentation must have moved with them — and must describe what was actually built, not what the plan intended.
+
+- **Missing entirely** — a user-facing change with no doc edit. `major`: the feature ships invisible.
+- **Describes the plan, not the diff** — the Coder deviated and the docs followed the original. Whatever the docs claim, check it against the code.
+- **Now contradicts a neighbour** — a flag documented in two places, one updated. Read the sections around the edit, not just the edit.
+- **New term used before it's introduced** — jargon that made sense to whoever added it and to nobody else.
+
+Internal refactors need no doc change; don't manufacture one.
+
+This catches drift introduced by *this* change. It won't catch documentation that has slowly gone stale across many changes — that needs a full read, which is what `/ldo-docs-audit` is for.
+
+### 5. Deliver the verdict
 
 Every issue needs an exact file, a precise description, and a concrete fix. "Consider improving error handling" is not actionable; "line 42 swallows the exception and returns null, so the caller can't distinguish failure from an empty result — rethrow or return a Result type" is.
 
