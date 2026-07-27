@@ -5,6 +5,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-07-27
+
+### Fixed — documentation
+
+Reviewed by someone reading the docs cold. Three factual errors, all stale text
+left behind by earlier refactors:
+
+- **The README described Setup and Docs as pipeline phases.** They were folded into
+  the Coder in 1.x, and a whole section elsewhere argues they shouldn't be separate.
+- **It claimed "every command is namespaced."** Skills aren't — that's why 2.0.0
+  renamed them by hand. Now explains why `/ldo:ldo` has a colon and `/ldo-*` a hyphen.
+- **Nothing warned that `ldo-config.json` is never read.** The Files section listed
+  a `.example.json` "template," so the obvious move was to copy it — and get silently
+  ignored routing. Now a bordered warning at the top of Configuration.
+
+### Added — documentation
+
+- **A transcript of a real run**, showing the security surface caught pre-code and
+  the Reviewer finding an unbounded map that 47 passing tests missed.
+- **A plain answer to "does it edit my files?"** — yes, unattended after approval;
+  nothing committed, no branch created.
+- **A Troubleshooting section** covering empty installs, greyed-out updates, ignored
+  config, undrivable projects, and clean removal.
+- Version check (`claude --version`), scope guidance on install, a link to the repo,
+  and clarification that `/code-review` and friends ship with Claude Code.
+
+### Changed
+
+- `securityByDefault` documented in the config example — it was read by the workflow
+  but absent from the reference.
+- Pre-2.0 changelog entries collapsed into one `1.x` summary. Nine same-day releases,
+  several undoing each other, presented as semver history was noise.
+
 ## [2.0.0] — 2026-07-27
 
 ### Changed — BREAKING
@@ -25,156 +58,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The workflow is unaffected — workflows *are* namespaced, so it stays `/ldo:ldo`.
 
-## [1.5.0] — 2026-07-27
+## [1.x] — 2026-07-27
 
-### Fixed
+Same-day iterations before the first usable release. Kept brief on purpose: several
+of these fixed each other, and the detail is only useful as archaeology.
 
-- **Plugin failed to install: "Validation errors: agents: Invalid input".** The
-  manifest pointed `agents` at a directory, but that field takes a list of files.
-  Rather than maintain a file list that drifts every time an agent is added, moved
-  the components to the canonical plugin layout — `agents/`, `skills/`, `workflows/`
-  at the plugin root — so no custom path fields are needed at all.
-- **`ldo-config.json` was never read.** A workflow has no filesystem access; config
-  reaches it only through `args.config` at invocation. The file sat in the repo doing
-  nothing while the docs told you to edit it — worse than a visible failure, because
-  routing silently stayed on defaults. It's now `ldo-config.example.json`, a labelled
-  reference template, and `/ldo-config`, `/ldo-init`, and the README explain the real
-  mechanism: put routing in the project's `CLAUDE.md`, or pass it per run.
-- **Screenshots were committed to the public repo.** `incoming/` (files relayed from
-  chat) was tracked and shipped inside the plugin. Untracked and gitignored.
-
-## [1.4.1] — 2026-07-27
-
-### Fixed
-
-- **Plugin installed but no `/ldo:*` commands appeared.** Root cause: components
-  lived under `.claude/` (the layout for a *project's* own config), but a plugin
-  must declare its `skills/`, `agents/`, and `workflows/`. Added custom-path fields
-  to `plugin.json` pointing the loader at `.claude/{skills,agents,workflows}` so
-  the components are discovered. The dev-project layout is unchanged; only the
-  published plugin's manifest is fixed.
-
-## [1.4.0] — 2026-07-27
-
-### Added
-
-- **`/ldo-init` — make LDO self-driving per project.** Writes a short routing
-  block into the project's `CLAUDE.md` (between idempotent markers). Claude then
-  routes work on its own: trivial changes inline, real changes through the pipeline,
-  security-sensitive ones with the threat-model phase. No more typing `/ldo` for
-  every task. The block is plain prose — edit it to tune the thresholds. Loads every
-  session, so it's kept short.
-
-## [1.3.1] — 2026-07-27
-
-### Fixed
-
-- **Plugin couldn't be updated — "Local plugins cannot be updated remotely."**
-  The marketplace declared the plugin with `"source": "./"`, a relative path,
-  which Claude Code classifies as a local source and refuses to update remotely.
-  Switched to a `github` source (`{ "source": "github", "repo": "aadegtyarev/ldo-ai" }`),
-  the correct type for a git-distributed, auto-updatable plugin. Existing installs
-  need a one-time reinstall to pick up the new source type (see README).
-
-## [1.3.0] — 2026-07-27
-
-### Added
-
-- **Getting-started and project-setup guide.** The README now walks through the
-  actual workflow — first-time routing config, starting a project with
-  `/ldo-bootstrap`, working an existing project with `/ldo:ldo`, and opting extra
-  phases in for big changes. Plus a team-setup section: commit `.claude/ldo-config.json`
-  and an `enabledPlugins` block in `.claude/settings.json`, and teammates get LDO
-  plus the recommended companion plugins (`security-guidance`, the language LSP, …)
-  prompted on first open.
-
-### Changed
-
-- **Commands cluster under the `ldo:` namespace.** Installing as the `ldo` plugin
-  namespaces every skill — `/ldo-planner`, `/ldo-coder`, `/ldo-reviewer`, and so on —
-  so they group in the command palette. The ecosystem uses a colon prefix, not a
-  hyphen; baking `ldo-` into names would double up under the namespace.
-- **Renamed `ldo-config` skill to `config`** to avoid the double `ldo:ldo-config`.
-- **Recommended companion plugins** (`security-guidance`, frontend/browser tooling,
-  language LSPs) are now declared via the project `enabledPlugins` block rather than
-  as hard plugin dependencies — declaring cross-marketplace deps risks breaking the
-  install if resolution fails, while `enabledPlugins` prompts safely at project open.
-
-## [1.2.0] — 2026-07-27
-
-### Changed
-
-- **Distribution moved to a Claude Code plugin marketplace; npx removed.**
-  The previous `npx ldo-ai` installer copied files into `.claude/` with no version
-  tracking and no update path. A marketplace (`/plugin marketplace add`, then
-  `/plugin install`) is the native mechanism — it carries updates, scope (user /
-  project / local), and discovery. Added `.claude-plugin/marketplace.json`, removed
-  `bin/ldo-install.js` and `package.json`.
-
-## [1.1.0] — 2026-07-27
-
-### Changed
-
-- **Bootstrapping moved out of the pipeline.** It produced decisions, not code, and
-  decisions need a conversation — a subagent hands back JSON and disappears, so you
-  couldn't push back on a stack choice. It's now `/bootstrapper`, an interactive
-  skill that researches prior art, works the stack out with you, and hands the first
-  task to `/ldo`. The workflow lost its greenfield mode and 78 lines with it.
-- **Skills follow the documented layout** — `.claude/skills/<name>/SKILL.md` instead
-  of flat `.md` files. The flat form is the legacy `commands/` format.
-- **Positioning rewritten around model routing.** Claude Code's own `feature-dev`
-  and community pipelines like `superpowers` cover similar phases, but run every one
-  on a single model. Per-role routing is what LDO actually offers.
-
-### Added
-
-- **`.claude-plugin/plugin.json`** — LDO can now be distributed as a Claude Code
-  plugin, which brings `/plugin update` and version tracking. The npx installer
-  remains as a fallback.
-- **Guidance on the built-ins.** `/code-review`, `/security-review`, `/simplify`,
-  and `/deep-research` do things LDO deliberately doesn't rebuild. The Reviewer and
-  Researcher skills now say when to reach for them, and the README lists the plugins
-  worth installing alongside — `security-guidance`, `frontend-design`,
-  `chrome-devtools-mcp`, and the language LSPs.
-
-## [1.0.0] — 2026-07-27
-
-First public release.
-
-### Added
-
-- **Three-agent pipeline** — Planner, Coder, Reviewer. Each runs on its own model,
-  so implementation can be cheap while review stays careful.
-- **Per-role model routing** (`.claude/ldo-config.json`) with three complexity tiers.
-  The Planner rates each task `trivial`, `medium`, or `complex`; that rating picks
-  the models. Default puts Opus on Review above Sonnet on Code.
-- **Security surface rating** — the Planner rates what a change exposes
-  (`none` / `low` / `elevated`) independently of how large it is. A dedicated
-  Security agent threat-models the plan only when the surface is `elevated`;
-  a `low` surface passes the Planner's own notes to the Coder without an extra call.
-- **Conditional specialists** — Bootstrapper for greenfield projects, Researcher
-  for tasks needing knowledge from outside the repo. Both off by default.
-- **Evidence-backed verification** — the Reviewer drives the running application
-  against each acceptance criterion and captures real output. A criterion passes
-  only with proof, never on inspection alone.
-- **Severity-gated fix loop** — only `critical` and `major` findings buy another
-  Code pass; minor findings ride along in the final report. Configurable via
-  `blockingSeverities`.
-- **Structured hand-offs** — every agent returns schema-validated JSON, rendered
-  compactly for the next stage. No raw text dumps, no truncation.
-- **Shared context prefix** — the Planner reads the codebase once; its
-  `codebase_context` is reused by Coder and Reviewer, who never re-scan.
-- **npx installer** — `npx ldo-ai` for the current project, `--global` for
-  `~/.claude/`, `--target <path>` for non-standard locations. Installs from an
-  explicit manifest, so nothing else in your `.claude/` is touched.
-- **Slash commands** — one per agent, plus `/ldo-config` for a routing walkthrough.
-
-### Notes
-
-Earlier iterations of this design carried up to eleven agents, including separate
-roles for codebase scanning, environment setup, verification, and documentation.
-Each was folded into one of the three core roles after applying a single test:
-*would this warrant a different model than the Coder?* Environment setup and
-documentation belong to whoever writes the code; verification belongs to whoever
-reviews it. Those versions were never published.
-
+- **Design converged from eleven agents to three.** Separate roles for codebase
+  scanning, environment setup, verification, and documentation were folded into
+  Planner, Coder, and Reviewer after applying one test to each: *would this warrant
+  a different model than the Coder?* Environment setup and docs belong to whoever
+  writes the code; verification belongs to whoever reviews it.
+- **Bootstrapping moved out of the pipeline** into `/ldo-bootstrap`. It produces
+  decisions, not code, and decisions need a conversation.
+- **Security became surface-gated, not size-gated.** The Planner rates a change's
+  attack surface independently of its complexity, because risk doesn't scale with
+  diff size.
+- **Distribution moved from an npx installer to a plugin marketplace**, then through
+  three packaging fixes: a local source that couldn't auto-update, a manifest that
+  pointed at a directory where a file list was required, and a component layout
+  Claude Code couldn't discover.
+- **`ldo-config.json` was found to be dead.** A workflow has no filesystem access;
+  config only ever arrived through invocation arguments. The file existed and was
+  documented while nothing read it — routing silently stayed on defaults. It's now
+  `ldo-config.example.json`, clearly a reference, with the real mechanism documented.

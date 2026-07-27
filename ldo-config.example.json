@@ -34,5 +34,7 @@
     "security": "runs when the Planner rates security_surface 'elevated'; force with security: true/false or securityByDefault"
   },
 
-  "researchByDefault": false
+  "researchByDefault": false,
+
+  "_securityByDefault": "Not set here on purpose. Omit the key and the Planner decides (Security runs when it rates the surface 'elevated'). Add \"securityByDefault\": true to always threat-model, or false to never — either value overrides the Planner."
 }

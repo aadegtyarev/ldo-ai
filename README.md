@@ -1,35 +1,36 @@
 # LDO — Lightweight Dev Orchestrator
 
-**Orchestration as code, with cost-aware model routing.** A development pipeline for [Claude Code](https://claude.com/claude-code) where each role runs on a different model — implementation on a cheap one, review on a strong one.
+**The model that checks the work isn't the model that did it — and it has to show receipts.**
 
-That routing is the whole point. Claude Code's own `feature-dev`, and community pipelines like `superpowers`, all run every phase on one model. LDO lets you spend where it matters: Sonnet writes, Opus checks.
+A development pipeline for [Claude Code](https://claude.com/claude-code) built on three agents: **Planner, Coder, Reviewer**. Each runs on a model you choose, so you can write with a cheap one and review with a strong one. The Reviewer reads the diff *and* drives your running app, and it can't approve a criterion without captured output proving it holds.
 
-The plan is held by a deterministic script, not by a model remembering it turn to turn, and every hand-off between roles is a validated JSON schema.
+```
+Plan ──→ Code ⇄ Review
+ │        │       │
+ reads    writes  reads the diff, runs the app,
+ the repo +tests  proves each criterion
+```
+
+Claude Code's own `feature-dev` and community pipelines like `superpowers` cover similar ground, but run every phase on one model. Per-role routing, and a plan held by a deterministic script instead of a model's memory, is what LDO adds.
+
+Source: [github.com/aadegtyarev/ldo-ai](https://github.com/aadegtyarev/ldo-ai)
 
 ## Install
 
-Requires Claude Code v2.1.154+ (the workflow runtime).
+Requires Claude Code v2.1.154 or newer — that's the release that added the workflow runtime LDO's pipeline runs on. Check with `claude --version`.
 
 ```
 /plugin marketplace add aadegtyarev/ldo-ai
 /plugin install ldo@ldo-ai
 ```
 
-Updates come with `/plugin update ldo@ldo-ai`. Scope is user (every project), project (committed to the repo for teammates), or local — Claude Code prompts you to choose.
-
-> **Installed before v1.3.1 and "Update now" is greyed out?** Early marketplaces shipped the plugin as a local source, which can't be updated remotely. Reinstall once to switch to the git source:
-> ```
-> /plugin uninstall ldo@ldo-ai
-> /plugin marketplace update ldo-ai
-> /plugin install ldo@ldo-ai
-> ```
-> After that, `/plugin update ldo@ldo-ai` works.
+Pick **user** scope when Claude Code asks, unless you're setting this up for a team — then see [Set up a project for a team](#set-up-a-project-for-a-team). Updates come with `/plugin update ldo@ldo-ai`.
 
 ## Getting started
 
-**First time, configure routing.** The defaults already put Sonnet on Code and Opus on Review, so you can skip this. To change it, run `/ldo-config` — routing is passed to the pipeline at invocation (a workflow can't read config files), so `/ldo-config` helps you put it in the right place.
+**Skip configuration for now.** The defaults already do the useful thing — Sonnet writes, Opus reviews. See [Configuration](#configuration) when you want to change it.
 
-**Make it self-driving.** Run `/ldo-init` once in a project. It writes a short block into `CLAUDE.md` that tells Claude how to route work on its own — trivial changes inline, real changes through the pipeline — so you stop typing `/ldo:ldo` for every task. Edit the block directly to tune the thresholds to your taste; it loads every session.
+**Make it self-driving.** Run `/ldo-init` once in a project. It writes a short block into `CLAUDE.md` telling Claude to handle trivial edits inline and route real changes through the pipeline, so you stop typing `/ldo:ldo` for every task. The block is plain prose — edit it to taste.
 
 **Starting a new project** is a conversation, not a pipeline:
 
@@ -49,7 +50,9 @@ It researches what already exists, works the stack out with you, and ends by nam
 /ldo:ldo "add rate limiting to the API endpoints"
 ```
 
-A typo runs Plan → Code → Review and stops. A feature adds Setup and Docs. A change with an attack surface adds a threat model. You don't pick the phases — the rating does.
+The Planner rates the task, and that rating decides what runs. A refactor with no attack surface goes straight Plan → Code → Review. A change touching auth or user input adds a threat model first. You don't choose — though you can override, below.
+
+**It edits your working tree.** Once you approve the run, the Coder writes files and the Reviewer runs your app; neither stops to ask. Nothing is committed and no branch is created — you're left with uncommitted changes to inspect. Start on a clean tree, or a branch you don't mind resetting.
 
 **For a big or uncertain change**, opt the extra phases in:
 
@@ -58,6 +61,44 @@ A typo runs Plan → Code → Review and stops. A feature adds Setup and Docs. A
 ```
 
 **After the pipeline**, get a second opinion from the built-ins LDO doesn't duplicate — `/code-review high` for a multi-agent correctness pass, `/security-review`, or `/deep-research` when the call is expensive to reverse.
+
+### What a run looks like
+
+```
+/ldo:ldo "add rate limiting to the API endpoints"
+
+Budget: unlimited
+Task: add rate limiting to the API endpoints
+
+▸ Plan
+  Complexity: medium  |  Security surface: elevated  |  Coder:sonnet  Reviewer:opus
+    ⚠ New middleware reads a client-supplied X-Forwarded-For header — spoofable
+  Plan: 3 step(s), 4 files mapped
+    • Add a token-bucket limiter keyed on client IP
+    • Wire it into the router ahead of auth
+    • Cover the burst and reset paths with tests
+
+▸ Security
+  findings — one issue worth fixing before it's written
+    [high] input_validation: trusting X-Forwarded-For lets a client forge its IP
+
+▸ Code
+  Coder pass 1: 47 passed, 0 failed
+
+▸ Review
+  Verification: verified — 3/3 criteria proven
+  ✗ 1 issue(s): 1 blocking, 0 advisory
+    [major] middleware/rate_limit.go: bucket map grows without bound; no eviction
+
+▸ Code
+  Coder pass 2: 49 passed, 0 failed
+
+▸ Review
+  Verification: verified — 3/3 criteria proven
+  ✓ APPROVED — limiter returns 429 past 100 req/min, evicts idle buckets after 10m
+```
+
+Two things to notice. The Planner flagged the spoofable header **before any code existed**, so the mitigation was a requirement rather than a bug fix. And the Reviewer — a different model than the one that wrote it — caught an unbounded map that all 47 tests passed straight over.
 
 ### Set up a project for a team
 
@@ -139,14 +180,28 @@ Bootstrapping went the other way: it produces *decisions*, not code, and decisio
 - **Structured hand-offs** — every agent returns schema-validated JSON, rendered compactly for the next stage. No raw dumps, no truncation.
 - **Prompts live in agent files** — the workflow passes one line; `.claude/agents/*.md` carries the instructions. One place to edit each role.
 
-## Model routing
+## Configuration
+
+> **There is no config file to edit.** A workflow can't read from disk, so settings reach the pipeline only as arguments at invocation. Creating `.claude/ldo-config.json` does nothing — it will be silently ignored and you'll think you configured something. `ldo-config.example.json` in the plugin is a reference list of the keys, not a file anything loads.
+
+Two places to put settings:
+
+**Per project — in `CLAUDE.md`.** Run `/ldo-init`, then add your routing to the block it writes. Claude reads `CLAUDE.md` every session and passes it along, so it applies to every run. Commit it and your team gets the same behaviour.
+
+**Per run — ask for it in the prompt.** Plain English works, because Claude translates it into the call:
+
+```
+run ldo on "refactor the auth module", with haiku coding and opus reviewing
+```
+
+### What you can set
 
 ```json
 {
   "models": {
-    "trivial": { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus" },
-    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus" },
-    "complex": { "planner": "opus",   "coder": "sonnet", "reviewer": "opus" }
+    "trivial": { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus", "security": "opus", "researcher": "sonnet" },
+    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus", "security": "opus", "researcher": "opus" },
+    "complex": { "planner": "opus",   "coder": "sonnet", "reviewer": "opus", "security": "opus", "researcher": "opus" }
   },
   "maxFixLoops": 3,
   "blockingSeverities": ["critical", "major"],
@@ -154,33 +209,23 @@ Bootstrapping went the other way: it produces *decisions*, not code, and decisio
 }
 ```
 
-The Coder stays on Sonnet at every tier — it's a solid implementer, and the Reviewer above it catches what it misses. Only the Planner steps up on `complex`, where getting the approach wrong is expensive to unwind.
+Those are the defaults, in full. `securityByDefault` is deliberately unset — leave it out and the Planner decides per task; set `true` or `false` to override it everywhere.
 
-Model names mean whatever your setup routes them to. Each tier also takes `security` and `researcher` keys.
+Note the routing is conservative: the Coder is Sonnet at every tier because it's a solid implementer with a stronger Reviewer above it, and only the Planner steps up on `complex`, where a wrong approach is expensive to unwind. If you want to save more, `"coder": "haiku"` on `trivial` is the obvious next move — the Reviewer still catches what it misses.
 
-Agent files declare no model of their own — this config is the single source of routing truth.
+Model names mean whatever your setup routes them to; the pipeline assumes nothing about which is stronger. Agent files declare no model of their own, so this is the only thing that decides routing.
 
-Override per run:
-
-```js
-Workflow({name:"ldo", args:{
-  task: "refactor auth module",
-  research: true,
-  config: { models: { medium: { coder: "haiku", reviewer: "opus" } } }
-}})
-```
-
-Walk through it: `/ldo-config` in Claude Code.
+Walk through it interactively: `/ldo-config`.
 
 ## Usage
 
-Installed as the `ldo` plugin, every command is namespaced — type `ldo` in the command palette and they cluster together.
+Type `ldo` in the command palette and everything clusters together.
 
 | Command | What |
 |---------|------|
 | `/ldo:ldo "task"` | Full pipeline (Plan → Code ⇄ Review) |
-| `/ldo:ldo` + `research: true` | Add the web research phase |
-| `/ldo:ldo` + `security: true` \| `false` | Force the threat model on or off |
+| `/ldo:ldo research:true "task"` | Add the web research phase |
+| `/ldo:ldo security:true "task"` | Force the threat model on (or `false` to skip it) |
 | `/ldo-bootstrap "idea"` | Start a project — prior art, stack, roadmap (interactive) |
 | `/ldo-planner "task"` | Plan only |
 | `/ldo-coder "task"` | Implement a plan |
@@ -189,11 +234,13 @@ Installed as the `ldo` plugin, every command is namespaced — type `ldo` in the
 | `/ldo-researcher "topic"` | Multi-source web research |
 | `/ldo-config` | Walk through model routing |
 | `/ldo-init` | Write the self-routing block into the project's `CLAUDE.md` |
-| `/ldo-agent-ux` | Shape an agent's output/context for the dual reader |
+| `/ldo-agent-ux` | Write agent context and output that a model and a human can both read |
+
+Why the punctuation differs: `/ldo:ldo` is a **workflow**, and Claude Code namespaces those by plugin. The `/ldo-*` commands are **skills**, which get no automatic namespace — the `ldo-` prefix is part of their name, so they group in the palette and don't shadow built-ins like `/init`.
 
 ## Use with the built-ins
 
-LDO deliberately doesn't rebuild what Claude Code already ships. Reach for these alongside it:
+LDO deliberately doesn't rebuild what Claude Code already ships. These four come with Claude Code — nothing to install:
 
 | Instead of asking LDO | Use |
 |---|---|
@@ -202,7 +249,7 @@ LDO deliberately doesn't rebuild what Claude Code already ships. Reach for these
 | Cleanup only, no bug hunt | `/simplify` |
 | Research where the decision is expensive to reverse | `/deep-research` — parallel search, agents vote on each claim, adversarial verification |
 
-These are user-invoked: run them after the pipeline finishes. A workflow can't call them, so they complement LDO rather than compose into it.
+Run them yourself after the pipeline finishes. A workflow can't invoke them, so they complement LDO rather than compose into it.
 
 Worth installing from `claude-plugins-official`:
 
@@ -227,7 +274,7 @@ Worth installing from `claude-plugins-official`:
 .claude-plugin/
 └── plugin.json              # Plugin manifest
 
-workflows/ldo.js             # Orchestrator (~520 lines)
+workflows/ldo.js             # The orchestrator
 agents/                      # Prompts live here
 ├── planner.md
 ├── coder.md
@@ -240,6 +287,24 @@ ldo-config.example.json      # Reference template of every config key
 ```
 
 Installing the plugin adds only these. Your own settings, hooks, and agents are never touched; `/plugin update` carries only LDO's files.
+
+## Troubleshooting
+
+**No `/ldo-*` commands after installing.** Check the version — anything before 2.0.0 shipped the components in a layout Claude Code couldn't find, so the plugin installed empty. `/plugin update ldo@ldo-ai` fixes it.
+
+**"Update now" is greyed out, with "Local plugins cannot be updated remotely."** Installs from before v1.3.1 were registered as a local source. Reinstall once to switch to the git source:
+
+```
+/plugin uninstall ldo@ldo-ai
+/plugin marketplace update ldo-ai
+/plugin install ldo@ldo-ai
+```
+
+**Routing changes aren't taking effect.** You probably created `ldo-config.json`. Nothing reads it — see [Configuration](#configuration). Put the routing in `CLAUDE.md` or ask for it in the prompt.
+
+**The Reviewer can't drive the app.** It reports `nothing_to_drive` for code with no runtime surface — a library, a pure refactor — and approves on the diff alone. If your project *is* runnable but it can't work out how, say so in the task and it'll use that.
+
+**Removing LDO.** `/plugin uninstall ldo@ldo-ai`, then delete the `<!-- BEGIN ldo -->` block from your `CLAUDE.md` if you ran `/ldo-init`.
 
 ## Contributing
 
