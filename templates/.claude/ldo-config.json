@@ -5,6 +5,8 @@
       "planner": "haiku",
       "coder": "haiku",
       "reviewer": "haiku",
+      "security": "fable",
+      "researcher": "fable",
       "setup": "haiku",
       "docs": "haiku",
       "bootstrapper": "sonnet"
@@ -14,6 +16,8 @@
       "planner": "sonnet",
       "coder": "sonnet",
       "reviewer": "sonnet",
+      "security": "fable",
+      "researcher": "fable",
       "setup": "sonnet",
       "docs": "haiku",
       "bootstrapper": "fable"
@@ -23,6 +27,8 @@
       "planner": "fable",
       "coder": "fable",
       "reviewer": "fable",
+      "security": "fable",
+      "researcher": "fable",
       "setup": "fable",
       "docs": "haiku",
       "bootstrapper": "fable"

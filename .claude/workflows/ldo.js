@@ -1,12 +1,15 @@
 export const meta = {
   name: 'ldo',
-  description: 'Lightweight Dev Orchestrator: Scout→Plan→Code→Review→Setup→Docs. Token-optimized with split Scout for deterministic cache prefix.',
+  description: 'Lightweight Dev Orchestrator: [Bootstrap→][Research→]Scout→Plan→Code⇄Review→[Security→]Setup→Docs',
   phases: [
     { title: 'Bootstrap', detail: 'Greenfield: research, stack, roadmap' },
     { title: 'Scout', detail: 'Read codebase ONCE → deterministic snapshot (cache-stable)' },
+    { title: 'Explore', detail: 'Deep codebase search for task-specific patterns (opt-in)' },
+    { title: 'Research', detail: 'Deep web research on topic (opt-in)' },
     { title: 'Plan', detail: 'Task + snapshot → plan (no codebase re-read)' },
     { title: 'Code', detail: 'Implement plan, write tests' },
     { title: 'Review', detail: 'Review diff' },
+    { title: 'Security', detail: 'Threat analysis: OWASP, injection, auth, data exposure' },
     { title: 'Setup', detail: 'Install deps, configure env' },
     { title: 'Docs', detail: 'Write/update docs' },
   ],
@@ -162,6 +165,65 @@ const DOCS_SCHEMA = {
   required: ['files_changed', 'docs_written'],
 }
 
+const RESEARCH_SCHEMA = {
+  type: 'object',
+  properties: {
+    question: { type: 'string', description: 'The original research question' },
+    summary: { type: 'string', description: '3-5 sentence executive summary' },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          claim: { type: 'string' },
+          confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+          sources: { type: 'array', items: { type: 'string' } },
+          contradictions: { type: 'string' },
+        },
+        required: ['claim', 'confidence', 'sources'],
+      },
+    },
+    recommendations: { type: 'array', items: { type: 'string' } },
+    gaps: { type: 'array', items: { type: 'string' } },
+    source_list: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { url: { type: 'string' }, title: { type: 'string' }, relevance: { type: 'string' } },
+        required: ['url', 'title'],
+      },
+    },
+  },
+  required: ['question', 'summary', 'findings'],
+}
+
+const SECURITY_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['clean', 'findings'] },
+    summary: { type: 'string', description: 'One-paragraph security posture assessment' },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low', 'info'] },
+          category: { type: 'string', enum: ['injection', 'auth', 'data_exposure', 'input_validation', 'ssrf', 'supply_chain', 'crypto', 'race_condition', 'resource', 'config'] },
+          file: { type: 'string' },
+          line_hint: { type: 'string' },
+          what: { type: 'string' },
+          exploit_scenario: { type: 'string' },
+          fix: { type: 'string' },
+          cwe: { type: 'string' },
+        },
+        required: ['severity', 'category', 'file', 'what', 'exploit_scenario', 'fix'],
+      },
+    },
+    threat_model_notes: { type: 'string' },
+  },
+  required: ['status', 'summary'],
+}
+
 // ═══════════════════════════════════════════
 // CONTEXT CACHE — the core optimization
 // ═══════════════════════════════════════════
@@ -264,9 +326,9 @@ function renderCoderSummary(result) {
 // only matters on the first run.
 
 const DEFAULT_MODELS = {
-  trivial:  { scout: 'haiku',  planner: 'haiku',  coder: 'haiku',  reviewer: 'haiku',  setup: 'haiku',  docs: 'haiku',  bootstrapper: 'sonnet' },
-  medium:   { scout: 'sonnet', planner: 'sonnet', coder: 'sonnet', reviewer: 'sonnet', setup: 'sonnet', docs: 'haiku',  bootstrapper: 'fable' },
-  complex:  { scout: 'fable',  planner: 'fable',  coder: 'fable',  reviewer: 'fable',  setup: 'fable',  docs: 'haiku',  bootstrapper: 'fable' },
+  trivial:  { scout: 'haiku',  planner: 'haiku',  coder: 'haiku',  reviewer: 'haiku',  researcher: 'fable', security: 'fable', setup: 'haiku',  docs: 'haiku',  bootstrapper: 'sonnet' },
+  medium:   { scout: 'sonnet', planner: 'sonnet', coder: 'sonnet', reviewer: 'sonnet', researcher: 'fable', security: 'fable', setup: 'sonnet', docs: 'haiku',  bootstrapper: 'fable' },
+  complex:  { scout: 'fable',  planner: 'fable',  coder: 'fable',  reviewer: 'fable',  researcher: 'fable', security: 'fable', setup: 'fable',  docs: 'haiku',  bootstrapper: 'fable' },
 }
 
 function routeModels(complexity, config) {
@@ -288,6 +350,11 @@ const MAX_FIX_LOOPS = CONFIG.maxFixLoops || 3
 const REVIEWER_DIFFERENT_MODEL = CONFIG.reviewerDifferentModel || false
 const MODE = (args && args.mode) || 'brownfield'
 const SKIP_SETUP = (args && args.skipSetup) || false
+const SKIP_RESEARCH = (args && args.skipResearch) || false
+const SKIP_SECURITY = (args && args.skipSecurity) || false
+const DO_RESEARCH = (args && args.research) || CONFIG.researchByDefault || false
+const DO_SECURITY = (args && args.security) || CONFIG.securityByDefault || false
+const DO_EXPLORE = (args && args.explore) || CONFIG.exploreByDefault || false
 const DOCS_BUDGET_FLOOR = CONFIG.docsBudgetFloor || 30000
 
 // Pre-resolve models for phases before complexity is known.
@@ -389,6 +456,97 @@ const CTX = renderContext(codebaseContext)
 const CTX_SETUP = renderSetupContext(codebaseContext)
 
 log(`Scout: ${codebaseContext.key_files?.length || 0} key files  |  Stack: ${codebaseContext.stack?.split('\n')[0] || '?'}`)
+
+// ═══════════════════════════════════════════
+// PHASE 1.5: EXPLORE (opt-in, task-specific codebase scan)
+// ═══════════════════════════════════════════
+
+let exploreFindings = null
+
+if (DO_EXPLORE) {
+  phase('Explore')
+
+  // Explorer uses the built-in Explore agent type — fan-out search across
+  // the codebase for task-specific patterns, usages, and affected files.
+  exploreFindings = await agent(
+    `Search the codebase for everything relevant to this task:
+
+## TASK
+${task}
+
+## WHAT TO FIND
+1. All files that match patterns related to this task (function calls, imports, config keys, data types)
+2. Where the relevant logic currently lives — trace through the codebase
+3. All call sites / consumers / dependents of the affected code
+4. Any existing tests related to these files
+5. Edge cases or tricky spots (complex conditionals, error handlers, platform-specific code)
+
+Be thorough. The Planner will rely on your findings for accurate file lists.`,
+
+    { label: 'explorer', phase: 'Explore', agentType: 'Explore' }
+  )
+
+  if (exploreFindings) {
+    log(`Explore: completed — results fed to Planner`)
+    // Prepend explore findings to the task context for Planner
+    task = `## CODEBASE EXPLORATION
+${exploreFindings.slice(0, 3000)}${exploreFindings.length > 3000 ? '\n...(truncated, full scan was deeper)' : ''}
+
+## TASK
+${task}`
+  } else {
+    log('⚠ Explore returned nothing — proceeding without it.')
+  }
+}
+
+// ═══════════════════════════════════════════
+// PHASE 1.6: RESEARCH (opt-in, pre-plan web search)
+// ═══════════════════════════════════════════
+
+let researchReport = null
+
+if (DO_RESEARCH && !SKIP_RESEARCH) {
+  phase('Research')
+
+  researchReport = await agent(
+    `You are a **Researcher**. Deep-research the topic below. Use WebSearch with multiple angles, cross-verify claims, synthesise findings.
+
+## TOPIC
+${task}
+
+## SUB-QUESTIONS
+Break this into 2-4 sub-questions. For each: search multiple sources, fetch the most relevant, cross-verify claims.
+
+## OUTPUT
+- findings with confidence levels (high/medium/low) and sources
+- actionable recommendations
+- knowledge gaps (what couldn't be answered)
+
+Prefer primary sources over secondary. Cross-verify every material claim.`,
+
+    { label: 'researcher', phase: 'Research', model: prePlanModels.researcher, schema: RESEARCH_SCHEMA }
+  )
+
+  if (researchReport) {
+    log(`Research: ${researchReport.findings?.length || 0} findings, confidence: ${researchReport.findings?.filter(f => f.confidence === 'high').length || 0} high`)
+    if (researchReport.recommendations?.length) log(`Recs: ${researchReport.recommendations.length}`)
+
+    // Feed research into the Planner's task context
+    task = `## RESEARCH FINDINGS
+${researchReport.summary}
+
+Key findings:
+${(researchReport.findings || []).map(f => `- [${f.confidence}] ${f.claim}`).join('\n')}
+
+Recommendations:
+${(researchReport.recommendations || []).map(r => `- ${r}`).join('\n')}
+
+## TASK
+${task}`
+  } else {
+    log('⚠ Research returned nothing — proceeding without it.')
+  }
+}
 
 // ═══════════════════════════════════════════
 // PHASE 1b: PLAN (CTX + task → plan)
@@ -565,6 +723,67 @@ if (!finalVerdict) {
 }
 
 // ═══════════════════════════════════════════
+// PHASE 3.5: SECURITY (post-review threat audit)
+// ═══════════════════════════════════════════
+
+let securityReport = null
+const securityBudgetOk = !budget.total || budget.remaining() > 40000
+
+if (DO_SECURITY && !SKIP_SECURITY && approved) {
+  if (!securityBudgetOk) {
+    log(`⚠ Skipping Security — insufficient token budget. Run /security manually.`)
+  } else {
+    phase('Security')
+
+    securityReport = await agent(
+      CTX + `You are a **Security** — the threat analysis stage. Audit the approved code changes for vulnerabilities. The PROJECT CONTEXT above is cached.
+
+${renderPlan(plan)}
+
+## INSTRUCTIONS
+
+1. Run \`git diff --stat\` to see what changed.
+2. Read changed files and check for 10 threat categories:
+   - **Injection**: SQL, command, template injection
+   - **Auth**: Broken access control, missing auth, token leaks, session issues
+   - **Data Exposure**: Secrets in code, PII in logs, unencrypted sensitive data
+   - **Input Validation**: Missing validation, XSS, prototype pollution, path traversal
+   - **SSRF/URL**: User-controlled URLs, redirect chains
+   - **Supply Chain**: New deps, eval(), dynamic imports, deserialisation
+   - **Crypto**: Hardcoded keys, weak algorithms, broken RNG
+   - **Race Conditions**: TOCTOU, concurrent state access
+   - **Resource Exhaustion**: Unbounded allocations, missing rate limits, regex DoS
+   - **Config**: Default passwords, debug in prod, missing security headers
+
+3. For each finding: verify it's real (read the file), provide an exploit scenario, suggest a fix.
+4. Reference CWE code where applicable.
+5. If the diff is security-irrelevant, return \`clean\` quickly.
+
+## SEVERITY
+- critical: RCE, auth bypass, data breach, secret leak
+- high: Injection without RCE, privilege escalation, SSRF
+- medium: XSS, CSRF, missing security headers, info disclosure
+- low: Weak config, debug leakage
+- info: Best practice, hardening`,
+
+      { label: 'security', phase: 'Security', model: models.security, schema: SECURITY_SCHEMA }
+    )
+
+    if (securityReport) {
+      log(`Security: ${securityReport.status} — ${securityReport.summary}`)
+      if (securityReport.findings?.length) {
+        log(`⚠ ${securityReport.findings.length} finding(s):`)
+        for (const f of securityReport.findings) log(`  [${f.severity}] ${f.category}: ${f.file} — ${f.what}`)
+      }
+    } else {
+      log('⚠ Security returned nothing.')
+    }
+  }
+} else if (DO_SECURITY && !approved) {
+  log('Skipping Security — review not approved.')
+}
+
+// ═══════════════════════════════════════════
 // PHASE 4: SETUP (lightweight — no full ctx)
 // ═══════════════════════════════════════════
 
@@ -665,6 +884,9 @@ return {
   task: (MODE === 'greenfield' ? { original_idea: (typeof args === 'object' ? args.task : args), blueprint } : task),
   plan: { complexity: plan.complexity, summary: plan.summary, steps: plan.steps, risks: plan.risks },
   verdict: finalVerdict,
+  exploreFindings,
+  researchReport,
+  securityReport,
   envReport,
   docsReport,
   stats: {
@@ -673,6 +895,10 @@ return {
     coder_passes: iteration + 1,
     approved: finalVerdict.status === 'approved',
     envReady: envReport?.runnable || false,
+    explored: !!exploreFindings,
+    researched: !!researchReport,
+    securityAudited: !!securityReport,
+    securityStatus: securityReport?.status || 'not_run',
     docsWritten: !!(docsReport && docsReport.files_changed?.length > 0),
     context_files_mapped: codebaseContext?.key_files?.length || 0,
   },

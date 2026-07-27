@@ -23,21 +23,24 @@ After install, configure model routing in `.claude/ldo-config.json`. Then invoke
 ## Pipeline
 
 ```
-┌───────────┐   ┌───────┐   ┌──────┐   ┌──────┐   ┌────────┐   ┌───────┐   ┌──────┐
-│ Bootstrap │──→│ Scout │──→│ Plan │──→│ Code │──→│ Review │──→│ Setup │──→│ Docs │
-│           │   │       │   │      │   │  ↻   │   │        │   │       │   │      │
-└───────────┘   └───────┘   └──────┘   └──────┘   └────────┘   └───────┘   └──────┘
-  greenfield     reads repo   task→plan  implement   quality     deps+env    README+
-  stack+roadmap  ONCE         complexity +tests     gate        smoke-check CHANGELOG
+┌───────────┐   ┌───────┐   ┌─────────┐   ┌──────────┐   ┌──────┐   ┌──────┐   ┌────────┐   ┌──────────┐   ┌───────┐   ┌──────┐
+│ Bootstrap │──→│ Scout │──→│ Explore │──→│ Research │──→│ Plan │──→│ Code │──→│ Review │──→│ Security │──→│ Setup │──→│ Docs │
+│           │   │       │   │ (opt-in)│   │ (opt-in) │   │      │   │  ↻   │   │        │   │ (opt-in) │   │       │   │      │
+└───────────┘   └───────┘   └─────────┘   └──────────┘   └──────┘   └──────┘   └────────┘   └──────────┘   └───────┘   └──────┘
+  greenfield     reads repo   codebase      web search    task→plan  implement   quality      OWASP audit    deps+env    README+
+  stack+roadmap  ONCE         deep scan     multi-source  complex.   +tests      gate         threat model   smoke-check CHANGELOG
 ```
 
 | Phase | Agent | What it does |
 |-------|-------|-------------|
 | Bootstrap | bootstrapper | (Greenfield) Research similar solutions, pick stack, draft roadmap |
-| Scout | ctx-scout | Read the codebase ONCE — produce a deterministic snapshot |
-| Plan | planner | Task + snapshot → ordered steps with acceptance criteria |
+| Scout | ctx-scout | Read the codebase ONCE — produce a deterministic cache-prefix snapshot |
+| Explore | Claude Explorer | (Opt-in) Fan-out search for task-specific patterns, usages, call sites |
+| Research | researcher | (Opt-in) Deep web search on the task domain, cross-verify claims |
+| Plan | planner | Task + context → ordered steps with acceptance criteria |
 | Code | coder | Implement the plan, write tests |
 | Review | reviewer | Review the diff, approve or request specific fixes |
+| Security | security | (Opt-in) OWASP threat audit: injection, auth, data exposure, supply chain |
 | Setup | setup | Install dependencies, configure services, smoke-check |
 | Docs | docs | Update README, CHANGELOG, API docs |
 
@@ -96,10 +99,14 @@ Walk through setup: `/ldo-config` in Claude Code.
 |---------|------|
 | `/ldo "task"` | Full pipeline (complexity auto-detected) |
 | `/ldo mode:greenfield "idea"` | Bootstrap + full pipeline |
+| `/ldo research:"topic"` | Full pipeline with deep research pre-phase |
+| `/ldo security:"task"` | Full pipeline with security audit |
 | `/bootstrapper "idea"` | Research + stack + roadmap only |
+| `/ctx-scout` | Scan codebase, produce snapshot |
 | `/planner "task"` | Plan only (needs `/ctx-scout` first) |
 | `/coder "task"` | Implement only |
 | `/reviewer` | Review current diff |
+| `/security` | Security threat audit on current diff |
 | `/setup` | Bootstrap dev environment |
 | `/docs` | Write documentation for current changes |
 | `/ldo-config` | Walk through model routing config |
@@ -110,7 +117,8 @@ Walk through setup: `/ldo-config` in Claude Code.
 2. Model routing table maps tier + role → model name
 3. Each agent receives the previous agent's structured output (JSON Schema validated)
 4. Coder and Reviewer loop until approved or max iterations exhausted
-5. Setup bootstraps the environment; Docs updates documentation for user-facing changes
+5. Security audits approved code for OWASP threats (opt-in)
+6. Setup bootstraps the environment; Docs updates documentation for user-facing changes
 
 **Universal**: the protocol is not tied to Claude Code. Each role has a defined prompt + JSON Schema contract. The orchestrator can be replaced with an external script that calls any LLM runner.
 
@@ -118,21 +126,25 @@ Walk through setup: `/ldo-config` in Claude Code.
 
 ```
 .claude/
-├── workflows/ldo.js          # Orchestrator (679 lines)
-├── agents/                   # 7 agent definitions
+├── workflows/ldo.js          # Orchestrator (~880 lines)
+├── agents/                   # 9 agent definitions
 │   ├── bootstrapper.md
 │   ├── ctx-scout.md
 │   ├── planner.md
 │   ├── coder.md
 │   ├── reviewer.md
+│   ├── security.md
+│   ├── researcher.md
 │   ├── setup.md
 │   └── docs.md
-├── skills/                   # 8 slash-commands
+├── skills/                   # 10 slash-commands
 │   ├── bootstrapper.md
 │   ├── ctx-scout.md
 │   ├── planner.md
 │   ├── coder.md
 │   ├── reviewer.md
+│   ├── security.md
+│   ├── researcher.md
 │   ├── setup.md
 │   ├── docs.md
 │   └── ldo-config.md
