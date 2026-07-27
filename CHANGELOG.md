@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] — 2026-07-27
+
+### Fixed
+
+- **Plugin installed but no `/ldo:*` commands appeared.** Root cause: components
+  lived under `.claude/` (the layout for a *project's* own config), but a plugin
+  must declare its `skills/`, `agents/`, and `workflows/`. Added custom-path fields
+  to `plugin.json` pointing the loader at `.claude/{skills,agents,workflows}` so
+  the components are discovered. The dev-project layout is unchanged; only the
+  published plugin's manifest is fixed.
+
 ## [1.4.0] — 2026-07-27
 
 ### Added
