@@ -19,6 +19,7 @@
     "dev-tools"
   ],
   "license": "MIT",
+  "author": "Alexander Degtyarev <adegtyarev.ap@gmail.com>",
   "repository": {
     "type": "git",
     "url": "https://github.com/adegtyarev/ldo-ai"
