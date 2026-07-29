@@ -5,6 +5,25 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] — 2026-07-28
+
+### Added
+
+- **Record phase — the run's results survive past the session.** Until now the
+  plan, the verdict, the verification evidence, and the attack log were ephemeral:
+  they lived in the run's result object and vanished when the session ended. The
+  whole pitch was "shows receipts" — but nothing kept them.
+
+  On approved medium or complex tasks, a Recorder agent (Haiku — it formats, not
+  thinks) writes three things: a review report at `docs/reviews/<date>-<slug>.md`
+  with the full evidence and attack log; a one-page `docs/ARCHITECTURE.md` kept
+  current from the plan's codebase context; and backlog items — GitHub Issues if
+  `gh` is connected, otherwise `docs/BACKLOG.md`.
+
+  The review report is the receipt. Every "proven" or "broke" claim carries the
+  command output it was made with. A reader six months later can see exactly what
+  was checked and how, not just that someone said it works.
+
 ## [2.5.2] — 2026-07-28
 
 ### Fixed

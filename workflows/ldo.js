@@ -7,6 +7,7 @@ export const meta = {
     { title: 'Security', detail: 'Threat-model the plan before code exists (elevated surface only)' },
     { title: 'Code', detail: 'Set up env, implement, test, document' },
     { title: 'Review', detail: 'Read the diff, drive the app, prove the criteria' },
+    { title: 'Record', detail: 'Persist the review report, architecture doc, backlog (approved medium+ only)' },
   ],
 }
 
@@ -304,9 +305,9 @@ function renderResearch(r) {
 // Sonnet writes, Opus checks. Complex additionally buys a stronger Planner,
 // because a wrong approach is the expensive kind of wrong.
 const DEFAULT_MODELS = {
-  trivial: { planner: 'haiku',  coder: 'haiku',  reviewer: 'sonnet', security: 'opus', researcher: 'sonnet' },
-  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus',   security: 'opus', researcher: 'opus' },
-  complex: { planner: 'opus',   coder: 'sonnet', reviewer: 'opus',   security: 'opus', researcher: 'opus' },
+  trivial: { planner: 'haiku',  coder: 'haiku',  reviewer: 'sonnet', security: 'opus', researcher: 'sonnet', recorder: 'haiku' },
+  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus',   security: 'opus', researcher: 'opus',   recorder: 'haiku' },
+  complex: { planner: 'opus',   coder: 'sonnet', reviewer: 'opus',   security: 'opus', researcher: 'opus',   recorder: 'haiku' },
 }
 
 function routeModels(complexity, config) {
@@ -527,6 +528,53 @@ while (iteration < MAX_FIX_LOOPS) {
 if (!finalVerdict) {
   log(`⚠ Max fix loops (${MAX_FIX_LOOPS}) exhausted.`)
   finalVerdict = { status: 'changes_requested', summary: `Max ${MAX_FIX_LOOPS} fix iterations reached.`, issues: lastIssues }
+}
+
+// ── RECORD ──────────────────────────────────
+
+// The pipeline produced rich structured results — plan, verdict, evidence,
+// attacks — but none of them are on disk. The workflow can't write files
+// (runtime constraint), so a cheap formatting agent does it: review report
+// with receipts, architecture doc, backlog items. Only when approved and only
+// when the work was substantial enough to warrant a paper trail.
+if (approved && plan.complexity !== 'trivial') {
+  phase('Record')
+
+  const recordPrompt = `Persist this run's results to the repo. Write the review report with full evidence, update the architecture doc, and create backlog items for anything unfixed.
+
+## TASK
+${task}
+
+## PLAN
+${renderPlan(plan)}
+
+## VERDICT
+${finalVerdict.status.toUpperCase()} — ${finalVerdict.summary}
+
+## VERIFICATION
+${(finalVerdict.verification?.criteria || []).map((c, i) => `${i + 1}. [${c.status}] ${c.criterion}\n   Evidence: ${c.evidence || '(none)'}`).join('\n')}
+
+## ATTACKS
+${(finalVerdict.attacks || []).map((a, i) => `${i + 1}. [${a.outcome}] ${a.vector}\n   Evidence: ${a.evidence || '(none)'}`).join('\n')}
+
+## ISSUES
+All: ${(finalVerdict.issues || []).map(iss => `[${iss.severity}] ${iss.file}: ${iss.what} → ${iss.suggestion}`).join('; ') || 'none'}
+
+## SECURITY (if any)
+${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f.severity}] ${f.category}: ${f.what} → ${f.mitigation}`).join('\n') : 'none'}`
+
+  const recordResult = await agent(recordPrompt, {
+    label: 'recorder',
+    phase: 'Record',
+    model: models.recorder || 'haiku',
+    agentType: 'ldo:recorder',
+  })
+
+  if (recordResult) {
+    log(`Record: ${recordResult.slice(0, 120)}`)
+  } else {
+    log('⚠ Recorder returned nothing — artifacts not persisted.')
+  }
 }
 
 // ── RESULT ──────────────────────────────────

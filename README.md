@@ -114,6 +114,8 @@ The Planner rates the task, and that rating decides what runs. A refactor with n
 
 **Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff, drives the running application to prove each acceptance criterion, then switches posture and attacks it — boundaries, absent input, scale, concurrency, and every exploit the threat model named.
 
+On approved medium or complex tasks, a fourth pass **Record** writes the run's results to disk: a review report in `docs/reviews/` with the full verification evidence and attack log (the receipts that would otherwise vanish with the session), a one-page `docs/ARCHITECTURE.md` kept current, and backlog items — GitHub Issues if `gh` is connected, otherwise `docs/BACKLOG.md`.
+
 Two more run only when they earn their place:
 
 | Agent | Runs when |
