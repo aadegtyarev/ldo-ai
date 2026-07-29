@@ -84,7 +84,12 @@ Show the PR title and body. Create on confirm.
 
 `gh pr merge --squash --delete-branch`. Only on explicit yes. If the operator says "not yet", the PR stays open.
 
-**Auto-merge mode:** check whether CI is configured (`.github/workflows/` or the PR's checks). If CI exists, wait for it to finish — `gh pr checks --watch`, or poll `gh pr checks --json state` every 30s. On green: `gh pr merge --squash --delete-branch`. On red: stop, report which checks failed, leave the PR open. If no CI: merge immediately.
+**Auto-merge mode:** two gates, local first.
+
+1. **Local tests.** Run the project's test command (from the plan's `codebase_context`, or detect: `npm test`, `pytest`, `go test ./...`, `cargo test`). If red: stop, show what failed, leave the PR open. This is the fast, free gate — no CI minutes, results in seconds.
+2. **CI (if configured).** If `.github/workflows/` exists or the PR shows checks, wait — `gh pr checks --watch` or poll every 30s. Green: proceed. Red: stop, report which checks failed.
+
+Both gates green (or no CI configured and local tests passed): `gh pr merge --squash --delete-branch`. If no test command is detectable AND no CI: warn that there's no gate, and merge only if the operator explicitly said to. Don't merge blind on auto without at least one signal.
 
 ## Modes
 
