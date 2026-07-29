@@ -3,3 +3,4 @@ claude.log
 .claude/hook_dispatch.py
 .claude/settings.local.json
 incoming/
+tags

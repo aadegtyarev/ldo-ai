@@ -71,6 +71,6 @@ Eight is a starting point, not a rule. A docs-heavy project might want five; one
 
 ## After writing
 
-Tell the operator the block was added and that it loads automatically every session. Suggest they skim it and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
+Tell the operator the block was added and that it loads automatically every session. Also add `tags` to the project's `.gitignore` if it isn't already there — the Coder generates a `ctags` symbol index on each run, and it's a derived file that shouldn't be committed. Suggest they skim the block and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
 
 Run `/ldo-init` once per project. Re-running updates the block in place, preserving any drift-log entries already there.

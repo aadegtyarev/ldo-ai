@@ -15,6 +15,7 @@ You need this before you can run a single test, so do it first:
 - Start any service the tests need (docker-compose, a local database)
 - Copy `.env.example` → `.env` and fill safe local defaults
 - Confirm the test command from the plan's `codebase_context` actually runs
+- If `ctags` is installed, regenerate the symbol index: `ctags -R .` (the `tags` file is gitignored — it's a derived lookup table, not source)
 
 If something can't be resolved — missing credentials, unavailable service — note it and continue with what you can.
 
