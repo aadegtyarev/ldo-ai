@@ -76,18 +76,22 @@ If a review report file exists at `docs/reviews/`, read it and use its content. 
 
 Show the PR title and body. Create on confirm.
 
-### 5. Squash-merge (optional, explicit)
+### 5. Squash-merge
 
-After the PR is open and CI (if any) is green, offer:
+**Interactive mode:** after the PR is open and CI (if any) is green, offer:
 
 > Squash-merge into `<default-branch>` and delete the branch? Confirm.
 
-`gh pr merge --squash --delete-branch`. This is irreversible — only on explicit yes. If the operator says "not yet" or "later", stop here. The PR stays open.
+`gh pr merge --squash --delete-branch`. Only on explicit yes. If the operator says "not yet", the PR stays open.
 
-## Rules
+**Auto-merge mode:** check whether CI is configured (`.github/workflows/` or the PR's checks). If CI exists, wait for it to finish — `gh pr checks --watch`, or poll `gh pr checks --json state` every 30s. On green: `gh pr merge --squash --delete-branch`. On red: stop, report which checks failed, leave the PR open. If no CI: merge immediately.
 
-- **Nothing without confirmation.** Branch, commit, push, PR, merge — each is a separate yes. No bundling.
-- **Only ship what the pipeline produced.** If `git status` shows unrelated changes, stop and report them. Don't sweep them into the commit.
-- **The PR body carries evidence.** A reviewer reading the PR should see what was proven and what was attacked, not just "done."
-- **Merge-squash is the last step, not the default.** Many teams review before merging. Leave the PR open unless explicitly told to merge.
-- **If anything fails** — push rejected, PR creation errors, CI red — report the error and stop. Don't force, don't retry silently.
+## Modes
+
+**Interactive (default).** Confirm at each step. Use when the change matters and you want a checkpoint.
+
+**Auto** (`auto`, `--yes`, "ship it without asking"). Skip all confirmations — branch, commit, push, PR in one pass. Still stops on errors: push rejected, PR creation fails, unrelated files in the tree.
+
+**Auto-merge** (`auto-merge`, "ship and merge"). Everything in auto, plus squash-merge at the end. If CI is configured, waits for it; merges on green, stops on red. If no CI, merges immediately. Deletes the branch after.
+
+Pick the mode from what the operator asks. "Ship it" with no qualifier = interactive. "Ship it, no questions" or "auto" = auto. "Ship and merge" or "auto-merge" = auto-merge.
