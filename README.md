@@ -101,7 +101,7 @@ The Planner rates the task, and that rating decides what runs. A refactor with n
 /ldo:ldo research:true security:true "switch auth from sessions to JWT"
 ```
 
-**After the pipeline**, get a second opinion from the built-ins LDO doesn't duplicate — `/code-review high` for a multi-agent correctness pass, `/security-review`, or `/deep-research` when the call is expensive to reverse.
+**After the pipeline**, ship it with `/ldo-ship` — branch, commit, push, PR, optional squash-merge, each step confirmed. The PR body carries the review report: what was proven, what was attacked, what held. Or get a second opinion first from the built-ins — `/code-review high`, `/security-review`, `/deep-research`.
 
 ## Pipeline
 
@@ -170,6 +170,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-reviewer` | Review the diff, drive the app, try to break it |
 | `/ldo-security` | Threat-model a plan |
 | `/ldo-researcher "topic"` | Multi-source web research |
+| `/ldo-ship` | Branch, commit, push, PR, squash-merge — with the review report as PR body |
 | `/ldo-docs-audit` | Read the docs cold and find what's drifted |
 | `/ldo-tui` | Design and build a terminal interface (Textual / Ink) |
 | `/ldo-config` | Walk through model routing |
