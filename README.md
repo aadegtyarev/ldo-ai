@@ -170,6 +170,8 @@ Record one with `/ldo-contract`. It's interactive — you describe the rule, it 
 
 None of this loads into `CLAUDE.md` — that file stays thin, one pointer line. The Planner reads a contract file only when the task plausibly touches what it governs; a variable rename never pays for the security floor. `/ldo-docs-audit` also checks contracts occasionally: for an accepted risk whose stated reasoning no longer matches the code, and for patterns repeated everywhere that aren't written down as a contract yet — a suggestion, never an auto-write.
 
+**Migrating an existing project onto LDO?** The first `/ldo-init` run on a project with existing code (not a fresh `/ldo-bootstrap` start) reads README, security docs, and code for decisions that were already made but never written where LDO can check them — "internal tool, no auth by design," a pattern followed with zero exceptions across every handler. Every candidate carries its evidence (a quote, a file reference, or a count of how consistently the pattern held); nothing gets written until you confirm it. Run `/ldo-contract` on its own any time later to re-scan or add one by hand.
+
 ### Keeping the docs honest
 
 Two different failures, handled two different ways.

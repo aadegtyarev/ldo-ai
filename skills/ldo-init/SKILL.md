@@ -8,11 +8,12 @@ Drop an LDO instruction block into the project's `CLAUDE.md` so Claude self-rout
 ## What to do
 
 1. Find the project's `CLAUDE.md` at the repo root. Create it if it doesn't exist.
-2. Check whether `docs/contracts/` exists. If it does, include the contracts line in the block below; if it doesn't, omit it — don't create the directory here, that's `/ldo-contract`'s job when the operator actually has a contract to record.
-3. Look for the marker line `<!-- BEGIN ldo -->`. 
+2. Check whether `docs/contracts/` exists. If it does, include the contracts line in the block below; if it doesn't, don't create the directory yet — go to step 3 first, it may create it via confirmed contracts. If step 3 doesn't apply or turns up nothing, omit the line and leave the directory uncreated; that's fine, `/ldo-contract` creates it whenever the operator has a contract to record.
+3. **Discover contract candidates — only when this is the first run** (marker line absent, see step 4) **and the project has existing code** (not an empty/near-empty repo). A brand-new project has no history to mine — skip this for `/ldo-bootstrap`-started projects. Otherwise: run the discovery process from `/ldo-contract`'s "Discovering contracts in an existing project" section — read for evidence, propose candidates with sources, let the operator confirm or reject, write only what's confirmed. This is a one-time migration aid, not something re-run on every `/ldo-init`.
+4. Look for the marker line `<!-- BEGIN ldo -->`. 
    - If absent: append the block below, between `<!-- BEGIN ldo -->` and `<!-- END ldo -->` markers.
    - If present: replace everything between the markers with the current block below (keeps it up to date on re-run).
-4. Don't touch anything outside the markers — the file may hold other instructions.
+5. Don't touch anything outside the markers — the file may hold other instructions.
 
 ## The block to write
 
@@ -76,5 +77,7 @@ Eight is a starting point, not a rule. A docs-heavy project might want five; one
 ## After writing
 
 Tell the operator the block was added and that it loads automatically every session. Also add `tags` to the project's `.gitignore` if it isn't already there — the Coder generates a `ctags` symbol index on each run, and it's a derived file that shouldn't be committed. Suggest they skim the block and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
+
+If step 3 ran, say plainly what happened either way — how many candidates were confirmed and written, or that discovery found nothing checkable. Migrating an existing project's tribal knowledge into contracts is the whole point of running discovery; a silent "done" hides whether it actually found anything.
 
 Run `/ldo-init` once per project. Re-running updates the block in place, preserving any drift-log entries already there.

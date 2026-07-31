@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] — 2026-07-31
+
+### Added
+
+- **`/ldo-init` discovers existing contracts on migration.** Running `/ldo-init` on
+  a project that already has code (not a fresh `/ldo-bootstrap` start) now reads
+  README, security docs, and the codebase itself for decisions that were already
+  made but never written where LDO can check them — "internal tool, no auth by
+  design" in a README paragraph, a pattern followed with zero exceptions across
+  every request handler. Runs once, on the first `/ldo-init` in a project.
+
+  Every candidate carries its evidence — a quoted line, a file reference, or a
+  count of how consistently a pattern held — and nothing is written until the
+  operator confirms it. A pattern followed inconsistently isn't proposed at all;
+  guessing at a decision nobody made would put an unagreed rule in the checked
+  path. `/ldo-contract` gained a "Discovering contracts in an existing project"
+  section documenting the same process for a standalone re-scan later.
+
 ## [2.9.0] — 2026-07-28
 
 ### Added

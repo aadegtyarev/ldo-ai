@@ -7,6 +7,8 @@ Some rules aren't conventions the Coder should *match* — they're constraints t
 
 This skill records one. It's interactive — you elicit the contract, classify it, and write it to the right file.
 
+For a project that already has these decisions made — just not written down anywhere LDO can read — see **Discovering contracts in an existing project**, below, instead of eliciting from scratch.
+
 ## Why not `CLAUDE.md`
 
 `CLAUDE.md` loads every session, for every kind of work. A security floor has no business loading when the task is renaming a variable — it costs tokens for nothing, and stuffing every contract into one file over time turns it into an unmaintainable pile nobody rereads. Contracts live in `docs/contracts/`, one file per area, and the Planner reads only the file whose area the task actually touches. `CLAUDE.md` carries a single pointer line, not the contracts themselves.
@@ -71,6 +73,24 @@ or structural rules, read the relevant file before planning.
 ```
 
 Don't duplicate the contracts themselves into `CLAUDE.md` — the pointer is enough; the Planner reads selectively per task.
+
+## Discovering contracts in an existing project
+
+A project being migrated onto LDO usually already *has* these decisions — "single-user, no auth", "we accepted the CSRF risk because it's VPN-only", "handlers always validate input first" — they're just sitting in a README paragraph, a code comment, a security doc, or nowhere but the maintainer's head. `/ldo-init` triggers this automatically the first time it runs on a non-empty existing project (see its "Discover contract candidates" step); you can also run it standalone here if the operator asks to (re-)scan later.
+
+The rule is the same either way: **read and propose, never write silently.** A contract is a decision the operator makes, not one an agent infers — get that wrong and every future task gets checked against a rule nobody actually agreed to.
+
+1. **Read for evidence, not vibes.** Sources worth checking: README (especially "out of scope" / "won't do" / "why we don't" language), `SECURITY.md` or similar, code comments that read as a declared rule rather than an implementation note ("// intentionally no rate limiting — internal only"), CONTRIBUTING/architecture docs, and a code-level pass for a pattern that's *consistent everywhere* (every handler validates input the same way, every DB call goes through one query builder with zero exceptions). A pattern followed inconsistently isn't a contract candidate — it's just current practice; don't propose it.
+
+2. **Every candidate carries its evidence.** Quote the source line or describe the pattern with file references — "`README.md:42`: 'this is a single-user CLI; we will not add network auth'" or "12/12 handlers in `src/routes/` validate via the same `assertValid()` call, no exceptions found." A candidate with no quotable evidence is a guess; drop it rather than propose it.
+
+3. **Classify each candidate** using the table above, same as any contract.
+
+4. **Present the full list to the operator before writing anything.** Group by kind, show the evidence, and ask which to accept, adjust, or skip — one pass, not one confirmation per line. Something that looks like a scope boundary to you might be an incidental fact of the current implementation, not a decision — the operator knows which.
+
+5. **Write only what's confirmed**, exactly as in the normal Append step (dated entry, source file). Nothing gets written on inference alone, no matter how consistent the pattern looked.
+
+If nothing turns up real evidence, say so plainly rather than manufacturing a thin candidate to have something to show — "no explicit contracts found; the project doesn't state any of these decisions anywhere I can read" is a legitimate, useful result.
 
 ## Revising or retiring a contract
 
