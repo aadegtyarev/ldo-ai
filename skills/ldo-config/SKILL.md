@@ -25,19 +25,19 @@ So "configuring LDO" means one of two things:
 
 ## The defaults
 
-The protocol exists so different roles can run on different models. The default puts a stronger model on Review than on Code: cheap to write, careful to check.
+The protocol exists so different roles can run on different models. Tiers actually differ — trivial gets the cheapest models throughout, medium and complex step planner and reviewer up:
 
 ```json
 {
   "models": {
-    "trivial": { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus" },
-    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus" },
-    "complex": { "planner": "opus",   "coder": "sonnet", "reviewer": "opus" }
+    "trivial": { "planner": "haiku",  "coder": "haiku",  "reviewer": "sonnet", "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
+    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus",   "security": "opus", "researcher": "opus",   "recorder": "haiku" },
+    "complex": { "planner": "opus",   "coder": "sonnet", "reviewer": "opus",   "security": "opus", "researcher": "opus",   "recorder": "haiku" }
   }
 }
 ```
 
-These apply when nothing is passed. Model names mean whatever your setup routes them to — the pipeline assumes nothing about which is stronger.
+These apply when nothing is passed. The source of truth is `DEFAULT_MODELS` in `workflows/ldo.js` — this table and `ldo-config.example.json` both describe it; if either ever looks stale, that's the one to check against. Model names mean whatever your setup routes them to — the pipeline assumes nothing about which is stronger.
 
 ## The roles
 
@@ -49,12 +49,13 @@ Three always run:
 | **coder** | Sets up the environment, implements, tests, updates docs | Sonnet handles this well; the Reviewer above catches what it misses |
 | **reviewer** | Reads the diff *and* drives the app to prove the criteria | **The reason for the protocol.** Put your strongest model here |
 
-Two are conditional:
+Three are conditional:
 
-| Role | Fires when |
-|------|-----------|
-| **researcher** | `research: true`, or `researchByDefault` — task needs knowledge from outside the repo |
-| **security** | The Planner rates `security_surface: "elevated"` — new input, auth, secrets, injection, dependency, or crypto surface |
+| Role | Fires when | Model choice |
+|------|-----------|--------------|
+| **researcher** | `research: true`, or `researchByDefault` — task needs knowledge from outside the repo | Opus at medium/complex — cross-verifying sources is worth it |
+| **security** | The Planner rates `security_surface: "elevated"` — new input, auth, secrets, injection, dependency, or crypto surface. Force with `security: true/false` or `securityByDefault` | Opus at every tier — a missed vulnerability costs more than a strong model does |
+| **recorder** | Approved, and `complexity != "trivial"` — persists the review report, architecture doc, and backlog so they survive past the session | Haiku at every tier — it formats and files, it doesn't judge |
 
 Starting a project from scratch isn't part of the pipeline — `/ldo-bootstrap` handles that as a conversation, then hands the first task to `/ldo:ldo`.
 
@@ -79,10 +80,11 @@ The default accepts that cold start deliberately: an independent read is worth m
 | `blockingSeverities` | `["critical","major"]` | Which findings buy another round. Minor and nit ride along in the report |
 | `researchByDefault` | `false` | Run the Researcher on every task |
 | `securityByDefault` | *(unset)* | Force the Security agent on or off, overriding the Planner's rating |
+| `maxParallelFeatures` | `12` | Cap on concurrent features in a multi-feature run (`args.tasks`) — a run above this logs a warning, it isn't blocked |
 
 ## Per-run override
 
-Anything in the file can be overridden for one invocation:
+Anything shown above can be overridden for one invocation:
 
 ```js
 Workflow({name: "ldo", args: {

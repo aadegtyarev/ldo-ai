@@ -5,6 +5,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.2] — 2026-07-31
+
+### Fixed
+
+- **Fresh-eyes audit of the whole project turned up its own drift**, the exact
+  failure mode `/ldo-docs-audit` exists to catch, found on the project's own docs:
+  - `ldo-config.example.json` pointed at `/ldo:init`, a command that doesn't
+    exist (real name: `/ldo-init`, no colon) — dead reference in the one file
+    meant to be copied as a reference.
+  - `skills/ldo-config/SKILL.md`'s model-routing table had regressed to the
+    pre-2.2.0 numbers (trivial and medium shown identical) — a second copy of
+    the same table as README's, and only README got updated when the tiers
+    were actually differentiated. Now points at `DEFAULT_MODELS` in
+    `workflows/ldo.js` as the one source of truth, with both copies in sync.
+  - Same skill referenced "the file" two paragraphs after establishing no
+    config file exists — a leftover from before the no-file rewrite.
+  - `recorder` — a real, running role — was missing from the example config
+    and the roles table; `maxParallelFeatures` was a real, working config key
+    documented nowhere.
+  - README's pipeline diagram omitted the Record phase; its Files section
+    listed `docs/contracts/` as a created-per-project path but not
+    `docs/reviews/`, `docs/ARCHITECTURE.md`, or `docs/BACKLOG.md`, all written
+    by the same Recorder.
+  - `Budget` appears on line two of README's very first transcript, undefined
+    anywhere — it's Claude Code's own session budget, not something LDO sets.
+  - Two schema fields agents were told to fill (`plan_step` on a security
+    finding, `note` on a verification criterion, `threat_model_notes`) were
+    never read by the render functions that surface them downstream — accepted
+    from the agent, then silently dropped before reaching the next stage. Now
+    rendered.
+  - A stray `claude.log.old` (terminal color codes from an unrelated session)
+    was tracked in git; removed, `.gitignore` now covers `claude.log*`.
+
 ## [2.10.1] — 2026-07-31
 
 ### Fixed

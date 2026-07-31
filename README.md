@@ -56,6 +56,8 @@ Task: add rate limiting to the API endpoints
 
 Three things to notice. The Planner flagged the spoofable header **before any code existed**, so the mitigation was a requirement rather than a bug fix. The Reviewer then went past checking that the feature works and actively tried to break it — 10,000 distinct IPs surfaced an unbounded map that all 47 passing tests walked straight over. And the model that found it wasn't the model that wrote it.
 
+(`Budget` in the transcript is Claude Code's own session budget, if one is set — LDO doesn't configure it.)
+
 ## Install
 
 Requires Claude Code v2.1.154 or newer — that's the release that added the workflow runtime LDO's pipeline runs on. Check with `claude --version`.
@@ -106,10 +108,10 @@ The Planner rates the task, and that rating decides what runs. A refactor with n
 ## Pipeline
 
 ```
-[Research] → Plan → [Security] → Code ⇄ Review
-  web         read repo  threat     implement  read diff
-  sources     + rate     model      + test     + attack it
-              the task              + document
+[Research] → Plan → [Security] → Code ⇄ Review → [Record]
+  web         read repo  threat     implement  read diff    write report,
+  sources     + rate     model      + test     + attack it  architecture doc,
+              the task              + document              backlog
 ```
 
 **Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff, drives the running application to prove each acceptance criterion, then switches posture and attacks it — boundaries, absent input, scale, concurrency, and every exploit the threat model named.
@@ -159,14 +161,14 @@ Risk doesn't scale with diff size — a one-line change to an auth check is `tri
 
 Some rules aren't conventions the Coder should match — they're constraints the operator decided, and they must hold no matter what the task looks like. "Every user action emits an audit event." "No raw SQL string concatenation." "Single-user by design — never add auth." These come from a decision, not from reading the code, so they're recorded explicitly rather than inferred.
 
-Record one with `/ldo-contract`. It's interactive — you describe the rule, it classifies which of four kinds it is and writes it to the matching file under `docs/contracts/`:
+Record one with `/ldo-contract`. It's interactive — you describe the rule, it classifies which of four kinds it is and writes it to the matching file under `docs/contracts/`. (Not to be confused with `agents/security.md`, the Security agent's own prompt — `docs/contracts/security.md` is what the operator declared, read *by* that agent, not the agent itself.)
 
 | Kind | File | Checked by | When |
 |---|---|---|---|
-| Scope boundary | `scope.md` | Planner | Always, if the file exists — it's short and decides whether the task should exist in this form |
-| Accepted risk | `security.md` (Accepted) | Security | So a closed question doesn't get re-raised as a finding |
-| Security floor | `security.md` (Required) | Security + Reviewer | Whenever the task touches an area the floor governs, independent of the task's own `security_surface` rating |
-| Code contract | `code.md` | Reviewer | Whenever the diff touches structure the contract governs — violation is always `critical` |
+| Scope boundary | `docs/contracts/scope.md` | Planner | Always, if the file exists — it's short and decides whether the task should exist in this form |
+| Accepted risk | `docs/contracts/security.md` (Accepted) | Security | So a closed question doesn't get re-raised as a finding |
+| Security floor | `docs/contracts/security.md` (Required) | Security + Reviewer | Whenever the task touches an area the floor governs, independent of the task's own `security_surface` rating |
+| Code contract | `docs/contracts/code.md` | Reviewer | Whenever the diff touches structure the contract governs — violation is always `critical` |
 
 None of this loads into `CLAUDE.md` — that file stays thin, one pointer line. The Planner reads a contract file only when the task plausibly touches what it governs; a variable rename never pays for the security floor. `/ldo-docs-audit` also checks contracts occasionally: for an accepted risk whose stated reasoning no longer matches the code, and for patterns repeated everywhere that aren't written down as a contract yet — a suggestion, never an auto-write.
 
@@ -343,6 +345,11 @@ docs/contracts/               # Not shipped by the plugin — created per projec
 ├── scope.md                  #   what this app does and deliberately doesn't
 ├── security.md                #   Required floor + Accepted risks
 └── code.md                    #   structural rules the Reviewer blocks on
+
+docs/reviews/<date>-<slug>.md # Not shipped — written by the Recorder each approved run
+docs/ARCHITECTURE.md          # Not shipped — created/updated by the Recorder (or an
+                               #   existing equivalent doc, updated in place instead)
+docs/BACKLOG.md               # Not shipped — written by the Recorder only if `gh` isn't available
 ```
 
 Installing the plugin adds only these. Your own settings, hooks, and agents are never touched; `/plugin update` carries only LDO's files.

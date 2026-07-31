@@ -268,9 +268,11 @@ function renderSecurity(sec, plan) {
   if (sec?.status === 'findings' && sec.findings?.length) {
     const lines = ['## SECURITY THREAT MODEL (mitigations are hard requirements)']
     sec.findings.forEach((f, i) => {
-      lines.push(`${i + 1}. [${f.severity}] ${f.category}: ${f.what}`)
+      const stepRef = f.plan_step ? ` (plan step: ${f.plan_step})` : ''
+      lines.push(`${i + 1}. [${f.severity}] ${f.category}: ${f.what}${stepRef}`)
       lines.push(`   Mitigation: ${f.mitigation}`)
     })
+    if (sec.threat_model_notes) lines.push(`\nNotes: ${sec.threat_model_notes}`)
     return lines.join('\n') + '\n\n'
   }
   if (!sec && plan?.security_notes?.length && plan.security_surface !== 'none') {
@@ -564,7 +566,10 @@ while (iteration < MAX_FIX_LOOPS) {
     const passed = v.criteria?.filter(c => c.status === 'passed').length || 0
     const total = v.criteria?.length || 0
     log(`${logPrefix}Verification: ${v.verdict}${total ? ` — ${passed}/${total} criteria proven` : ''}`)
-    v.criteria?.filter(c => c.status === 'failed').forEach(c => log(`${logPrefix}  ✗ ${c.criterion}`))
+    v.criteria?.filter(c => c.status !== 'passed').forEach(c => {
+      const mark = c.status === 'failed' ? '✗' : '○' // skipped/other
+      log(`${logPrefix}  ${mark} ${c.criterion}${c.note ? ` — ${c.note}` : ''}`)
+    })
     if (v.blockers?.length) log(`${logPrefix}  ⚠ Blockers: ${v.blockers.join('; ')}`)
   }
 

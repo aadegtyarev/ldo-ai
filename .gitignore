@@ -1,4 +1,4 @@
-claude.log
+claude.log*
 .mcp.json
 .claude/hook_dispatch.py
 .claude/settings.local.json

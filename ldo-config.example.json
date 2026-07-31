@@ -1,5 +1,5 @@
 {
-  "_README": "This is a REFERENCE TEMPLATE, not a file LDO reads. A workflow has no filesystem access, so config reaches it only via args.config at invocation. Two ways to use this: (1) copy the values into your project's CLAUDE.md so Claude passes them on every run — /ldo:init writes that block for you; (2) pass them inline: Workflow({name:'ldo', args:{task:'...', config:{...}}}). Model names mean whatever your setup routes them to.",
+  "_README": "This is a REFERENCE TEMPLATE, not a file LDO reads. A workflow has no filesystem access, so config reaches it only via args.config at invocation. Two ways to use this: (1) copy the values into your project's CLAUDE.md so Claude passes them on every run — /ldo-init writes that block for you; (2) pass them inline: Workflow({name:'ldo', args:{task:'...', config:{...}}}). Model names mean whatever your setup routes them to.",
 
   "models": {
     "trivial": {
@@ -7,26 +7,30 @@
       "coder": "haiku",
       "reviewer": "sonnet",
       "security": "opus",
-      "researcher": "sonnet"
+      "researcher": "sonnet",
+      "recorder": "haiku"
     },
     "medium": {
       "planner": "sonnet",
       "coder": "sonnet",
       "reviewer": "opus",
       "security": "opus",
-      "researcher": "opus"
+      "researcher": "opus",
+      "recorder": "haiku"
     },
     "complex": {
       "planner": "opus",
       "coder": "sonnet",
       "reviewer": "opus",
       "security": "opus",
-      "researcher": "opus"
+      "researcher": "opus",
+      "recorder": "haiku"
     }
   },
 
   "maxFixLoops": 3,
   "blockingSeverities": ["critical", "major"],
+  "maxParallelFeatures": 12,
 
   "_phases": {
     "_comment": "Plan, Code, and Review always run. Two are conditional.",
