@@ -54,7 +54,14 @@ The evidence columns are the point. A reader six months later should be able to 
 
 ### 2. Architecture doc
 
-Read `docs/ARCHITECTURE.md` if it exists. Create it if it doesn't. Keep it to one page — it's a map, not a novel:
+Read `docs/ARCHITECTURE.md` if it exists and update it — that's the common case on a repeat run, go straight there.
+
+If it doesn't exist, **check for an existing architecture doc under a different name before creating one** — `ARCHITECTURE.md` at the repo root, `docs/DESIGN.md`, `docs/architecture/`, or a clearly-equivalent section inside the README (an "Architecture" or "How it works" heading covering stack/components/data flow). A project migrating onto LDO usually already has this written somewhere; a second file with the same job left to diverge from the first is the exact duplication this format is meant to avoid.
+
+- If you find one: update it in place, in its existing style and location — don't create `docs/ARCHITECTURE.md` alongside it. Keep to minimal edits, same as below.
+- If you don't find one after checking: create `docs/ARCHITECTURE.md` fresh.
+
+Keep it to one page — it's a map, not a novel:
 
 ```markdown
 # Architecture

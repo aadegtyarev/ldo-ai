@@ -5,6 +5,26 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.1] — 2026-07-31
+
+### Fixed
+
+- **Contract and architecture-doc discovery could create duplicates instead of
+  migrating.** Confirming a contract candidate sourced from README/`SECURITY.md`
+  prose left the full rule sitting in both places — the new contract file and the
+  original doc — free to drift apart with nobody noticing until they disagreed.
+  Same problem for the Recorder's architecture doc: it always wrote
+  `docs/ARCHITECTURE.md`, even when a project already had `ARCHITECTURE.md` at
+  the root or `docs/DESIGN.md`, producing two partial maps of the same system.
+
+  `/ldo-contract` now offers, once per discovery batch, to trim a confirmed
+  candidate's source section down to a pointer at the new contract — asked, never
+  silent, and skipped entirely for candidates sourced from code rather than docs.
+  The Recorder now checks for an existing architecture doc under another name
+  before creating `docs/ARCHITECTURE.md`, and updates that one in place instead.
+  `/ldo-docs-audit` also gained a check for this pattern generally, to catch a
+  duplicate that slipped through some other way.
+
 ## [2.10.0] — 2026-07-31
 
 ### Added

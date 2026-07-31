@@ -35,6 +35,8 @@ If you already have context on this project from earlier in the conversation, sa
 
 **Contracts worth reconsidering** — if `docs/contracts/` exists, read it too. Two things to look for: a contract whose "Accepted risk" reasoning no longer matches the codebase (the accepted CSRF risk assumed VPN-only access — does the code still enforce that?), and a pattern repeated consistently across the codebase that isn't written down anywhere as a contract. The second isn't a finding to fix — it's a suggestion: "this looks like an unwritten rule; consider `/ldo-contract` for it." Don't propose writing one yourself; that's the operator's call.
 
+**Duplicated sources of truth** — the same fact stated in two places that can drift independently: a rule in `docs/contracts/` *and* the full prose still sitting in README or `SECURITY.md` (rather than a pointer to the contract), or two architecture docs (`docs/ARCHITECTURE.md` alongside a root-level `ARCHITECTURE.md` or `docs/DESIGN.md`) each partially describing the system. Rank this as a stale-claim risk even before the two disagree — the failure mode is that one gets updated and the other quietly doesn't, and nobody notices until they contradict each other. The fix is a pointer from the duplicate to the canonical copy, not a merge you write unasked.
+
 ## How to verify
 
 Don't report from reading alone. For every claim that can be checked, check it:

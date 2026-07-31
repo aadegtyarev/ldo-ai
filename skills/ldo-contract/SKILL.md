@@ -90,6 +90,8 @@ The rule is the same either way: **read and propose, never write silently.** A c
 
 5. **Write only what's confirmed**, exactly as in the normal Append step (dated entry, source file). Nothing gets written on inference alone, no matter how consistent the pattern looked.
 
+6. **Offer to point the source at the contract, don't leave two copies to drift.** When a confirmed candidate's evidence was a documentation section — a README paragraph, a `SECURITY.md` entry — that prose still fully states the rule after `docs/contracts/` now also states it. Two independently-editable copies of the same decision is exactly the duplication this whole mechanism exists to avoid: the contract is now what's actually checked, so a copy left behind in README can drift from it silently and nobody would notice until the disagreement matters. Ask, per candidate, whether to trim that section down to a pointer ("see `docs/contracts/security.md` for the current policy") — never do this without asking, and never touch it at all for a candidate sourced from a code comment or an implicit pattern (there's nothing to trim there, the code itself is the evidence, not a doc). Default to asking once for the whole batch ("trim the source sections these came from to pointers?") rather than per line, unless the operator wants finer control.
+
 If nothing turns up real evidence, say so plainly rather than manufacturing a thin candidate to have something to show — "no explicit contracts found; the project doesn't state any of these decisions anywhere I can read" is a legitimate, useful result.
 
 ## Revising or retiring a contract
