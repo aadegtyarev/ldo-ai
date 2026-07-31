@@ -5,6 +5,84 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] — 2026-07-28
+
+### Added
+
+- **Parallel multi-feature mode.** `args.tasks: [...]` instead of `args.task` runs
+  N independent features at once, each isolated in its own git worktree —
+  comparable to several developers on separate branches, conflicts resolved as
+  routine at merge time rather than solved architecturally. The workflow script
+  has no filesystem access, so each feature's Planner creates its own worktree via
+  Bash before reading the codebase; every later agent in that feature's chain
+  gets a workflow-composed block telling it to `cd` there first. Each approved
+  feature ships independently via `/ldo-ship`, run from its own worktree.
+
+  The entire existing pipeline body became `runOneFeature(task, ctx)`, called once
+  for single mode (unchanged behavior) or N times through `parallel()` for multi
+  mode — this is what makes per-feature state safe under concurrency instead of
+  racing on shared module-level variables. A thrown error inside one feature
+  returns a failure shape rather than aborting its siblings. Planned by a real
+  `/ldo:planner` run on this repo.
+
+## [2.7.3] — 2026-07-28
+
+### Fixed
+
+- **`ReferenceError` on every approved medium/complex run.** The Record-phase gate
+  read `approved`, but the declaration had been dropped in an earlier refactor —
+  found by the `/ldo:planner` run above while investigating an unrelated feature,
+  not by review. One line, restored.
+- **Six skills' Usage examples used pre-rename command names** (`/coder`,
+  `/planner`, `/researcher`, `/reviewer`, `/security`, `/ldo`) — left behind by the
+  2.0.0 `ldo-` prefix rename. Now `/ldo-coder`, `/ldo-planner`, `/ldo-researcher`,
+  `/ldo-reviewer`, `/ldo-security`, `/ldo:ldo`.
+
+## [2.7.2] — 2026-07-28
+
+### Fixed
+
+- **Coder's "don't re-scan the whole repo" rule was ambiguous.** It meant "don't
+  redo Scout's full-repo pass" but could be read as "never look beyond the plan's
+  file list" — which blocks the normal work of checking whether a helper already
+  exists or following an unfamiliar import while implementing. Clarified: no
+  upfront re-scan, but grep/read freely once inside a file that raises a question.
+
+## [2.7.1] — 2026-07-28
+
+### Added
+
+- **`/ldo-ship` auto and auto-merge modes.** Alongside the default confirm-each-
+  step flow: `auto` runs branch → commit → push → PR in one pass with no
+  confirmations, stopping only on errors. `auto-merge` adds a squash-merge at the
+  end, gated on **local tests first** (free, seconds — no CI minutes spent on what
+  the dev machine can verify) and then CI if configured, merging on green and
+  stopping on red. Mode is picked from natural language: "ship it" = interactive,
+  "no questions" = auto, "ship and merge" = auto-merge.
+
+## [2.7.0] — 2026-07-28
+
+### Added
+
+- **`/ldo-ship` — branch, commit, push, PR, squash-merge.** The pipeline left
+  uncommitted changes and stopped; shipping was manual. `/ldo-ship` takes it the
+  rest of the way, interactively: proposes a branch name from the task, a commit
+  message from the plan and verdict, pushes, and creates a PR whose body is the
+  review report — verification evidence, attacks tried, security findings. The
+  receipts become the PR description, so a reviewer sees what was proven, not just
+  "done." Every step is a separate confirmation; nothing ships without a yes.
+
+## [2.6.1] — 2026-07-28
+
+### Added
+
+- **`ctags` symbol index for fast codebase navigation.** The Coder regenerates
+  `tags` via `ctags -R .` on each run, if `ctags` is installed — a symbol → file →
+  line index, gitignored as derived data. The Planner greps it first when
+  searching for symbol locations: O(1) lookup against the index instead of O(n)
+  search across source. Falls back to grepping source directly when `ctags` isn't
+  present; no new agent, no new mechanism, just Grep pointed at a generated file.
+
 ## [2.6.0] — 2026-07-28
 
 ### Added
