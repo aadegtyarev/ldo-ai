@@ -5,6 +5,29 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.12.0] — 2026-07-31
+
+### Changed
+
+- **The Reviewer's attack step scales with the plan's `complexity` rating.**
+  Until now step 3 ("try to break it") ran the same three-or-four-vector sweep
+  regardless of whether the Planner rated the change `trivial`, `medium`, or
+  `complex` — only the *model* running Review scaled, not how much attacking it
+  did. A one-line fixup earned the identical adversarial sweep as a real
+  feature.
+
+  Now: `trivial` gets one or two of the most plausible vectors, `medium` keeps
+  the existing three-or-four, `complex` can go past four when the surface
+  genuinely has more angles. Verification — proving each acceptance criterion
+  actually holds — never scales down; that's the part that makes the review
+  real, not the exhaustiveness of the attack sweep.
+
+  This scaling never touches the threat model. `security_surface` is rated
+  independently of `complexity` precisely so a `trivial` one-line change to an
+  auth check still gets every threat-model finding attacked in full — the
+  independence of the two ratings was already the design, this just makes sure
+  the new scaling respects it rather than accidentally undercutting it.
+
 ## [2.11.0] — 2026-07-31
 
 ### Added

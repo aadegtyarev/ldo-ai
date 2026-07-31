@@ -114,7 +114,7 @@ The Planner rates the task, and that rating decides what runs. A refactor with n
               the task              + document              backlog
 ```
 
-**Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff, drives the running application to prove each acceptance criterion, then switches posture and attacks it — boundaries, absent input, scale, concurrency, and every exploit the threat model named.
+**Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff, drives the running application to prove each acceptance criterion — that part never scales down — then switches posture and attacks it. How much attacking scales with the plan's own `complexity` rating: one or two vectors for `trivial`, three or four for `medium`, more for `complex` if the surface warrants it. A threat model is attacked in full regardless — `security_surface` is rated independently of `complexity` for exactly this reason, so a one-line fix to an auth check still gets every exploit scenario run against it.
 
 On approved medium or complex tasks, a fourth pass **Record** writes the run's results to disk: a review report in `docs/reviews/` with the full verification evidence and attack log (the receipts that would otherwise vanish with the session), a one-page `docs/ARCHITECTURE.md` kept current, and backlog items — GitHub Issues if `gh` is connected, otherwise `docs/BACKLOG.md`.
 

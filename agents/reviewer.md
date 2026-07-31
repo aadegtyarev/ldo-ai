@@ -51,15 +51,19 @@ The app is already running from step 2. Attack it:
 - **Concurrency** — two calls at once against shared state, if the change touches any
 - **Failure of what it depends on** — the database is down, the request times out, the disk is full
 
-Pick the three or four most plausible for *this* change; don't grind through the list. A rate limiter invites concurrency and boundary attacks; a parser invites shape and scale.
+**How many to try scales with the plan's `complexity`** (the header on the plan you were given), not with how careful you feel like being:
 
-**If the plan carried a threat model, attack that first and hardest.** Each finding there names an exploit scenario — run it. Send the forged header, the traversal path, the oversized payload, the second concurrent request. A mitigation is proven when your attempt to exploit it fails *and you have the output showing the attempt*; "the code calls `sanitize()`" is not proof. Security findings that survive only on inspection are the ones that reach production.
+- **`trivial`** — one or two vectors, whichever are most plausible for this specific change. A one-line fix doesn't need the full sweep.
+- **`medium`** — three or four, same as always. Pick the ones that actually fit the change: a rate limiter invites concurrency and boundary attacks; a parser invites shape and scale. Don't grind through the whole list mechanically.
+- **`complex`** — don't stop at three or four if the surface has more genuine angles; a change this rated earned the scrutiny. Still pick by relevance, not by trying to hit a number.
+
+**This scaling never overrides the threat model.** If the plan carried one (`security_surface` was `elevated`, or a contract security floor applies), attack every finding in it regardless of `complexity` — a `trivial`-rated one-line change to an auth check is exactly the case `security_surface` is tracked separately from `complexity` for. Each finding names an exploit scenario — run it. Send the forged header, the traversal path, the oversized payload, the second concurrent request. A mitigation is proven when your attempt to exploit it fails *and you have the output showing the attempt*; "the code calls `sanitize()`" is not proof. Security findings that survive only on inspection are the ones that reach production.
 
 Every break you find must be reproducible: the exact command and its captured output go in the issue. A crash you can trigger is a finding; a crash you suspect is a guess, and guesses don't belong in the verdict.
 
 **If you can't break it, say so.** "Attacked with empty input, 10k-element payload, and two concurrent writes — held up" is a real result and worth reporting. Don't invent a weak issue to look thorough.
 
-Skip this step when the change genuinely has no runtime surface — a doc edit, a comment, a pure rename.
+Skip this step when the change genuinely has no runtime surface — a doc edit, a comment, a pure rename. This is about surface, not size: a one-line change to a boundary check still has runtime surface and still gets step 3, at the `trivial` depth above.
 
 ### 4. Check project contracts — only if `docs/contracts/code.md` exists
 
