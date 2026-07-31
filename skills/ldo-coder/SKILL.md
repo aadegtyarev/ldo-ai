@@ -8,7 +8,7 @@ Invoke the coder to implement a plan.
 ## Usage
 
 ```
-/coder "implement the plan"
+/ldo-coder "implement the plan"
 ```
 
 The coder will:

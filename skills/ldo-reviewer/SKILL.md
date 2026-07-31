@@ -8,7 +8,7 @@ Quality-gate a change. The strongest model in the pipeline.
 ## Usage
 
 ```
-/reviewer
+/ldo-reviewer
 ```
 
 The reviewer will:

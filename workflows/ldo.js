@@ -530,6 +530,8 @@ if (!finalVerdict) {
   finalVerdict = { status: 'changes_requested', summary: `Max ${MAX_FIX_LOOPS} fix iterations reached.`, issues: lastIssues }
 }
 
+const approved = finalVerdict.status === 'approved'
+
 // ── RECORD ──────────────────────────────────
 
 // The pipeline produced rich structured results — plan, verdict, evidence,
@@ -582,7 +584,7 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
 // Result shape follows agent-ux: verdict first, then detail. A reader scanning
 // the returned object gets the answer in the first field, not buried after the input.
 return {
-  approved: finalVerdict.status === 'approved',
+  approved,
   verdict: finalVerdict,
   verification: finalVerdict.verification?.verdict || 'not_run',
   attacks: finalVerdict.attacks || [],

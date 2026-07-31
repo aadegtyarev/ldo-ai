@@ -8,7 +8,7 @@ Invoke the security agent to audit the current diff for security vulnerabilities
 ## Usage
 
 ```
-/security
+/ldo-security
 ```
 
 The security agent will:

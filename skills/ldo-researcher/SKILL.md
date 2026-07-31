@@ -8,7 +8,7 @@ Investigate a question using sources outside the repository.
 ## Usage
 
 ```
-/researcher "best practices for real-time WebSocket auth in distributed systems"
+/ldo-researcher "best practices for real-time WebSocket auth in distributed systems"
 ```
 
 The researcher will:

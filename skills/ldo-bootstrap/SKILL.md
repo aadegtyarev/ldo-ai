@@ -64,7 +64,7 @@ Deliverables must be concrete. "Set up authentication" is a wish; "email + passw
 Name the first task specifically enough to plan against — one Phase 0 deliverable, not the whole phase. Then:
 
 ```
-/ldo "scaffold the Go module with Bubble Tea, rendering an empty list view that exits on q, with one test asserting the model initialises"
+/ldo:ldo "scaffold the Go module with Bubble Tea, rendering an empty list view that exits on q, with one test asserting the model initialises"
 ```
 
 ## Recommend the right plugins

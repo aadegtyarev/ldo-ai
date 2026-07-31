@@ -8,7 +8,7 @@ Invoke the planner to turn a task into an executable plan.
 ## Usage
 
 ```
-/planner "add rate limiting to the API endpoints"
+/ldo-planner "add rate limiting to the API endpoints"
 ```
 
 The planner will:
