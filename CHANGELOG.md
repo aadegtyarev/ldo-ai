@@ -5,6 +5,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.11.0] — 2026-07-31
+
+### Added
+
+- **`/ldo-resume` — pipeline runs survive an interrupted session.** The Workflow
+  tool already caches every completed step against a `runId` and can replay it
+  via `resumeFromRunId` — nothing about a `/ldo:ldo` call was actually lost when
+  a session got killed or hit a limit. What was missing: nobody wrote the
+  `runId` down, so there was nothing left to resume *from* once the session
+  holding it in its head was gone.
+
+  `/ldo-init` now wires a tracking protocol into `CLAUDE.md`: log the `runId`
+  the moment a pipeline call starts (to `.claude/ldo-runs.json`, gitignored
+  local state, not project data), update its status when the result comes back,
+  and check for anything still `running` at the start of a session — before the
+  operator has to ask.
+
+  One real limit, stated plainly rather than glossed over: the cache lives in
+  the harness session that produced the `runId`, not on disk. Picking a
+  conversation back up in the *same* session (summarized, or reopened via its
+  own resume) reaches the cache; a genuinely new session can't. `/ldo-resume`
+  tries resume first, and falls back to a fresh run — reporting which happened
+  rather than silently picking one — when the cache isn't reachable.
+
 ## [2.10.2] — 2026-07-31
 
 ### Fixed

@@ -186,6 +186,14 @@ For that, `/ldo-docs-audit` reads everything cold — deliberately before lookin
 
 If you ran `/ldo-init`, the Coder appends a line to a drift log in `CLAUDE.md` after each user-facing change. Around eight entries, Claude offers the audit. It offers rather than runs — a full read costs real tokens, and the timing is yours.
 
+### Resuming an interrupted run
+
+A `/ldo:ldo` call already survives more than it looks like: every `Workflow` call gets a `runId`, and Claude Code caches each completed step (Plan, Coder, Reviewer, ...) against it. Pass that same `runId` back via `resumeFromRunId` and the cached steps return instantly — only what hadn't finished actually re-runs. The gap was that nothing wrote the `runId` down, so if the session holding it in its head went away, there was nothing to resume *from*.
+
+If you ran `/ldo-init`, every `/ldo:ldo` call now gets logged to `.claude/ldo-runs.json` the moment it starts, and updated when it finishes. At the start of a session, Claude checks that file for anything still marked `running` and tries to resume it before you ask.
+
+One real limit worth knowing: the cache lives in the harness session that produced the `runId`, not on disk. Picking a conversation back up in the *same* session (it got summarized, or you reopened it via its own resume) — the cache is almost always still there. A genuinely new session can't reach it; `/ldo-resume` notices, says so, and falls back to running the task fresh rather than guessing or failing silently. See `/ldo-resume` for the exact protocol.
+
 ## Usage
 
 Type `ldo` in the command palette and everything clusters together.
@@ -208,6 +216,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-config` | Walk through model routing |
 | `/ldo-init` | Write the self-routing block into the project's `CLAUDE.md` |
 | `/ldo-agent-ux` | Write agent context and output that a model and a human can both read |
+| `/ldo-resume` | Check for a pipeline run left in progress and resume it, or start fresh |
 
 Why the punctuation differs: `/ldo:ldo` is a **workflow**, and Claude Code namespaces those by plugin. The `/ldo-*` commands are **skills**, which get no automatic namespace — the `ldo-` prefix is part of their name, so they group in the palette and don't shadow built-ins like `/init`.
 
@@ -337,7 +346,7 @@ agents/                      # Prompts live here
 ├── researcher.md
 └── recorder.md
 skills/                      # One slash-command per role, plus bootstrap, config, init,
-│                             # contract, docs-audit, ship, tui, agent-ux
+│                             # contract, docs-audit, resume, ship, tui, agent-ux
 └── <name>/SKILL.md
 ldo-config.example.json      # Reference template of every config key
 
@@ -345,6 +354,9 @@ docs/contracts/               # Not shipped by the plugin — created per projec
 ├── scope.md                  #   what this app does and deliberately doesn't
 ├── security.md                #   Required floor + Accepted risks
 └── code.md                    #   structural rules the Reviewer blocks on
+
+.claude/ldo-runs.json         # Not shipped — local run tracking for /ldo-resume,
+                               #   gitignored, same as `tags`
 
 docs/reviews/<date>-<slug>.md # Not shipped — written by the Recorder each approved run
 docs/ARCHITECTURE.md          # Not shipped — created/updated by the Recorder (or an

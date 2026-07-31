@@ -31,6 +31,14 @@ what doesn't need it, and don't hand-edit around it for what does.
   or crypto, add `security: true`. For one needing outside knowledge, `research: true`.
 - **New project** is a conversation first: `/ldo-bootstrap "idea"`.
 
+**Track every pipeline call in `.claude/ldo-runs.json`** so an interrupted run can
+resume instead of restarting cold — see `/ldo-resume` for the exact protocol
+(record the `runId` right after calling, update its status when the result
+comes back). At the start of this session, before anything else, check that file
+for entries still marked `running` — an earlier session may have been
+interrupted mid-run. If any exist, follow `/ldo-resume`'s recovery steps rather
+than leaving them unmentioned.
+
 When working inline, keep the discipline: read before editing, write or update a
 test for any behavior change, and update README/CHANGELOG for user-facing changes.
 
@@ -76,7 +84,7 @@ Eight is a starting point, not a rule. A docs-heavy project might want five; one
 
 ## After writing
 
-Tell the operator the block was added and that it loads automatically every session. Also add `tags` to the project's `.gitignore` if it isn't already there — the Coder generates a `ctags` symbol index on each run, and it's a derived file that shouldn't be committed. Suggest they skim the block and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
+Tell the operator the block was added and that it loads automatically every session. Also add `tags` and `.claude/ldo-runs.json` to the project's `.gitignore` if they aren't already there — the Coder generates a `ctags` symbol index on each run, and `ldo-runs.json` is local session-tracking state (see `/ldo-resume`); neither belongs in version control. Suggest they skim the block and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
 
 If step 3 ran, say plainly what happened either way — how many candidates were confirmed and written, or that discovery found nothing checkable. Migrating an existing project's tribal knowledge into contracts is the whole point of running discovery; a silent "done" hides whether it actually found anything.
 
