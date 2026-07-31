@@ -123,6 +123,18 @@ Two more run only when they earn their place:
 | **Researcher** | `research: true` — the task needs domain knowledge from outside the repo |
 | **Security** | The Planner rates the change's attack surface `elevated` |
 
+### Running several features in parallel
+
+Pass `tasks` instead of `task` and each one runs independently, isolated in its own git worktree:
+
+```js
+Workflow({name:"ldo", args:{
+  tasks: ["add rate limiting to the API", "fix the session token refresh bug"]
+}})
+```
+
+Each feature's Planner creates its own worktree (`.worktrees/<n>-<slug>` on branch `ldo/<n>-<slug>`) before reading the codebase, and every later agent in that feature's chain works inside it — features never see each other's changes. This is comparable to several developers on separate branches: conflicts get resolved as routine at merge time, not solved architecturally by the orchestrator. Each approved feature ships independently — run `/ldo-ship` from inside that feature's worktree, where it's already on the right branch.
+
 Starting a project from nothing is a conversation, not a pipeline — use `/ldo-bootstrap "your idea"` for that. It researches prior art, works through the stack with you, and hands the first task to `/ldo:ldo`.
 
 ### Why the Planner decides about Security

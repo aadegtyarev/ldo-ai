@@ -1,6 +1,7 @@
 export const meta = {
   name: 'ldo',
   description: 'Lightweight Dev Orchestrator: [Research→]Plan→[Security→]Code⇄Review, with a different model per role',
+  whenToUse: 'args.task runs one feature in the current directory. args.tasks (an array) runs N independent features in parallel, each isolated in its own git worktree created by that feature\'s Planner; each ships separately afterward via /ldo-ship run from its own worktree.',
   phases: [
     { title: 'Research', detail: 'Multi-source web research (opt-in)' },
     { title: 'Plan', detail: 'Read the codebase, plan the change, rate complexity + security surface' },
@@ -64,6 +65,8 @@ const PLAN_SCHEMA = {
     },
     risks: { type: 'array', items: { type: 'string' } },
     rollback_plan: { type: 'string' },
+    worktree_path: { type: 'string', description: 'Populated only in multi-feature mode — the exact path the Planner cd\'d into' },
+    branch: { type: 'string', description: 'Populated only in multi-feature mode — the exact branch the Planner created' },
   },
   required: ['complexity', 'summary', 'steps', 'codebase_context'],
 }
@@ -277,6 +280,27 @@ function renderSecurity(sec, plan) {
   return ''
 }
 
+// Multi-feature isolation. Suggested paths/branches are always derived through
+// slugify() before they're ever interpolated into a prompt as a literal shell
+// command — an operator-supplied label lands in "git worktree add <this>", so it
+// must be shell-safe by construction, not by hoping the agent notices.
+const SAFE_SLUG = /^[a-z0-9][a-z0-9-]*$/
+
+function slugify(text, fallback) {
+  const s = String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '')
+  return SAFE_SLUG.test(s) ? s : fallback
+}
+
+function renderWorktree(worktreePath, branch) {
+  if (!worktreePath || !branch) return ''
+  return `## ISOLATION\nYour work happens in \`${worktreePath}\` on branch \`${branch}\`. cd there before anything else and verify with \`pwd\` / \`git rev-parse --show-toplevel\`. Other features are running in sibling worktrees right now — never touch the main tree or another feature's directory.\n\n`
+}
+
 function renderResearch(r) {
   if (!r) return ''
   const lines = ['## RESEARCH FINDINGS', r.summary, '']
@@ -333,6 +357,30 @@ const CONFIG = args?.config || {}
 const MAX_FIX_LOOPS = CONFIG.maxFixLoops || 3
 const BLOCKING_SEVERITIES = CONFIG.blockingSeverities || ['critical', 'major']
 const DO_RESEARCH = args?.research ?? CONFIG.researchByDefault ?? false
+const MAX_PARALLEL_FEATURES = CONFIG.maxParallelFeatures || 12
+
+// Parses args.tasks into {task, label}[] with unique labels, or null if this
+// isn't a multi-feature run (falls through to the single-task path below).
+// Labels come from an explicit `label` field or slugify(task); collisions get
+// -2, -3, ... suffixes, same convention as the Recorder's file naming.
+function normalizeTasks(a) {
+  const raw = a?.tasks
+  if (!Array.isArray(raw) || raw.length === 0) return null
+
+  const seen = new Map()
+  return raw.map((entry, i) => {
+    const t = typeof entry === 'string' ? entry : entry?.task
+    if (typeof t !== 'string' || !t.trim()) {
+      throw new Error(`tasks[${i}] is malformed — expected a string or {task, label?}`)
+    }
+    const requestedLabel = typeof entry === 'object' ? entry.label : null
+    let label = slugify(requestedLabel || t, `feature-${i + 1}`)
+    const n = (seen.get(label) || 0) + 1
+    seen.set(label, n)
+    if (n > 1) label = `${label}-${n}`
+    return { task: t, label }
+  })
+}
 
 // Security is gated on attack surface, not task size — a one-line change to an
 // auth check is trivial work with elevated risk. The Planner rates this; the
@@ -350,22 +398,33 @@ const prePlanModels = routeModels('medium', CONFIG)
 // MAIN
 // ═══════════════════════════════════════════
 
-let task = args?.task || (typeof args === 'string' ? args : null)
+// The single-task path and the multi-feature path share this function. Single
+// mode calls it once with ctx.isMulti = false and behaves byte-for-byte as
+// before this refactor. Multi mode calls it N times through parallel(), one
+// closure per feature — every let/const below is now scoped inside the
+// function, so N concurrent calls each get their own copy instead of racing
+// on shared module-level state. Never throws: a failure inside becomes a
+// returned {error, ...} object for that feature, so one bad feature can't
+// abort the others running alongside it under parallel().
+async function runOneFeature(task, ctx) {
+try {
+  log(`Budget: ${budget.total ? Math.round(budget.remaining() / 1000) + 'k' : 'unlimited'}`)
+  log(`${ctx.isMulti ? `[${ctx.label}] ` : ''}Task: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}`)
 
-if (!task) {
-  log('ERROR: No task provided. Workflow({name:"ldo", args:{task:"..."}})')
-  return { error: 'No task provided' }
-}
-
-log(`Budget: ${budget.total ? Math.round(budget.remaining() / 1000) + 'k' : 'unlimited'}`)
-log(`Task: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}`)
+  // In multi mode, phase() is a shared run-global progress indicator — N
+  // concurrent features calling it would each stomp the others' display.
+  // logStage replaces it with a labelled log line; single mode is unaffected.
+  const logStage = (title) => {
+    if (ctx.isMulti) log(`[${ctx.label}] ▸ ${title}`)
+    else phase(title)
+  }
 
 // ── RESEARCH (opt-in) ───────────────────────
 
 let researchReport = null
 
 if (DO_RESEARCH) {
-  phase('Research')
+  logStage('Research')
 
   researchReport = await agent(
     `Deep-research this topic. Cross-verify claims across independent sources.\n\n## TOPIC\n${task}`,
@@ -382,51 +441,67 @@ if (DO_RESEARCH) {
 
 // ── PLAN ────────────────────────────────────
 
-phase('Plan')
+logStage('Plan')
+
+// In multi mode the Planner creates its own isolated worktree via Bash before
+// reading the codebase — the workflow script itself has no filesystem access.
+// The suggestion is deterministic (index-derived), not trusted to the LLM to
+// keep collision-free across similar task strings.
+const worktreeTrigger = ctx.isMulti
+  ? `This run is part of a parallel multi-feature batch. Before reading the codebase, create your own isolated worktree:\n\n\`git worktree add ${ctx.worktreeHint.suggestedPath} -b ${ctx.worktreeHint.suggestedBranch}\`\n\nThen \`cd\` into it and do all your work there. Only deviate from this path/branch if it collides with something that already exists. Report the exact worktree_path and branch you used.\n\n`
+  : ''
 
 const plan = await agentWithRetry(
-  renderResearch(researchReport) + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
-  { label: 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA }
+  worktreeTrigger + renderResearch(researchReport) + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
+  { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA }
 )
 
 if (!plan) {
-  log('ERROR: Planner failed.')
-  return { error: 'Planner failed' }
+  log(`${ctx.isMulti ? `[${ctx.label}] ` : ''}ERROR: Planner failed.`)
+  return { error: 'Planner failed', label: ctx.label, task }
+}
+
+if (ctx.isMulti && (!plan.worktree_path || !plan.branch)) {
+  log(`[${ctx.label}] ERROR: Planner didn't report a worktree — refusing to continue agents into an undefined directory.`)
+  return { error: 'Planner did not create/report a worktree in multi-feature mode', label: ctx.label, task, plan }
 }
 
 const models = routeModels(plan.complexity, CONFIG)
 const CTX = renderContext(plan.codebase_context)
 const surface = plan.security_surface || 'unrated'
 const DO_SECURITY = securityEnabled(plan)
+const WORKTREE_BLOCK = ctx.isMulti ? renderWorktree(plan.worktree_path, plan.branch) : ''
+const logPrefix = ctx.isMulti ? `[${ctx.label}] ` : ''
 
-log(`Complexity: ${plan.complexity}  |  Security surface: ${surface}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
+log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
+if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch})`)
 if (surface !== 'none' && plan.security_notes?.length) {
-  plan.security_notes.forEach(n => log(`  ⚠ ${n}`))
+  plan.security_notes.forEach(n => log(`${logPrefix}  ⚠ ${n}`))
 }
-log(`Plan: ${plan.steps.length} step(s), ${plan.codebase_context?.relevant_files?.length || 0} files mapped`)
-plan.steps.forEach(s => log(`  • ${s.what}`))
+log(`${logPrefix}Plan: ${plan.steps.length} step(s), ${plan.codebase_context?.relevant_files?.length || 0} files mapped`)
+plan.steps.forEach(s => log(`${logPrefix}  • ${s.what}`))
 
 // ── SECURITY (elevated surface only) ────────
 
 let securityReport = null
 
 if (DO_SECURITY) {
-  phase('Security')
+  logStage('Security')
 
   const flagged = plan.security_notes?.length
     ? `\n\n## SURFACE THE PLANNER FLAGGED\n${plan.security_notes.map(n => `- ${n}`).join('\n')}\n\nStart from these, then look for what the Planner missed.`
     : ''
 
   securityReport = await agent(
-    CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${flagged}`,
-    { label: 'security', phase: 'Security', model: models.security, agentType: 'ldo:security', schema: SECURITY_SCHEMA }
+    WORKTREE_BLOCK + CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${flagged}`,
+    { label: ctx.isMulti ? `${ctx.label}:security` : 'security', phase: 'Security', model: models.security, agentType: 'ldo:security', schema: SECURITY_SCHEMA }
   )
 
   if (securityReport) {
-    log(`Security: ${securityReport.status} — ${securityReport.summary}`)
-    securityReport.findings?.forEach(f => log(`  [${f.severity}] ${f.category}: ${f.what}`))
+    log(`${logPrefix}Security: ${securityReport.status} — ${securityReport.summary}`)
+    securityReport.findings?.forEach(f => log(`${logPrefix}  [${f.severity}] ${f.category}: ${f.what}`))
   } else {
-    log('⚠ Security returned nothing — proceeding without threat model.')
+    log(`${logPrefix}⚠ Security returned nothing — proceeding without threat model.`)
   }
 }
 
@@ -442,35 +517,37 @@ let lastIssues = []
 while (iteration < MAX_FIX_LOOPS) {
   const isFirstPass = iteration === 0
 
-  phase('Code')
+  logStage('Code')
 
   const coderPrompt = isFirstPass
-    ? CTX + SECURITY_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
-    : `Fix the review issues below. Narrow pass — touch only these files.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}`
+    ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
+    : WORKTREE_BLOCK + `Fix the review issues below. Narrow pass — touch only these files.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}`
 
+  const coderLabel = isFirstPass ? 'coder' : `coder-fix-${iteration}`
   const coderResult = await agent(coderPrompt, {
-    label: isFirstPass ? 'coder' : `coder-fix-${iteration}`,
+    label: ctx.isMulti ? `${ctx.label}:${coderLabel}` : coderLabel,
     phase: 'Code',
     model: models.coder,
     agentType: 'ldo:coder',
     schema: CODER_SCHEMA,
   })
 
-  if (coderResult?.tests?.result) log(`Coder pass ${iteration + 1}: ${coderResult.tests.result}`)
-  else log(`Coder pass ${iteration + 1} complete`)
-  if (coderResult?.env?.unresolved?.length) log(`  ⚠ Env: ${coderResult.env.unresolved.join('; ')}`)
+  if (coderResult?.tests?.result) log(`${logPrefix}Coder pass ${iteration + 1}: ${coderResult.tests.result}`)
+  else log(`${logPrefix}Coder pass ${iteration + 1} complete`)
+  if (coderResult?.env?.unresolved?.length) log(`${logPrefix}  ⚠ Env: ${coderResult.env.unresolved.join('; ')}`)
 
-  phase('Review')
+  logStage('Review')
 
   // First pass gets the full treatment: verify the criteria, then actively try to
   // break it. Fix passes are narrow — re-attacking the whole surface each round
   // would triple the cost of a loop that exists to close specific issues.
   const reviewerPrompt = isFirstPass
-    ? CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
-    : `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
+    ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
+    : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
 
+  const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
   const verdict = await agent(reviewerPrompt, {
-    label: isFirstPass ? 'reviewer' : `reviewer-${iteration}`,
+    label: ctx.isMulti ? `${ctx.label}:${reviewerLabel}` : reviewerLabel,
     phase: 'Review',
     model: models.reviewer,
     agentType: 'ldo:reviewer',
@@ -478,17 +555,17 @@ while (iteration < MAX_FIX_LOOPS) {
   })
 
   if (!verdict) {
-    log('ERROR: Reviewer failed.')
-    return { error: 'Reviewer failed', plan }
+    log(`${logPrefix}ERROR: Reviewer failed.`)
+    return { error: 'Reviewer failed', plan, label: ctx.label, task }
   }
 
   const v = verdict.verification
   if (v) {
     const passed = v.criteria?.filter(c => c.status === 'passed').length || 0
     const total = v.criteria?.length || 0
-    log(`Verification: ${v.verdict}${total ? ` — ${passed}/${total} criteria proven` : ''}`)
-    v.criteria?.filter(c => c.status === 'failed').forEach(c => log(`  ✗ ${c.criterion}`))
-    if (v.blockers?.length) log(`  ⚠ Blockers: ${v.blockers.join('; ')}`)
+    log(`${logPrefix}Verification: ${v.verdict}${total ? ` — ${passed}/${total} criteria proven` : ''}`)
+    v.criteria?.filter(c => c.status === 'failed').forEach(c => log(`${logPrefix}  ✗ ${c.criterion}`))
+    if (v.blockers?.length) log(`${logPrefix}  ⚠ Blockers: ${v.blockers.join('; ')}`)
   }
 
   // Surface what was attacked — an empty attack list on a runnable change means
@@ -496,15 +573,15 @@ while (iteration < MAX_FIX_LOOPS) {
   const atk = verdict.attacks || []
   if (atk.length) {
     const broke = atk.filter(a => a.outcome === 'broke')
-    log(`Attacks: ${atk.length} tried, ${broke.length} broke it`)
-    broke.forEach(a => log(`  ✗ ${a.vector}`))
+    log(`${logPrefix}Attacks: ${atk.length} tried, ${broke.length} broke it`)
+    broke.forEach(a => log(`${logPrefix}  ✗ ${a.vector}`))
   }
 
   lastIssues = verdict.issues || []
 
   if (verdict.status === 'approved') {
     finalVerdict = verdict
-    log(`✓ APPROVED — ${verdict.summary}`)
+    log(`${logPrefix}✓ APPROVED — ${verdict.summary}`)
     break
   }
 
@@ -512,12 +589,12 @@ while (iteration < MAX_FIX_LOOPS) {
   const blocking = lastIssues.filter(i => BLOCKING_SEVERITIES.includes(i.severity))
   const advisory = lastIssues.filter(i => !BLOCKING_SEVERITIES.includes(i.severity))
 
-  log(`✗ ${lastIssues.length} issue(s): ${blocking.length} blocking, ${advisory.length} advisory`)
-  lastIssues.forEach(iss => log(`  [${iss.severity}] ${iss.file}: ${iss.what}`))
+  log(`${logPrefix}✗ ${lastIssues.length} issue(s): ${blocking.length} blocking, ${advisory.length} advisory`)
+  lastIssues.forEach(iss => log(`${logPrefix}  [${iss.severity}] ${iss.file}: ${iss.what}`))
 
   if (blocking.length === 0) {
     finalVerdict = { ...verdict, status: 'approved', summary: `${verdict.summary} (${advisory.length} advisory issue(s) left unfixed)` }
-    log('✓ APPROVED — no blocking issues remain')
+    log(`${logPrefix}✓ APPROVED — no blocking issues remain`)
     break
   }
 
@@ -526,7 +603,7 @@ while (iteration < MAX_FIX_LOOPS) {
 }
 
 if (!finalVerdict) {
-  log(`⚠ Max fix loops (${MAX_FIX_LOOPS}) exhausted.`)
+  log(`${logPrefix}⚠ Max fix loops (${MAX_FIX_LOOPS}) exhausted.`)
   finalVerdict = { status: 'changes_requested', summary: `Max ${MAX_FIX_LOOPS} fix iterations reached.`, issues: lastIssues }
 }
 
@@ -540,9 +617,9 @@ const approved = finalVerdict.status === 'approved'
 // with receipts, architecture doc, backlog items. Only when approved and only
 // when the work was substantial enough to warrant a paper trail.
 if (approved && plan.complexity !== 'trivial') {
-  phase('Record')
+  logStage('Record')
 
-  const recordPrompt = `Persist this run's results to the repo. Write the review report with full evidence, update the architecture doc, and create backlog items for anything unfixed.
+  const recordPrompt = WORKTREE_BLOCK + `Persist this run's results to the repo. Write the review report with full evidence, update the architecture doc, and create backlog items for anything unfixed.
 
 ## TASK
 ${task}
@@ -566,16 +643,16 @@ All: ${(finalVerdict.issues || []).map(iss => `[${iss.severity}] ${iss.file}: ${
 ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f.severity}] ${f.category}: ${f.what} → ${f.mitigation}`).join('\n') : 'none'}`
 
   const recordResult = await agent(recordPrompt, {
-    label: 'recorder',
+    label: ctx.isMulti ? `${ctx.label}:recorder` : 'recorder',
     phase: 'Record',
     model: models.recorder || 'haiku',
     agentType: 'ldo:recorder',
   })
 
   if (recordResult) {
-    log(`Record: ${recordResult.slice(0, 120)}`)
+    log(`${logPrefix}Record: ${recordResult.slice(0, 120)}`)
   } else {
-    log('⚠ Recorder returned nothing — artifacts not persisted.')
+    log(`${logPrefix}⚠ Recorder returned nothing — artifacts not persisted.`)
   }
 }
 
@@ -585,6 +662,9 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
 // the returned object gets the answer in the first field, not buried after the input.
 return {
   approved,
+  label: ctx.label,
+  worktree_path: plan.worktree_path || null,
+  branch: plan.branch || null,
   verdict: finalVerdict,
   verification: finalVerdict.verification?.verdict || 'not_run',
   attacks: finalVerdict.attacks || [],
@@ -602,3 +682,74 @@ return {
   securityReport,
   task,
 }
+} catch (err) {
+  // A thrown error inside one feature must not abort siblings running under
+  // parallel() — return a failure shape instead of letting it propagate.
+  log(`${ctx?.isMulti ? `[${ctx.label}] ` : ''}ERROR: ${err?.message || err}`)
+  return { error: String(err?.message || err), label: ctx?.label, task, approved: false }
+}
+}
+
+// ── DISPATCH ────────────────────────────────
+
+let tasksList
+try {
+  tasksList = normalizeTasks(args)
+} catch (err) {
+  log(`ERROR: ${err.message}`)
+  return { error: err.message }
+}
+
+if (tasksList) {
+  // Parallel multi-feature mode. Each feature gets its own git worktree, created
+  // by that feature's Planner (the workflow script has no filesystem access).
+  // Cost and merge-conflict handling are accepted trade-offs, not solved here —
+  // this is comparable to N developers on N branches; conflicts are routine at
+  // merge time, not something the orchestrator resolves.
+  if (tasksList.length > MAX_PARALLEL_FEATURES) {
+    log(`⚠ ${tasksList.length} features requested, exceeds maxParallelFeatures (${MAX_PARALLEL_FEATURES}) — likely unintentional, but proceeding.`)
+  }
+
+  log(`Multi-feature run: ${tasksList.length} feature(s), each isolated in its own git worktree.`)
+  tasksList.forEach((t, i) => log(`  [${t.label}] ${t.task.slice(0, 100)}${t.task.length > 100 ? '...' : ''}`))
+
+  const results = await parallel(tasksList.map((t, i) => () => runOneFeature(t.task, {
+    index: i,
+    total: tasksList.length,
+    label: t.label,
+    isMulti: true,
+    worktreeHint: {
+      suggestedPath: `.worktrees/${i + 1}-${t.label}`,
+      suggestedBranch: `ldo/${i + 1}-${t.label}`,
+    },
+  })))
+
+  const features = results.map((r, i) => r || { error: 'No result returned', label: tasksList[i].label, task: tasksList[i].task, approved: false })
+  const approved = features.filter(f => f.approved).length
+  const failed = features.filter(f => f.error || !f.verdict).length
+  const changesRequested = features.length - approved - failed
+
+  log('')
+  log(`Multi-feature summary: ${approved}/${features.length} approved, ${changesRequested} changes requested, ${failed} failed`)
+  features.forEach(f => {
+    if (f.worktree_path) log(`  [${f.label}] ${f.approved ? '✓' : '✗'} → run /ldo-ship from ${f.worktree_path} (already on ${f.branch})`)
+    else log(`  [${f.label}] ✗ ${f.error || 'no worktree — see error above'}`)
+  })
+  if (budget.total) log(`Budget remaining: ${Math.round(budget.remaining() / 1000)}k`)
+
+  return {
+    mode: 'multi',
+    summary: { total: features.length, approved, changesRequested, failed },
+    features,
+  }
+}
+
+// Single-task mode — unchanged behavior from before this refactor.
+const singleTask = args?.task || (typeof args === 'string' ? args : null)
+
+if (!singleTask) {
+  log('ERROR: No task provided. Workflow({name:"ldo", args:{task:"..."}}) or {tasks:[...]} for parallel features.')
+  return { error: 'No task provided' }
+}
+
+return await runOneFeature(singleTask, { isMulti: false })

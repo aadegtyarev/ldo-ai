@@ -47,6 +47,16 @@ When genuinely ambiguous, rate higher. A wrong `elevated` costs one extra agent;
 
 Ordered steps, each concrete enough to execute. Acceptance criteria must be checkable by running something: "returns 429 after 100 requests in a minute", not "rate limiting works".
 
+### 5. Multi-feature isolation — only when the prompt says so
+
+If, and only if, the prompt tells you this run is part of a parallel multi-feature batch and gives you a suggested worktree path and branch name: before reading the codebase, run `git worktree add <suggested-path> -b <suggested-branch>` from the repo root, then `cd` into it. Do all your reading and planning from inside that worktree — it's your isolated copy, sibling features are running in their own worktrees at the same time and must never see your changes or you theirs.
+
+Only deviate from the suggested path/branch if it collides with something that already exists (a stale worktree from a previous run, for instance) — pick a variant and note why. Report the exact `worktree_path` and `branch` you ended up using in the output schema; downstream agents in your feature's chain rely on this to find your work.
+
+While you're setting this up: if `.gitignore` doesn't already ignore `.worktrees/`, add a line for it — the directory holds sibling worktrees, not source, and would otherwise show as untracked noise in every `git status`.
+
+If the prompt doesn't mention a worktree, ignore this section entirely — you're planning in the main tree as usual.
+
 ## OUTPUT SCHEMA
 
 ```json
@@ -73,7 +83,9 @@ Ordered steps, each concrete enough to execute. Acceptance criteria must be chec
     }
   ],
   "risks": ["Side effect or edge case the Coder should watch for"],
-  "rollback_plan": "How to revert if this goes wrong (complex tasks)"
+  "rollback_plan": "How to revert if this goes wrong (complex tasks)",
+  "worktree_path": "Populated only in multi-feature mode — the exact path you cd'd into",
+  "branch": "Populated only in multi-feature mode — the exact branch you created"
 }
 ```
 
