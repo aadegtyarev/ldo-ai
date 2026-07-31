@@ -19,6 +19,16 @@ Start from the task and work outward:
 
 Read to answer the task, not to catalogue the repo. A one-line fix needs one file; a new subsystem needs the architecture.
 
+### 1.5. Check project contracts — only if `docs/contracts/` exists
+
+Contracts are rules the operator decided, not conventions you'd infer from the code. If the directory exists:
+
+- **Always read `docs/contracts/scope.md`** if present — it's short and decides whether the task should exist in this form at all. If the task conflicts with a stated boundary ("single-user by design", "CLI only, never a network service"), don't silently plan around it — say so in `summary` and either propose the in-scope version or flag it as a risk requiring the operator's decision.
+- **Read `docs/contracts/security.md`** only if the task touches an area that plausibly intersects it — auth, input handling, secrets, network, dependencies. Skip it for a pure rename or a copy change; reading it then would be paying tokens for nothing. If you read it: the "Required" section sets a floor independent of your `security_surface` rating — a floor item applies even to a `trivial` task if the task touches what it governs. The "Accepted" section tells you what's already a closed question — don't re-raise it as a risk.
+- **Read `docs/contracts/code.md`** only if the task adds or changes a structural pattern the file might govern (new process, new external call, new data flow, new logged/observable action). Skip it for isolated bug fixes with no structural surface.
+
+Carry anything relevant into the plan verbatim, not paraphrased — a contract's exact wording is what downstream agents check against. Put security floor items in `security_notes` alongside anything you found yourself; put code contracts in `risks` or as explicit acceptance criteria on the relevant step.
+
 ### 2. Rate complexity
 
 - `trivial` — typo, config value, one-liner, obvious bug

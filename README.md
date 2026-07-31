@@ -155,6 +155,21 @@ Risk doesn't scale with diff size — a one-line change to an auth check is `tri
 
 **Review finds blocking issues → back to Code.** Up to 3 iterations, configurable.
 
+### Project contracts
+
+Some rules aren't conventions the Coder should match — they're constraints the operator decided, and they must hold no matter what the task looks like. "Every user action emits an audit event." "No raw SQL string concatenation." "Single-user by design — never add auth." These come from a decision, not from reading the code, so they're recorded explicitly rather than inferred.
+
+Record one with `/ldo-contract`. It's interactive — you describe the rule, it classifies which of four kinds it is and writes it to the matching file under `docs/contracts/`:
+
+| Kind | File | Checked by | When |
+|---|---|---|---|
+| Scope boundary | `scope.md` | Planner | Always, if the file exists — it's short and decides whether the task should exist in this form |
+| Accepted risk | `security.md` (Accepted) | Security | So a closed question doesn't get re-raised as a finding |
+| Security floor | `security.md` (Required) | Security + Reviewer | Whenever the task touches an area the floor governs, independent of the task's own `security_surface` rating |
+| Code contract | `code.md` | Reviewer | Whenever the diff touches structure the contract governs — violation is always `critical` |
+
+None of this loads into `CLAUDE.md` — that file stays thin, one pointer line. The Planner reads a contract file only when the task plausibly touches what it governs; a variable rename never pays for the security floor. `/ldo-docs-audit` also checks contracts occasionally: for an accepted risk whose stated reasoning no longer matches the code, and for patterns repeated everywhere that aren't written down as a contract yet — a suggestion, never an auto-write.
+
 ### Keeping the docs honest
 
 Two different failures, handled two different ways.
@@ -184,6 +199,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-researcher "topic"` | Multi-source web research |
 | `/ldo-ship` | Branch, commit, push, PR, squash-merge — with the review report as PR body |
 | `/ldo-docs-audit` | Read the docs cold and find what's drifted |
+| `/ldo-contract` | Record a project contract — scope, security, or code rule |
 | `/ldo-tui` | Design and build a terminal interface (Textual / Ink) |
 | `/ldo-config` | Walk through model routing |
 | `/ldo-init` | Write the self-routing block into the project's `CLAUDE.md` |
@@ -314,10 +330,17 @@ agents/                      # Prompts live here
 ├── coder.md
 ├── reviewer.md
 ├── security.md
-└── researcher.md
-skills/                      # One slash-command per role, plus bootstrap, config, init, agent-ux
+├── researcher.md
+└── recorder.md
+skills/                      # One slash-command per role, plus bootstrap, config, init,
+│                             # contract, docs-audit, ship, tui, agent-ux
 └── <name>/SKILL.md
 ldo-config.example.json      # Reference template of every config key
+
+docs/contracts/               # Not shipped by the plugin — created per project via /ldo-contract
+├── scope.md                  #   what this app does and deliberately doesn't
+├── security.md                #   Required floor + Accepted risks
+└── code.md                    #   structural rules the Reviewer blocks on
 ```
 
 Installing the plugin adds only these. Your own settings, hooks, and agents are never touched; `/plugin update` carries only LDO's files.

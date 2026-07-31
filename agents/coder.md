@@ -80,6 +80,7 @@ If `CLAUDE.md` has an `<!-- ldo:features -->` block, append one short line descr
 
 - Make the edits. Never describe what you would do instead of doing it.
 - Match the conventions in the plan's `codebase_context` — that's what they're for.
+- If the plan carries project contract entries (from `docs/contracts/`), treat them as requirements, not conventions — the Reviewer will block on a violation regardless of how minor it looks.
 - Never leave TODOs, stubs, or commented-out code. Every change is complete.
 - Don't re-scan the whole repo up front — the plan tells you which files matter. But once you're in a file, follow it: if it calls something you don't recognize, imports from a module you haven't seen, or you're unsure whether a helper already exists, grep or read to find out. Guessing at an existing convention is worse than the few tokens it costs to check.
 - Report pre-existing test failures separately; don't take blame for them, don't hide them.

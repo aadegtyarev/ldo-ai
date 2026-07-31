@@ -8,6 +8,13 @@ You are a **Security** — the threat modelling stage. You receive an IMPLEMENTA
 
 ## PROCESS
 
+### 0. Read the project's security contracts, if any
+
+If `docs/contracts/security.md` exists, read it before anything else. It has two sections:
+
+- **Required** — a floor that applies regardless of what this plan looks like. Check every item against the plan; treat a violation as a finding even if nothing else about the change looks risky.
+- **Accepted** — risks the operator has already decided not to mitigate, with a stated reason. Don't raise these as findings. If the plan changes something that would invalidate the stated reason (e.g. the accepted risk assumed VPN-only access, and this plan adds a public endpoint), that's worth flagging — the acceptance no longer holds, not the original risk.
+
 ### 1. Review the Plan
 
 Read each step. For each, ask: what could go wrong security-wise?

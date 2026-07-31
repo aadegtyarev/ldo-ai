@@ -5,6 +5,32 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] — 2026-07-28
+
+### Added
+
+- **Project contracts — rules the operator decided, not conventions inferred from
+  code.** Four kinds, each checked at a different stage: **scope boundaries**
+  ("single-user by design, never add auth") the Planner checks before writing a
+  plan; **accepted risks** ("CSRF skipped — VPN-only access") Security won't
+  re-raise as findings; **security floors** ("every handler validates input")
+  Security and the Reviewer enforce regardless of the task's own `security_surface`
+  rating; **code contracts** ("no raw SQL concatenation") the Reviewer blocks on —
+  always `critical`, independent of how minor the instance looks.
+
+  Contracts live in `docs/contracts/` — `scope.md`, `security.md` (Required +
+  Accepted sections), `code.md` — not in `CLAUDE.md`. `CLAUDE.md` carries one
+  pointer line; the Planner reads a contract file only when the task plausibly
+  touches what it governs, so a variable rename never pays for the security floor.
+
+  Record one with the new `/ldo-contract` skill — interactive, elicits the rule,
+  classifies it, writes it precisely enough to check against a diff. An override
+  mid-run gets appended as a note, not silently edited away, since a contract
+  someone overrode once is a signal the contract itself may need revisiting.
+  `/ldo-docs-audit` also checks contracts now: an accepted risk whose reasoning no
+  longer matches the code, and patterns repeated everywhere that aren't written
+  down yet — a suggestion, never an auto-write.
+
 ## [2.8.0] — 2026-07-28
 
 ### Added

@@ -33,6 +33,8 @@ If you already have context on this project from earlier in the conversation, sa
 
 **Over-explanation** — sections aimed at a contributor or a skeptic sitting between "how do I run it" and "what are the commands". Usually a sign the doc grew by addition and nothing was ever removed.
 
+**Contracts worth reconsidering** — if `docs/contracts/` exists, read it too. Two things to look for: a contract whose "Accepted risk" reasoning no longer matches the codebase (the accepted CSRF risk assumed VPN-only access — does the code still enforce that?), and a pattern repeated consistently across the codebase that isn't written down anywhere as a contract. The second isn't a finding to fix — it's a suggestion: "this looks like an unwritten rule; consider `/ldo-contract` for it." Don't propose writing one yourself; that's the operator's call.
+
 ## How to verify
 
 Don't report from reading alone. For every claim that can be checked, check it:

@@ -61,7 +61,15 @@ Every break you find must be reproducible: the exact command and its captured ou
 
 Skip this step when the change genuinely has no runtime surface — a doc edit, a comment, a pure rename.
 
-### 4. Check the docs kept up
+### 4. Check project contracts — only if `docs/contracts/code.md` exists
+
+These aren't code-quality preferences — they're rules the operator declared non-negotiable for this project (observability, error-handling shape, data-flow constraints, whatever the project decided). Read the file if it exists, and check the diff against every entry that plausibly applies to what changed.
+
+A violation is **always `critical`**, regardless of how minor it looks otherwise — the severity comes from it being a declared contract, not from your judgment of the specific instance. Quote the contract's exact wording in the issue alongside what violates it, so the Coder can see the rule was declared, not inferred.
+
+If `docs/contracts/security.md` had a Required section and the Security agent ran, its findings already covered the security floor — don't re-derive those here, just confirm the mitigations landed (you're already doing that via the threat-model attack step above).
+
+### 5. Check the docs kept up
 
 The plan marks steps `user_facing`. If any are, the documentation must have moved with them — and must describe what was actually built, not what the plan intended.
 
@@ -74,7 +82,7 @@ Internal refactors need no doc change; don't manufacture one.
 
 This catches drift introduced by *this* change. It won't catch documentation that has slowly gone stale across many changes — that needs a full read, which is what `/ldo-docs-audit` is for.
 
-### 5. Deliver the verdict
+### 6. Deliver the verdict
 
 Every issue needs an exact file, a precise description, and a concrete fix. "Consider improving error handling" is not actionable; "line 42 swallows the exception and returns null, so the caller can't distinguish failure from an empty result — rethrow or return a Result type" is.
 
@@ -118,7 +126,7 @@ Anything in `attacks` with `outcome: "broke"` must also appear in `issues` with 
 
 ## SEVERITY
 
-- `critical` — breaks functionality, crashes, loses data, or opens a vulnerability. Must fix.
+- `critical` — breaks functionality, crashes, loses data, opens a vulnerability, or violates a declared project contract. Must fix.
 - `major` — design flaw, missed requirement, unhandled failure mode, real performance problem. Should fix.
 - `minor` — dead code, inconsistent style, unclear naming. Nice to fix.
 - `nit` — optional simplification, preference. Take or leave.

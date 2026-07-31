@@ -8,10 +8,11 @@ Drop an LDO instruction block into the project's `CLAUDE.md` so Claude self-rout
 ## What to do
 
 1. Find the project's `CLAUDE.md` at the repo root. Create it if it doesn't exist.
-2. Look for the marker line `<!-- BEGIN ldo -->`. 
+2. Check whether `docs/contracts/` exists. If it does, include the contracts line in the block below; if it doesn't, omit it — don't create the directory here, that's `/ldo-contract`'s job when the operator actually has a contract to record.
+3. Look for the marker line `<!-- BEGIN ldo -->`. 
    - If absent: append the block below, between `<!-- BEGIN ldo -->` and `<!-- END ldo -->` markers.
    - If present: replace everything between the markers with the current block below (keeps it up to date on re-run).
-3. Don't touch anything outside the markers — the file may hold other instructions.
+4. Don't touch anything outside the markers — the file may hold other instructions.
 
 ## The block to write
 
@@ -34,6 +35,9 @@ test for any behavior change, and update README/CHANGELOG for user-facing change
 
 For any report or handoff: verdict first, evidence not assertion, name what you're
 unsure of. See `/ldo-agent-ux`.
+
+Project contracts live in `docs/contracts/`. When a task touches scope, security,
+or structural rules, read the relevant file before planning — see `/ldo-contract`.
 
 Models route automatically: Haiku for trivial work, Sonnet writing and Opus
 reviewing for real changes. To change that, pass the routing on the call —
