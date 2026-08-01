@@ -64,6 +64,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change most likely to silently break something subtle. Left as a backlog
   item rather than rushed.
 
+## [2.15.3] — 2026-08-01
+
+### Changed
+
+- **Decomposed `runOneFeature` (286 lines, 6 responsibilities) into six
+  separate phase functions.** Each phase takes explicit parameters instead of
+  closing over shared mutable locals. The orchestrator sequences them, checks
+  for error returns from Plan and Review phases, and passes data through.
+  - `phaseResearch(task, ctx, logStage, logPrefix)` — encloses the DO_RESEARCH
+    conditional; returns `{researchReport}`.
+  - `phasePlan(task, ctx, researchReport, logStage, logPrefix)` — returns
+    `{plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK}` on success, or
+    error objects for Planner failure / missing worktree.
+  - `phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY,
+    logStage, logPrefix)` — encloses the DO_SECURITY conditional; returns
+    `{securityReport, SECURITY_BLOCK}`.
+  - `phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK,
+    task, logStage, logPrefix)` — the full while loop; returns
+    `{finalVerdict, iteration}` or error object.
+  - `phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx,
+    WORKTREE_BLOCK, models, logStage, logPrefix)` — encloses the approved &&
+    non-trivial gate.
+  - `shapeResult(approved, plan, researchReport, securityReport, finalVerdict,
+    surface, models, iteration, task, ctx)` — pure synchronous result builder;
+    takes the orchestrator's already-computed `approved` rather than
+    re-deriving it from `finalVerdict`, so there's one source of truth for it
+    instead of two independent (if currently identical) derivations.
+  - `runOneFeature` is now ~40 lines. Same agent calls, same schemas, same
+    logPrefix/logStage conventions, same early-return failure shapes for both
+    single and multi modes. Resolves the decomposition backlog item from the
+    2.15.1 audit.
+
+  Planned, coded, and reviewed by this project's own `/ldo:ldo` pipeline, run
+  directly against this repo — first real dogfood run, not just a demo. The
+  Reviewer found no bugs, only two review-quality issues (four design-
+  rationale comments dropped during extraction, and the exact duplicate-
+  derivation pattern described above); both fixed before merging.
+
+  Not this project's bug, but worth recording since it surfaced running this:
+  the first attempt (invoking `Workflow({name: "ldo:ldo", ...})` normally)
+  failed outright — the plugin installed in that environment was cached at
+  2.3.0, which predates the 2.5.2 bare→scoped agent-name fix and the entire
+  Recorder role (added in 2.6.0), so `ldo:recorder` didn't resolve. Re-running
+  via `scriptPath` directly against this repo's `workflows/ldo.js` bypassed
+  the stale cache and completed correctly. If your own `/plugin update`
+  doesn't pick up a new release, check whether your git remote's `fetch` is
+  actually reaching current `origin/master` — `git ls-remote` is a cheaper,
+  more reliable way to check than trusting `origin/<branch>` after a `fetch`.
+
 ## [2.15.0] — 2026-08-01
 
 ### Added

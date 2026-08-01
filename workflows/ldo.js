@@ -398,42 +398,19 @@ function securityEnabled(plan) {
 const prePlanModels = routeModels('medium', CONFIG)
 
 // ═══════════════════════════════════════════
-// MAIN
+// PHASE FUNCTIONS
 // ═══════════════════════════════════════════
 
-// The single-task path and the multi-feature path share this function. Single
-// mode calls it once with ctx.isMulti = false. Multi mode calls it N times
-// through parallel(), one closure per feature — every let/const below is
-// scoped inside the function, so N concurrent calls each get their own copy
-// instead of racing on shared state. Never throws: a failure inside becomes a
-// returned {error, ...} object for that feature, so one bad feature can't
-// abort the others running alongside it under parallel().
-async function runOneFeature(task, ctx) {
-try {
-  // Used to prefix every log line below with the feature's label in multi
-  // mode, so N concurrent features' output stays distinguishable in one
-  // interleaved stream. Empty in single mode — behavior there is unchanged.
-  const logPrefix = ctx.isMulti ? `[${ctx.label}] ` : ''
+// ── phaseResearch ──────────────────────────
 
-  log(`Budget: ${budget.total ? Math.round(budget.remaining() / 1000) + 'k' : 'unlimited'}`)
-  log(`${logPrefix}Task: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}`)
-
-  // In multi mode, phase() is a shared run-global progress indicator — N
-  // concurrent features calling it would each stomp the others' display.
-  // logStage replaces it with a labelled log line; single mode is unaffected.
-  const logStage = (title) => {
-    if (ctx.isMulti) log(`[${ctx.label}] ▸ ${title}`)
-    else phase(title)
+async function phaseResearch(task, ctx, logStage, logPrefix) {
+  if (!DO_RESEARCH) {
+    return { researchReport: null }
   }
 
-// ── RESEARCH (opt-in) ───────────────────────
-
-let researchReport = null
-
-if (DO_RESEARCH) {
   logStage('Research')
 
-  researchReport = await agent(
+  const researchReport = await agent(
     `Deep-research this topic. Cross-verify claims across independent sources.\n\n## TOPIC\n${task}`,
     { label: ctx.isMulti ? `${ctx.label}:researcher` : 'researcher', phase: 'Research', model: prePlanModels.researcher, agentType: 'ldo:researcher', schema: RESEARCH_SCHEMA }
   )
@@ -444,188 +421,198 @@ if (DO_RESEARCH) {
   } else {
     log(`${logPrefix}⚠ Research returned nothing — proceeding without it.`)
   }
+
+  return { researchReport }
 }
 
-// ── PLAN ────────────────────────────────────
+// ── phasePlan ──────────────────────────────
 
-logStage('Plan')
+async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
+  logStage('Plan')
 
-// In multi mode the Planner creates its own isolated worktree via Bash before
-// reading the codebase — the workflow script itself has no filesystem access.
-// The suggestion is deterministic (index-derived), not trusted to the LLM to
-// keep collision-free across similar task strings.
-const worktreeTrigger = ctx.isMulti
-  ? `This run is part of a parallel multi-feature batch. Before reading the codebase, create your own isolated worktree:\n\n\`git worktree add ${ctx.worktreeHint.suggestedPath} -b ${ctx.worktreeHint.suggestedBranch}\`\n\nThen \`cd\` into it and do all your work there. Only deviate from this path/branch if it collides with something that already exists. Report the exact worktree_path and branch you used.\n\n`
-  : ''
-
-const plan = await agentWithRetry(
-  worktreeTrigger + renderResearch(researchReport) + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
-  { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA }
-)
-
-if (!plan) {
-  log(`${logPrefix}ERROR: Planner failed.`)
-  return { error: 'Planner failed', label: ctx.label, task }
-}
-
-if (ctx.isMulti && (!plan.worktree_path || !plan.branch)) {
-  log(`${logPrefix}ERROR: Planner didn't report a worktree — refusing to continue agents into an undefined directory.`)
-  return { error: 'Planner did not create/report a worktree in multi-feature mode', label: ctx.label, task, plan }
-}
-
-const models = routeModels(plan.complexity, CONFIG)
-const CTX = renderContext(plan.codebase_context)
-const surface = plan.security_surface || 'unrated'
-const DO_SECURITY = securityEnabled(plan)
-const WORKTREE_BLOCK = ctx.isMulti ? renderWorktree(plan.worktree_path, plan.branch) : ''
-
-log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
-if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch})`)
-if (surface !== 'none' && plan.security_notes?.length) {
-  plan.security_notes.forEach(n => log(`${logPrefix}  ⚠ ${n}`))
-}
-log(`${logPrefix}Plan: ${plan.steps.length} step(s), ${plan.codebase_context?.relevant_files?.length || 0} files mapped`)
-plan.steps.forEach(s => log(`${logPrefix}  • ${s.what}`))
-
-// ── SECURITY (elevated surface only) ────────
-
-let securityReport = null
-
-if (DO_SECURITY) {
-  logStage('Security')
-
-  const flagged = plan.security_notes?.length
-    ? `\n\n## SURFACE THE PLANNER FLAGGED\n${plan.security_notes.map(n => `- ${n}`).join('\n')}\n\nStart from these, then look for what the Planner missed.`
+  const worktreeTrigger = ctx.isMulti
+    ? `This run is part of a parallel multi-feature batch. Before reading the codebase, create your own isolated worktree:\n\n\`git worktree add ${ctx.worktreeHint.suggestedPath} -b ${ctx.worktreeHint.suggestedBranch}\`\n\nThen \`cd\` into it and do all your work there. Only deviate from this path/branch if it collides with something that already exists. Report the exact worktree_path and branch you used.\n\n`
     : ''
 
-  securityReport = await agent(
-    WORKTREE_BLOCK + CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${flagged}`,
-    { label: ctx.isMulti ? `${ctx.label}:security` : 'security', phase: 'Security', model: models.security, agentType: 'ldo:security', schema: SECURITY_SCHEMA }
+  const plan = await agentWithRetry(
+    worktreeTrigger + renderResearch(researchReport) + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
+    { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA }
   )
 
-  if (securityReport) {
-    log(`${logPrefix}Security: ${securityReport.status} — ${securityReport.summary}`)
-    securityReport.findings?.forEach(f => log(`${logPrefix}  [${f.severity}] ${f.category}: ${f.what}`))
-  } else {
-    log(`${logPrefix}⚠ Security returned nothing — proceeding without threat model.`)
+  if (!plan) {
+    log(`${logPrefix}ERROR: Planner failed.`)
+    return { error: 'Planner failed', label: ctx.label, task }
   }
+
+  if (ctx.isMulti && (!plan.worktree_path || !plan.branch)) {
+    log(`${logPrefix}ERROR: Planner didn't report a worktree — refusing to continue agents into an undefined directory.`)
+    return { error: 'Planner did not create/report a worktree in multi-feature mode', label: ctx.label, task, plan }
+  }
+
+  const models = routeModels(plan.complexity, CONFIG)
+  const CTX = renderContext(plan.codebase_context)
+  const surface = plan.security_surface || 'unrated'
+  const DO_SECURITY = securityEnabled(plan)
+  const WORKTREE_BLOCK = ctx.isMulti ? renderWorktree(plan.worktree_path, plan.branch) : ''
+
+  log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
+  if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch})`)
+  if (surface !== 'none' && plan.security_notes?.length) {
+    plan.security_notes.forEach(n => log(`${logPrefix}  ⚠ ${n}`))
+  }
+  log(`${logPrefix}Plan: ${plan.steps.length} step(s), ${plan.codebase_context?.relevant_files?.length || 0} files mapped`)
+  plan.steps.forEach(s => log(`${logPrefix}  • ${s.what}`))
+
+  return { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK }
 }
 
-const SECURITY_BLOCK = renderSecurity(securityReport, plan)
+// ── phaseSecurity ──────────────────────────
 
-// ── CODE ⇄ REVIEW ───────────────────────────
+async function phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY, logStage, logPrefix) {
+  let securityReport = null
 
-let iteration = 0
-let reviewIssues = []
-let finalVerdict = null
-let lastIssues = []
+  if (DO_SECURITY) {
+    logStage('Security')
 
-while (iteration < MAX_FIX_LOOPS) {
-  const isFirstPass = iteration === 0
+    const flagged = plan.security_notes?.length
+      ? `\n\n## SURFACE THE PLANNER FLAGGED\n${plan.security_notes.map(n => `- ${n}`).join('\n')}\n\nStart from these, then look for what the Planner missed.`
+      : ''
 
-  logStage('Code')
+    securityReport = await agent(
+      WORKTREE_BLOCK + CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${flagged}`,
+      { label: ctx.isMulti ? `${ctx.label}:security` : 'security', phase: 'Security', model: models.security, agentType: 'ldo:security', schema: SECURITY_SCHEMA }
+    )
 
-  const coderPrompt = isFirstPass
-    ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
-    : WORKTREE_BLOCK + `Fix the review issues below. Narrow pass — touch only these files.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}`
-
-  const coderLabel = isFirstPass ? 'coder' : `coder-fix-${iteration}`
-  const coderResult = await agent(coderPrompt, {
-    label: ctx.isMulti ? `${ctx.label}:${coderLabel}` : coderLabel,
-    phase: 'Code',
-    model: models.coder,
-    agentType: 'ldo:coder',
-    schema: CODER_SCHEMA,
-  })
-
-  if (coderResult?.tests?.result) log(`${logPrefix}Coder pass ${iteration + 1}: ${coderResult.tests.result}`)
-  else log(`${logPrefix}Coder pass ${iteration + 1} complete`)
-  if (coderResult?.env?.unresolved?.length) log(`${logPrefix}  ⚠ Env: ${coderResult.env.unresolved.join('; ')}`)
-
-  logStage('Review')
-
-  // First pass gets the full treatment: verify the criteria, then actively try to
-  // break it. Fix passes are narrow — re-attacking the whole surface each round
-  // would triple the cost of a loop that exists to close specific issues.
-  const reviewerPrompt = isFirstPass
-    ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
-    : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
-
-  const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
-  const verdict = await agent(reviewerPrompt, {
-    label: ctx.isMulti ? `${ctx.label}:${reviewerLabel}` : reviewerLabel,
-    phase: 'Review',
-    model: models.reviewer,
-    agentType: 'ldo:reviewer',
-    schema: VERDICT_SCHEMA,
-  })
-
-  if (!verdict) {
-    log(`${logPrefix}ERROR: Reviewer failed.`)
-    return { error: 'Reviewer failed', plan, label: ctx.label, task }
+    if (securityReport) {
+      log(`${logPrefix}Security: ${securityReport.status} — ${securityReport.summary}`)
+      securityReport.findings?.forEach(f => log(`${logPrefix}  [${f.severity}] ${f.category}: ${f.what}`))
+    } else {
+      log(`${logPrefix}⚠ Security returned nothing — proceeding without threat model.`)
+    }
   }
 
-  const v = verdict.verification
-  if (v) {
-    const passed = v.criteria?.filter(c => c.status === 'passed').length || 0
-    const total = v.criteria?.length || 0
-    log(`${logPrefix}Verification: ${v.verdict}${total ? ` — ${passed}/${total} criteria proven` : ''}`)
-    v.criteria?.filter(c => c.status !== 'passed').forEach(c => {
-      const mark = c.status === 'failed' ? '✗' : '○' // skipped/other
-      log(`${logPrefix}  ${mark} ${c.criterion}${c.note ? ` — ${c.note}` : ''}`)
+  const SECURITY_BLOCK = renderSecurity(securityReport, plan)
+
+  return { securityReport, SECURITY_BLOCK }
+}
+
+// ── phaseCodeReview ────────────────────────
+
+async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix) {
+  let iteration = 0
+  let reviewIssues = []
+  let finalVerdict = null
+  let lastIssues = []
+
+  while (iteration < MAX_FIX_LOOPS) {
+    const isFirstPass = iteration === 0
+
+    logStage('Code')
+
+    // Fix passes stay narrow — only the flagged files, not a re-review of the
+    // whole surface — because re-attacking everything on every loop would
+    // triple the cost of a multi-round fix for no proportional benefit.
+    const coderPrompt = isFirstPass
+      ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
+      : WORKTREE_BLOCK + `Fix the review issues below. Narrow pass — touch only these files.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}`
+
+    const coderLabel = isFirstPass ? 'coder' : `coder-fix-${iteration}`
+    const coderResult = await agent(coderPrompt, {
+      label: ctx.isMulti ? `${ctx.label}:${coderLabel}` : coderLabel,
+      phase: 'Code',
+      model: models.coder,
+      agentType: 'ldo:coder',
+      schema: CODER_SCHEMA,
     })
-    if (v.blockers?.length) log(`${logPrefix}  ⚠ Blockers: ${v.blockers.join('; ')}`)
+
+    if (coderResult?.tests?.result) log(`${logPrefix}Coder pass ${iteration + 1}: ${coderResult.tests.result}`)
+    else log(`${logPrefix}Coder pass ${iteration + 1} complete`)
+    if (coderResult?.env?.unresolved?.length) log(`${logPrefix}  ⚠ Env: ${coderResult.env.unresolved.join('; ')}`)
+
+    logStage('Review')
+
+    const reviewerPrompt = isFirstPass
+      ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
+      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
+
+    const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
+    const verdict = await agent(reviewerPrompt, {
+      label: ctx.isMulti ? `${ctx.label}:${reviewerLabel}` : reviewerLabel,
+      phase: 'Review',
+      model: models.reviewer,
+      agentType: 'ldo:reviewer',
+      schema: VERDICT_SCHEMA,
+    })
+
+    if (!verdict) {
+      log(`${logPrefix}ERROR: Reviewer failed.`)
+      return { error: 'Reviewer failed', plan, label: ctx.label, task }
+    }
+
+    const v = verdict.verification
+    if (v) {
+      const passed = v.criteria?.filter(c => c.status === 'passed').length || 0
+      const total = v.criteria?.length || 0
+      log(`${logPrefix}Verification: ${v.verdict}${total ? ` — ${passed}/${total} criteria proven` : ''}`)
+      v.criteria?.filter(c => c.status !== 'passed').forEach(c => {
+        const mark = c.status === 'failed' ? '✗' : '○' // skipped/other
+        log(`${logPrefix}  ${mark} ${c.criterion}${c.note ? ` — ${c.note}` : ''}`)
+      })
+      if (v.blockers?.length) log(`${logPrefix}  ⚠ Blockers: ${v.blockers.join('; ')}`)
+    }
+
+    // An empty attack list on a runnable change means the Reviewer only
+    // checked the happy path — worth surfacing, not just silently absent.
+    const atk = verdict.attacks || []
+    if (atk.length) {
+      const broke = atk.filter(a => a.outcome === 'broke')
+      log(`${logPrefix}Attacks: ${atk.length} tried, ${broke.length} broke it`)
+      broke.forEach(a => log(`${logPrefix}  ✗ ${a.vector}`))
+    }
+
+    lastIssues = verdict.issues || []
+
+    if (verdict.status === 'approved') {
+      finalVerdict = verdict
+      log(`${logPrefix}✓ APPROVED — ${verdict.summary}`)
+      break
+    }
+
+    const blocking = lastIssues.filter(i => BLOCKING_SEVERITIES.includes(i.severity))
+    const advisory = lastIssues.filter(i => !BLOCKING_SEVERITIES.includes(i.severity))
+
+    log(`${logPrefix}✗ ${lastIssues.length} issue(s): ${blocking.length} blocking, ${advisory.length} advisory`)
+    lastIssues.forEach(iss => log(`${logPrefix}  [${iss.severity}] ${iss.file}: ${iss.what}`))
+
+    if (blocking.length === 0) {
+      finalVerdict = { ...verdict, status: 'approved', summary: `${verdict.summary} (${advisory.length} advisory issue(s) left unfixed)` }
+      log(`${logPrefix}✓ APPROVED — no blocking issues remain`)
+      break
+    }
+
+    reviewIssues = blocking
+    iteration++
   }
 
-  // Surface what was attacked — an empty attack list on a runnable change means
-  // the Reviewer only checked the happy path, which is worth noticing.
-  const atk = verdict.attacks || []
-  if (atk.length) {
-    const broke = atk.filter(a => a.outcome === 'broke')
-    log(`${logPrefix}Attacks: ${atk.length} tried, ${broke.length} broke it`)
-    broke.forEach(a => log(`${logPrefix}  ✗ ${a.vector}`))
+  if (!finalVerdict) {
+    log(`${logPrefix}⚠ Max fix loops (${MAX_FIX_LOOPS}) exhausted.`)
+    finalVerdict = { status: 'changes_requested', summary: `Max ${MAX_FIX_LOOPS} fix iterations reached.`, issues: lastIssues }
   }
 
-  lastIssues = verdict.issues || []
-
-  if (verdict.status === 'approved') {
-    finalVerdict = verdict
-    log(`${logPrefix}✓ APPROVED — ${verdict.summary}`)
-    break
-  }
-
-  // Only critical/major buy another pass; minor and nit ride along in the report
-  const blocking = lastIssues.filter(i => BLOCKING_SEVERITIES.includes(i.severity))
-  const advisory = lastIssues.filter(i => !BLOCKING_SEVERITIES.includes(i.severity))
-
-  log(`${logPrefix}✗ ${lastIssues.length} issue(s): ${blocking.length} blocking, ${advisory.length} advisory`)
-  lastIssues.forEach(iss => log(`${logPrefix}  [${iss.severity}] ${iss.file}: ${iss.what}`))
-
-  if (blocking.length === 0) {
-    finalVerdict = { ...verdict, status: 'approved', summary: `${verdict.summary} (${advisory.length} advisory issue(s) left unfixed)` }
-    log(`${logPrefix}✓ APPROVED — no blocking issues remain`)
-    break
-  }
-
-  reviewIssues = blocking
-  iteration++
+  return { finalVerdict, iteration }
 }
 
-if (!finalVerdict) {
-  log(`${logPrefix}⚠ Max fix loops (${MAX_FIX_LOOPS}) exhausted.`)
-  finalVerdict = { status: 'changes_requested', summary: `Max ${MAX_FIX_LOOPS} fix iterations reached.`, issues: lastIssues }
-}
+// ── phaseRecord ────────────────────────────
 
-const approved = finalVerdict.status === 'approved'
+// A formatting agent (Haiku) writes these files rather than the workflow
+// script itself, because the script has no filesystem access — only agents
+// it spawns can read/write, so persisting anything to disk has to go through
+// an agent call even when the "work" is just rendering already-known data.
+async function phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix) {
+  if (!approved || plan.complexity === 'trivial') {
+    return
+  }
 
-// ── RECORD ──────────────────────────────────
-
-// The pipeline produced rich structured results — plan, verdict, evidence,
-// attacks — but none of them are on disk. The workflow can't write files
-// (runtime constraint), so a cheap formatting agent does it: review report
-// with receipts, architecture doc, backlog items. Only when approved and only
-// when the work was substantial enough to warrant a paper trail.
-if (approved && plan.complexity !== 'trivial') {
   logStage('Record')
 
   const recordPrompt = WORKTREE_BLOCK + `Persist this run's results to the repo. Write the review report with full evidence, update the architecture doc, and create backlog items for anything unfixed.
@@ -665,38 +652,87 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
   }
 }
 
-// ── RESULT ──────────────────────────────────
+// ── shapeResult ────────────────────────────
 
-// Result shape follows agent-ux: verdict first, then detail. A reader scanning
-// the returned object gets the answer in the first field, not buried after the input.
-return {
-  approved,
-  label: ctx.label,
-  worktree_path: plan.worktree_path || null,
-  branch: plan.branch || null,
-  verdict: finalVerdict,
-  verification: finalVerdict.verification?.verdict || 'not_run',
-  attacks: finalVerdict.attacks || [],
-  stats: {
-    complexity: plan.complexity,
-    securitySurface: surface,
-    securityStatus: securityReport?.status || 'not_run',
-    models,
-    coder_passes: iteration + 1,
-    researched: !!researchReport,
-    files_mapped: plan.codebase_context?.relevant_files?.length || 0,
-  },
-  plan,
-  researchReport,
-  securityReport,
-  task,
+// approved leads the object — a caller checking the run's outcome shouldn't
+// have to dig past everything else to find it.
+function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx) {
+  return {
+    approved,
+    label: ctx.label,
+    worktree_path: plan.worktree_path || null,
+    branch: plan.branch || null,
+    verdict: finalVerdict,
+    verification: finalVerdict.verification?.verdict || 'not_run',
+    attacks: finalVerdict.attacks || [],
+    stats: {
+      complexity: plan.complexity,
+      securitySurface: surface,
+      securityStatus: securityReport?.status || 'not_run',
+      models,
+      coder_passes: iteration + 1,
+      researched: !!researchReport,
+      files_mapped: plan.codebase_context?.relevant_files?.length || 0,
+    },
+    plan,
+    researchReport,
+    securityReport,
+    task,
+  }
 }
-} catch (err) {
-  // A thrown error inside one feature must not abort siblings running under
-  // parallel() — return a failure shape instead of letting it propagate.
-  log(`${ctx?.isMulti ? `[${ctx.label}] ` : ''}ERROR: ${err?.message || err}`)
-  return { error: String(err?.message || err), label: ctx?.label, task, approved: false }
-}
+
+// ═══════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════
+
+// The single-task path and the multi-feature path share this function. Single
+// mode calls it once with ctx.isMulti = false. Multi mode calls it N times
+// through parallel(), one closure per feature — every let/const below is
+// scoped inside the function, so N concurrent calls each get their own copy
+// instead of racing on shared state. Never throws: a failure inside becomes a
+// returned {error, ...} object for that feature, so one bad feature can't
+// abort the others running alongside it under parallel().
+async function runOneFeature(task, ctx) {
+  try {
+    const logPrefix = ctx.isMulti ? `[${ctx.label}] ` : ''
+
+    log(`Budget: ${budget.total ? Math.round(budget.remaining() / 1000) + 'k' : 'unlimited'}`)
+    log(`${logPrefix}Task: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}`)
+
+    const logStage = (title) => {
+      if (ctx.isMulti) log(`[${ctx.label}] ▸ ${title}`)
+      else phase(title)
+    }
+
+    // Phase 1: Research (opt-in)
+    const { researchReport } = await phaseResearch(task, ctx, logStage, logPrefix)
+
+    // Phase 2: Plan
+    const planResult = await phasePlan(task, ctx, researchReport, logStage, logPrefix)
+    if (planResult.error) return planResult
+    const { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK } = planResult
+
+    // Phase 3: Security
+    const { securityReport, SECURITY_BLOCK } = await phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY, logStage, logPrefix)
+
+    // Phase 4: Code + Review
+    const reviewResult = await phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix)
+    if (reviewResult.error) return reviewResult
+    const { finalVerdict, iteration } = reviewResult
+
+    const approved = finalVerdict.status === 'approved'
+
+    // Phase 5: Record
+    await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix)
+
+    // Phase 6: Shape result
+    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx)
+  } catch (err) {
+    // A thrown error inside one feature must not abort siblings running under
+    // parallel() — return a failure shape instead of letting it propagate.
+    log(`${ctx?.isMulti ? `[${ctx.label}] ` : ''}ERROR: ${err?.message || err}`)
+    return { error: String(err?.message || err), label: ctx?.label, task, approved: false }
+  }
 }
 
 // ── DISPATCH ────────────────────────────────
