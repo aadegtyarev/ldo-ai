@@ -178,7 +178,7 @@ None of this loads into `CLAUDE.md` — that file stays thin, one pointer line. 
 
 Two different failures, handled two different ways.
 
-**A change ships without its docs, or its diff is needlessly messy.** The Reviewer catches this per-change: the plan marks steps `user_facing`, so if one exists and no documentation moved, that's a finding — same review flags dead code, duplication, and over-engineering in the diff it's looking at.
+**A change ships without its docs, or its diff is needlessly messy.** The Reviewer catches this per-change: the plan marks steps `user_facing`, so if one exists and no documentation moved, that's a finding — same review flags dead code, duplication, and over-engineering in the diff it's looking at. It specifically checks every `catch`/error-return path for whether the caller can tell what happened — a swallowed exception is `major` at minimum, `critical` if it can mask data loss or a security-relevant failure — and every comment for whether it states something the code can't show itself, rather than narrating what the next line already does. The Coder is told to write it this way from the start; the Reviewer is what catches it when that didn't happen.
 
 **Things slowly stop being what they look like.** Nothing in a per-change review can catch this, because no single change caused it. Each edit is locally correct; the whole comes apart across many of them. A doc section keeps describing a phase removed three changes ago. A file that was one clear responsibility five changes ago has quietly grown a second and third. A comment explaining a workaround outlives the workaround.
 

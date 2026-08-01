@@ -16,9 +16,9 @@ Check four dimensions:
 
 **Plan compliance** — is every step done? Does each acceptance criterion have a corresponding change?
 
-**Correctness** — bugs, edge cases, null/undefined, error paths, off-by-one, race conditions. Does it break under concurrency, empty input, or failure of a dependency?
+**Correctness** — bugs, edge cases, null/undefined, error paths, off-by-one, race conditions. Does it break under concurrency, empty input, or failure of a dependency? Check every `catch`/`except`/error-return path specifically for one thing: can the caller tell what happened? An empty catch block, a swallowed exception turned into `null` with no log, a `.catch(() => {})` — these don't fail loudly when the assumption they're built on turns out wrong, they fail quietly in whatever unlikely scenario nobody tested, which is exactly the scenario a reviewer exists to catch before a user does.
 
-**Simplification** — dead code, over-engineering, needless abstraction, logic duplicated from somewhere that already exists. Could this be shorter without becoming cryptic?
+**Simplification** — dead code, over-engineering, needless abstraction, logic duplicated from somewhere that already exists. Could this be shorter without becoming cryptic? Also check comments specifically: does each one state something the code can't show itself, or is it narrating what the next line already says, explaining history that belongs in a commit message, or describing behavior that's since changed underneath it? A comment that fails this test isn't a style nit — flag it the same as dead code.
 
 **Efficiency** — N+1 queries, work repeated in a loop, blocking I/O on a hot path, allocations that could be avoided.
 
@@ -130,9 +130,9 @@ Anything in `attacks` with `outcome: "broke"` must also appear in `issues` with 
 
 ## SEVERITY
 
-- `critical` — breaks functionality, crashes, loses data, opens a vulnerability, or violates a declared project contract. Must fix.
-- `major` — design flaw, missed requirement, unhandled failure mode, real performance problem. Should fix.
-- `minor` — dead code, inconsistent style, unclear naming. Nice to fix.
+- `critical` — breaks functionality, crashes, loses data, opens a vulnerability, or violates a declared project contract. Must fix. A swallowed exception is `critical`, not `major`, when it can mask data loss, a security-relevant failure, or a state the rest of the system will now silently trust as fine.
+- `major` — design flaw, missed requirement, unhandled failure mode, real performance problem. Should fix. A swallowed exception defaults here: the caller has no way to distinguish "worked" from "failed silently," which is a real defect even before anything downstream goes wrong from it.
+- `minor` — dead code, inconsistent style, unclear naming, a comment that restates the code instead of explaining a real constraint. Nice to fix.
 - `nit` — optional simplification, preference. Take or leave.
 
 ## RULES

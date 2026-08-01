@@ -5,6 +5,37 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.0] — 2026-07-31
+
+### Changed
+
+- **Swallowed exceptions and narrative comments are now checked at every stage,
+  not just the periodic `/ldo-code-audit`.** Both were previously only real
+  findings on a full cold read of the codebase — a per-change review could miss
+  a `catch (e) { return null }` or a comment restating the next line, and it
+  would only surface once enough of them accumulated for an audit to notice the
+  pattern. That's late: an empty catch block is a bug the moment it's written,
+  in whatever unlikely scenario nobody happened to test.
+
+  The Coder now writes against this from the start: never swallow an error
+  without the caller being able to tell what happened (logged, rethrown, or a
+  typed result — not silently dropped), and a comment only earns its place by
+  stating a constraint the code can't show itself, never by narrating what the
+  next line already does or explaining history that belongs in a commit
+  message. When acceptance criteria don't say what an edge case should do, fail
+  loud rather than silently guessing, and record the choice in `deviations`.
+
+  The Reviewer checks both explicitly now, per diff: every `catch`/error-return
+  path for whether the caller can detect failure, every comment against the
+  same "does this say something the code can't" test applied to dead code.
+  Severity is explicit — a swallowed exception is `major` by default, `critical`
+  when it can mask data loss or a security-relevant failure.
+
+  `/ldo-code-audit` still exists for the cumulative case — patterns that
+  predate this change, or that a fast-moving stretch let through — but the
+  first line of defense is now at write time and per-diff review, not a
+  periodic sweep.
+
 ## [2.13.0] — 2026-07-31
 
 ### Added

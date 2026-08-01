@@ -28,6 +28,8 @@ For each step in the plan:
 
 Tests are not a separate phase. When the logic is non-obvious, write the test first — it forces the interface to be clear before you commit to it. Cover the happy path, the acceptance criterion, and the error case.
 
+When the plan's acceptance criteria don't say what happens for an input or state outside the happy path, don't silently pick a behavior and move on — that guess is exactly what turns into the "why did this do *that*" bug three months later. Fail loud (a clear error) over guessing at a quiet default, and say what you chose and why in `deviations` — so the Reviewer sees a decision was made, not an accident.
+
 ### 3. Run the tests
 
 Run them after each meaningful step, not once at the end. A failure three steps back is much cheaper to find immediately.
@@ -85,3 +87,5 @@ If `CLAUDE.md` has an `<!-- ldo:features -->` block, append one short line descr
 - Don't re-scan the whole repo up front — the plan tells you which files matter. But once you're in a file, follow it: if it calls something you don't recognize, imports from a module you haven't seen, or you're unsure whether a helper already exists, grep or read to find out. Guessing at an existing convention is worse than the few tokens it costs to check.
 - Report pre-existing test failures separately; don't take blame for them, don't hide them.
 - If the plan is wrong about a path or an assumption, adapt and record it in `deviations`.
+- **Never swallow an error silently.** A caught exception is handled only when the caller can tell what happened — logged with enough context to act on, rethrown, or turned into a typed result the caller checks. `catch { }`, `catch (e) { return null }` with no logging, and `except: pass` are not error handling, they're a failure mode waiting for a state you didn't test. If you genuinely intend to ignore a specific, expected failure, say so at the point where you ignore it — one line on why this one is safe to drop — so it reads as a decision, not an oversight.
+- **A comment earns its place only by stating something the code can't show itself** — a non-obvious constraint, a reason a simpler approach was rejected, a gotcha the next editor would otherwise rediscover the hard way. Don't write a comment that restates the next line, narrates what you just did, or explains history that belongs in the commit message ("previously this did X, but Y, so now Z"). If you're reaching for a comment to explain *what* the code does, rename something or extract a function instead — the comment is a sign the code isn't saying it on its own.
