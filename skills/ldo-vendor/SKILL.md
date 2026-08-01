@@ -21,6 +21,8 @@ Find LDO's own source root first — walk up from this skill's own file path unt
 
 1. **Copy agents verbatim.** `agents/*.md` → `.claude/agents/*.md`. No transform needed — frontmatter names are already bare.
 
+   Bare names (`planner`, `coder`, `reviewer`, `security`, `researcher`, `recorder`) don't collide with anything built into Claude Code or shipped in official plugins — those are all scoped (`some-plugin:code-reviewer`) or use different names entirely. The one real risk: if the target project already has, or later gets, its own `.claude/agents/reviewer.md` (or any of the other five names) from somewhere else, Claude Code doesn't error — it silently picks one by filesystem read order, no warning. Check `.claude/agents/` for a name collision before vendoring, and re-check if the project starts using another tool that also drops bare-named agents in that directory.
+
 2. **Copy the workflow script, transformed.** `workflows/ldo.js` → `.claude/workflows/ldo.js`, with the plugin prefix stripped from every agent reference:
    ```bash
    sed -E "s/agentType: '?ldo:([a-z]+)'?/agentType: '\1'/g" workflows/ldo.js > <target>/.claude/workflows/ldo.js

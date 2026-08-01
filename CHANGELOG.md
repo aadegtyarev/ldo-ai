@@ -5,6 +5,19 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.2] — 2026-08-01
+
+### Fixed
+
+- **`/ldo-vendor` didn't mention the one real collision risk of bare-named
+  agents.** Checked: `planner`, `coder`, `reviewer`, `security`, `researcher`,
+  `recorder` don't collide with anything Claude Code ships or any official
+  plugin's agents (those are always scoped, e.g. `some-plugin:code-reviewer`,
+  never bare). But two files under `.claude/agents/` sharing the same bare
+  name resolve silently by filesystem read order, no error or warning. Added
+  a note to check for that before vendoring, and to re-check if the project
+  later adopts another tool that also drops bare-named agents there.
+
 ## [2.15.1] — 2026-08-01
 
 ### Fixed
