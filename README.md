@@ -174,17 +174,20 @@ None of this loads into `CLAUDE.md` — that file stays thin, one pointer line. 
 
 **Migrating an existing project onto LDO?** The first `/ldo-init` run on a project with existing code (not a fresh `/ldo-bootstrap` start) reads README, security docs, and code for decisions that were already made but never written where LDO can check them — "internal tool, no auth by design," a pattern followed with zero exceptions across every handler. Every candidate carries its evidence (a quote, a file reference, or a count of how consistently the pattern held); nothing gets written until you confirm it. Run `/ldo-contract` on its own any time later to re-scan or add one by hand.
 
-### Keeping the docs honest
+### Keeping docs and code honest
 
 Two different failures, handled two different ways.
 
-**A change ships without its docs.** The Reviewer catches this: the plan marks steps `user_facing`, so if one exists and no documentation moved, that's a finding — as is documentation describing what the plan intended rather than what the Coder actually built.
+**A change ships without its docs, or its diff is needlessly messy.** The Reviewer catches this per-change: the plan marks steps `user_facing`, so if one exists and no documentation moved, that's a finding — same review flags dead code, duplication, and over-engineering in the diff it's looking at.
 
-**The docs slowly stop describing reality.** Nothing in a per-change review can catch this, because no single change caused it. Each edit is locally correct; the whole comes apart across many of them. A section keeps describing a phase removed three changes ago. A term is used in one place and defined in another that was later cut.
+**Things slowly stop being what they look like.** Nothing in a per-change review can catch this, because no single change caused it. Each edit is locally correct; the whole comes apart across many of them. A doc section keeps describing a phase removed three changes ago. A file that was one clear responsibility five changes ago has quietly grown a second and third. A comment explaining a workaround outlives the workaround.
 
-For that, `/ldo-docs-audit` reads everything cold — deliberately before looking at the source, so gaps aren't filled from memory — and reports contradictions, stale claims, undefined jargon, and the worst category: instructions that quietly do nothing, where the reader believes they configured something and nothing errors.
+Two audits read the whole thing cold, for this reason specifically:
 
-If you ran `/ldo-init`, the Coder appends a line to a drift log in `CLAUDE.md` after each user-facing change. Around eight entries, Claude offers the audit. It offers rather than runs — a full read costs real tokens, and the timing is yours.
+- **`/ldo-docs-audit`** — reads the docs before the source, deliberately, so gaps aren't filled from memory — reports contradictions, stale claims, undefined jargon, and the worst category: instructions that quietly do nothing, where the reader believes they configured something and nothing errors.
+- **`/ldo-code-audit`** — reads the codebase structurally for what accretion did to it: bloated files carrying more than their name says, comment sprawl narrating what the code already shows, logic duplicated and drifted apart, dead exports nothing calls. It doesn't stop at a report — mechanical cleanup routes to `/simplify`, doc drift routes to `/ldo-docs-audit`, and anything structural (splitting a file, extracting a shared module) goes back through the real pipeline as a task, because decomposition is exactly the kind of change most likely to silently break something subtle.
+
+If you ran `/ldo-init`, the Coder appends a line to a drift log in `CLAUDE.md` after each user-facing change. Around eight entries, Claude offers both audits — it offers rather than runs either; a full read costs real tokens, and the timing is yours.
 
 ### Resuming an interrupted run
 
@@ -211,6 +214,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-researcher "topic"` | Multi-source web research |
 | `/ldo-ship` | Branch, commit, push, PR, squash-merge — with the review report as PR body |
 | `/ldo-docs-audit` | Read the docs cold and find what's drifted |
+| `/ldo-code-audit` | Read the code cold for bloat, comment sprawl, and duplication, and route fixes |
 | `/ldo-contract` | Record a project contract — scope, security, or code rule |
 | `/ldo-tui` | Design and build a terminal interface (Textual / Ink) |
 | `/ldo-config` | Walk through model routing |
@@ -346,7 +350,7 @@ agents/                      # Prompts live here
 ├── researcher.md
 └── recorder.md
 skills/                      # One slash-command per role, plus bootstrap, config, init,
-│                             # contract, docs-audit, resume, ship, tui, agent-ux
+│                             # contract, docs-audit, code-audit, resume, ship, tui, agent-ux
 └── <name>/SKILL.md
 ldo-config.example.json      # Reference template of every config key
 

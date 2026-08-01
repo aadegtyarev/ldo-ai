@@ -55,9 +55,10 @@ coder: "haiku", reviewer: "opus" } } } } })`. Keep any project-specific routing
 in this block so it's applied on every run.
 
 **Docs drift log.** Append a line here after each user-facing change. When the
-list reaches roughly eight, offer to run `/ldo-docs-audit` — a full cold read
-that catches contradictions and stale claims no single diff reveals — then clear
-the list. Offer; don't run it unasked.
+list reaches roughly eight, offer to run `/ldo-docs-audit` and `/ldo-code-audit`
+— full cold reads that catch documentation drift and code accretion (bloated
+files, comment sprawl, duplicated logic) no single diff reveals — then clear
+the list. Offer; don't run either unasked.
 
 <!-- ldo:features -->
 <!-- /ldo:features -->
@@ -76,9 +77,9 @@ The `<!-- ldo:features -->` markers hold one line per user-facing change — a f
 <!-- /ldo:features -->
 ```
 
-It exists because per-change review can't catch cumulative drift. The Reviewer checks that *this* change's docs kept up; it has no way to notice that six changes ago a section stopped describing reality. The counter is a cheap proxy for "enough has moved that a full read is due".
+It exists because per-change review can't catch cumulative drift — in the docs *or* the code. The Reviewer checks that *this* change's docs kept up and that *this* diff isn't needlessly complex; it has no way to notice that six changes ago a section stopped describing reality, or that a file five changes deep has quietly grown three unrelated responsibilities. The counter is a cheap proxy for "enough has moved that a full read is due".
 
-Around eight entries, offer the audit — don't launch it. It's a full documentation read and costs real tokens; the operator decides. Clear the list once it's run.
+Around eight entries, offer both audits — don't launch either. They're full reads and cost real tokens; the operator decides, and can run one without the other if only one seems relevant. Clear the list once whichever ran is done.
 
 Eight is a starting point, not a rule. A docs-heavy project might want five; one with a thin README might go twenty. The number lives in prose precisely so it can be argued with.
 

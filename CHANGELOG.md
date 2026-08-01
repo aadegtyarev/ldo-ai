@@ -5,6 +5,36 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.0] — 2026-07-31
+
+### Added
+
+- **`/ldo-code-audit` — the code-side counterpart to `/ldo-docs-audit`.** Every
+  individual change is disciplined (tests, per-diff review, contracts), and
+  that still doesn't stop a file from becoming three files' worth of
+  responsibility fifty small changes later, or a function from growing a
+  comment for every edge case anyone ever hit instead of a name that says what
+  it does. No single change looks wrong; the accumulation does — the same
+  failure shape `/ldo-docs-audit` exists for, aimed at structure instead of
+  prose.
+
+  Reads the codebase cold, structurally, for module and file bloat, comment
+  sprawl (a comment earns its place only by stating a constraint the code
+  can't show — everything else is narration), duplicated logic that's already
+  drifted apart, decomposition candidates, and dead surface — each verified,
+  not asserted (grep for real callers before calling something dead).
+
+  It doesn't stop at a report. Confirmed findings route by kind: mechanical
+  cleanup (stale comments, verified-dead code) goes to the built-in
+  `/simplify`; doc drift routes to `/ldo-docs-audit`; anything structural —
+  splitting a file, extracting a shared module — goes back through the real
+  pipeline as a task, because decomposition is exactly the kind of change most
+  likely to silently break something subtle and deserves review, not a quick
+  pass because it "should" be safe.
+
+  `/ldo-init`'s drift-log counter now offers both audits together when it
+  reaches the threshold — run one or both, the operator's call, same as before.
+
 ## [2.12.0] — 2026-07-31
 
 ### Changed
