@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.16.2] — 2026-08-01
+
+### Fixed
+
+- **`/ldo-init`'s contract-discovery outcome could go unreported.** The
+  instruction to say plainly what discovery found (candidates confirmed,
+  or nothing checkable) lived in the "After writing" section at the end of
+  the skill, folded into the end-of-run summary — easy to skip, and skipping
+  it left two very different outcomes ("discovery ran and found nothing" vs.
+  "discovery never ran") looking identical from the operator's side: either
+  way, `/ldo-init` finishes and `CLAUDE.md` gets written. An operator asked
+  after running `/ldo-init` on an existing project whether migration had
+  happened at all, with no way to tell from what they'd been shown.
+
+  The status report is now part of step 3 itself — required before moving on
+  to writing `CLAUDE.md`, not an afterthought that can get lost in a longer
+  summary.
+
 ## [2.16.1] — 2026-08-01
 
 ### Fixed

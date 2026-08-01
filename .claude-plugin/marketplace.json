@@ -7,7 +7,7 @@
   },
   "metadata": {
     "description": "LDO — Lightweight Dev Orchestrator. Single-plugin marketplace.",
-    "version": "2.16.1"
+    "version": "2.16.2"
   },
   "plugins": [
     {
@@ -17,7 +17,7 @@
         "repo": "aadegtyarev/ldo-ai"
       },
       "description": "Planner, Coder, Reviewer pipeline with a different model per role. Route implementation to a cheap model and review to a strong one.",
-      "version": "2.16.1",
+      "version": "2.16.2",
       "category": "orchestration",
       "keywords": [
         "orchestration",
@@ -28,5 +28,5 @@
       ]
     }
   ],
-  "version": "2.16.1"
+  "version": "2.16.2"
 }
