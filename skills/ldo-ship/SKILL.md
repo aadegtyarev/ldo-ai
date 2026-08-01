@@ -91,6 +91,8 @@ Show the PR title and body. Create on confirm.
 
 Both gates green (or no CI configured and local tests passed): `gh pr merge --squash --delete-branch`. If no test command is detectable AND no CI: warn that there's no gate, and merge only if the operator explicitly said to. Don't merge blind on auto without at least one signal.
 
+**Merging over a red gate, on explicit operator instruction** (a known-flaky check, a deliberate override of a `changes_requested` verdict): go ahead on that explicit instruction, but suggest `/ldo-note` for a decision entry afterward — "merged with `test_flaky_retry` red, tracked in #61, unrelated to this change" is exactly the kind of thing that gets re-litigated later if nobody wrote down why. Suggest, don't write it yourself.
+
 ## Modes
 
 **Interactive (default).** Confirm at each step. Use when the change matters and you want a checkpoint.

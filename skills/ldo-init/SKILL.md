@@ -9,6 +9,7 @@ Drop an LDO instruction block into the project's `CLAUDE.md` so Claude self-rout
 
 1. Find the project's `CLAUDE.md` at the repo root. Create it if it doesn't exist.
 2. Check whether `docs/contracts/` exists. If it does, include the contracts line in the block below; if it doesn't, don't create the directory yet — go to step 3 first, it may create it via confirmed contracts. If step 3 doesn't apply or turns up nothing, omit the line and leave the directory uncreated; that's fine, `/ldo-contract` creates it whenever the operator has a contract to record.
+   Same check for `docs/DECISIONS.md`: if it exists, include the decisions line in the block below; if it doesn't, omit it and don't create it — that's `/ldo-note`'s job when there's an actual decision to record. `docs/NOTES.md` doesn't need a pointer line here at all — `agents/coder.md` already checks for it directly on every run, whether or not `CLAUDE.md` mentions it.
 3. **Discover contract candidates — only when this is the first run** (marker line absent, see step 4) **and the project has existing code** (not an empty/near-empty repo). A brand-new project has no history to mine — skip this for `/ldo-bootstrap`-started projects. Otherwise: run the discovery process from `/ldo-contract`'s "Discovering contracts in an existing project" section — read for evidence, propose candidates with sources, let the operator confirm or reject, write only what's confirmed. This is a one-time migration aid, not something re-run on every `/ldo-init`.
 
    **Before moving to step 4, report the outcome of this step by itself — don't fold it into the end-of-run summary.** State plainly: how many candidates were found, how many the operator confirmed, and what got written where (`docs/contracts/scope.md`, `security.md`, `code.md`) — or, if nothing checkable turned up, say that explicitly ("no explicit contracts found — the project doesn't state these decisions anywhere I can read"). This step ran silently more than once before this note existed: the operator sees `/ldo-init` finish, `CLAUDE.md` gets written either way, and without an explicit status line here there's no way to tell "discovery ran and found nothing" apart from "discovery didn't run." Both look identical from the outside — only this line distinguishes them.
@@ -50,6 +51,9 @@ unsure of. See `/ldo-agent-ux`.
 Project contracts live in `docs/contracts/`. When a task touches scope, security,
 or structural rules, read the relevant file before planning — see `/ldo-contract`.
 
+Decision history lives in `docs/DECISIONS.md` — check it before re-litigating a
+past call, don't read it automatically. See `/ldo-note`.
+
 Models route automatically: Haiku for trivial work, Sonnet writing and Opus
 reviewing for real changes. To change that, pass the routing on the call —
 `Workflow({ name: "ldo", args: { task: "...", config: { models: { medium: {
@@ -90,3 +94,5 @@ Eight is a starting point, not a rule. A docs-heavy project might want five; one
 Tell the operator the block was added and that it loads automatically every session. Also add `tags` and `.claude/ldo-runs.json` to the project's `.gitignore` if they aren't already there — the Coder generates a `ctags` symbol index on each run, and `ldo-runs.json` is local session-tracking state (see `/ldo-resume`); neither belongs in version control. Suggest they skim the block and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
 
 Run `/ldo-init` once per project. Re-running updates the block in place, preserving any drift-log entries already there.
+
+If `docs/NOTES.md` doesn't exist yet, don't create it here — it starts empty and gets its first entry via `/ldo-note` or a Coder's suggestion, same as contracts and decisions.

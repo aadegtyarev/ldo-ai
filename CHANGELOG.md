@@ -5,6 +5,38 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.17.0] — 2026-08-01
+
+### Added
+
+- **`/ldo-note` — operational notes and decision history, neither of them
+  contracts.** A contract is a rule an agent checks against future work; a lot
+  of what's actually worth recording isn't that — "this service needs a
+  restart after env changes" is a fact, not a rule, and "we merged despite a
+  known-flaky check because X" is a decision worth being able to find again,
+  not something to re-litigate every time it comes up.
+
+  Two kinds, stored deliberately differently:
+  - **Operational note** → `docs/NOTES.md`, read by the Coder at the start of
+    every run. Kept small on purpose — a ~15-20 entry ceiling, pruned rather
+    than grown; a note that's stopped being surprising belongs in README
+    instead, one that's stopped being true gets removed.
+  - **Decision or mandate** → `docs/DECISIONS.md`, never auto-loaded by any
+    agent. An append-only log with no size ceiling, referenced by date or
+    keyword like `git log`, not read end to end.
+
+  The split exists because "a log nobody reads" and "a log too big to read"
+  are the two failure modes these files hit, and they need opposite fixes:
+  `NOTES.md` stays small because something depends on reading all of it every
+  run; `DECISIONS.md` can grow because nothing does.
+
+  The Coder now reads `docs/NOTES.md` before setting up the environment, and
+  suggests (never writes) a note when it hits a real gotcha. `/ldo-ship`
+  suggests a decision entry when merging over a red gate on explicit
+  instruction. `/ldo-docs-audit` flags a `NOTES.md` past its size ceiling or
+  stale against current code, and a decision made the same way more than
+  once — that's not a note anymore, it's an unwritten contract.
+
 ## [2.16.2] — 2026-08-01
 
 ### Fixed

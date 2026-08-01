@@ -11,6 +11,7 @@ You are a **Coder**. You take a plan and turn it into working, tested, documente
 ### 1. Get the environment running
 
 You need this before you can run a single test, so do it first:
+- If `docs/NOTES.md` exists, read it — it's short, dated operational gotchas someone else already hit ("needs X env var or fails silently"), cheaper to read than to rediscover
 - Install dependencies if they're missing (`npm install`, `pip install -r requirements.txt`, `go mod download`, …)
 - Start any service the tests need (docker-compose, a local database)
 - Copy `.env.example` → `.env` and fill safe local defaults
@@ -18,6 +19,8 @@ You need this before you can run a single test, so do it first:
 - If `ctags` is installed, regenerate the symbol index: `ctags -R .` (the `tags` file is gitignored — it's a derived lookup table, not source)
 
 If something can't be resolved — missing credentials, unavailable service — note it and continue with what you can.
+
+If setup hit a real, non-obvious gotcha not already in `docs/NOTES.md` — something that would waste the next run's time the same way it wasted yours — mention it in `deviations` and suggest `/ldo-note`. Don't write to `docs/NOTES.md` yourself; that's the operator's call, same as a contract.
 
 ### 2. Implement, step by step
 

@@ -191,6 +191,19 @@ Two audits read the whole thing cold, for this reason specifically:
 
 If you ran `/ldo-init`, the Coder appends a line to a drift log in `CLAUDE.md` after each user-facing change. Around eight entries, Claude offers both audits — it offers rather than runs either; a full read costs real tokens, and the timing is yours.
 
+### Notes and decisions
+
+Two more things worth recording that aren't rules and don't fit `docs/contracts/`: operational gotchas, and why something got decided.
+
+`/ldo-note` records one of two kinds, and stores them differently on purpose:
+
+- **Operational note** → `docs/NOTES.md`, read by the Coder before every run. Kept deliberately small — a rough ceiling of 15-20 entries, pruned rather than grown. A note that's stopped being surprising belongs in README instead; a note that's stopped being true gets removed.
+- **Decision or mandate** → `docs/DECISIONS.md`, never read automatically by any agent. An append-only log with no size ceiling, because nothing depends on reading it end to end — referenced by date or keyword, like `git log`, when a past call needs explaining.
+
+That split exists because "a log nobody reads" and "a log too big to read" are the two ways these files usually die, and they need opposite fixes: `NOTES.md` stays small because something depends on reading all of it every run; `DECISIONS.md` is allowed to grow precisely because nothing does.
+
+If the same override or workaround shows up more than once, that's not trivia anymore — `/ldo-note` and `/ldo-docs-audit` both flag it as a candidate for `/ldo-contract` instead of a third note.
+
 ### Resuming an interrupted run
 
 A `/ldo:ldo` call already survives more than it looks like: every `Workflow` call gets a `runId`, and Claude Code caches each completed step (Plan, Coder, Reviewer, ...) against it. Pass that same `runId` back via `resumeFromRunId` and the cached steps return instantly — only what hadn't finished actually re-runs. The gap was that nothing wrote the `runId` down, so if the session holding it in its head went away, there was nothing to resume *from*.
@@ -218,6 +231,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-docs-audit` | Read the docs cold and find what's drifted |
 | `/ldo-code-audit` | Read the code cold for bloat, comment sprawl, and duplication, and route fixes |
 | `/ldo-contract` | Record a project contract — scope, security, or code rule |
+| `/ldo-note` | Record an operational note or a decision/mandate — not a rule, just a fact |
 | `/ldo-tui` | Design and build a terminal interface (Textual / Ink) |
 | `/ldo-config` | Walk through model routing |
 | `/ldo-init` | Write the self-routing block into the project's `CLAUDE.md` |
@@ -368,7 +382,7 @@ agents/                      # Prompts live here
 ├── researcher.md
 └── recorder.md
 skills/                      # One slash-command per role, plus bootstrap, config, init,
-│                             # contract, docs-audit, code-audit, resume, vendor, ship, tui, agent-ux
+│                             # contract, note, docs-audit, code-audit, resume, vendor, ship, tui, agent-ux
 └── <name>/SKILL.md
 scripts/vendor.sh            # The actual vendoring mechanism — see /ldo-vendor
 ldo-config.example.json      # Reference template of every config key
@@ -385,6 +399,11 @@ docs/reviews/<date>-<slug>.md # Not shipped — written by the Recorder each app
 docs/ARCHITECTURE.md          # Not shipped — created/updated by the Recorder (or an
                                #   existing equivalent doc, updated in place instead)
 docs/BACKLOG.md               # Not shipped — written by the Recorder only if `gh` isn't available
+
+docs/NOTES.md                  # Not shipped — created per project via /ldo-note,
+                                #   read by the Coder every run, kept deliberately small
+docs/DECISIONS.md              # Not shipped — created per project via /ldo-note,
+                                #   never auto-read, grows without a ceiling
 ```
 
 Installing the plugin adds only these. Your own settings, hooks, and agents are never touched; `/plugin update` carries only LDO's files.
