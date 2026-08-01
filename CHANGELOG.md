@@ -5,6 +5,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.0] — 2026-08-01
+
+### Added
+
+- **`/ldo-vendor` — a project-native install with no plugin required.** The
+  plugin install assumes a separate install step before the pipeline runs —
+  right for a machine you control, wrong for a repo worked on purely through a
+  cloud session that clones it and has no install step of its own. Claude Code
+  auto-discovers `.claude/agents/`, `.claude/skills/`, `.claude/workflows/`
+  committed directly in a repo, no marketplace or plugin involved.
+
+  This can't be a plain file copy: `workflows/ldo.js` calls every pipeline
+  agent through a plugin-scoped reference (`ldo:planner`, `ldo:coder`, …) that
+  only resolves inside an actual plugin install — copied verbatim without one,
+  every agent call fails to resolve and the pipeline dies on its first step.
+  `/ldo-vendor` strips the `ldo:` prefix from all six agent references and
+  from every `/ldo:ldo` mention in the skills' own prose (a vendored pipeline
+  runs as bare `/ldo`, since project-level workflows use their name directly).
+  Verified the transform actually leaves no `ldo:` references behind before
+  documenting it.
+
+  Leaves `.claude/LDO_VENDORED.md` — the vendored version and a note that
+  there's no `/plugin update` equivalent; re-running `/ldo-vendor` is how a
+  vendored copy gets refreshed.
+
 ## [2.14.0] — 2026-07-31
 
 ### Changed

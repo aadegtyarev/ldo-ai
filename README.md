@@ -69,6 +69,8 @@ Requires Claude Code v2.1.154 or newer — that's the release that added the wor
 
 Pick **user** scope when Claude Code asks, unless you're setting this up for a team — then see [Set up a project for a team](#set-up-a-project-for-a-team). Updates come with `/plugin update ldo@ldo-ai`.
 
+**Working purely in a cloud session that just clones a repo, with no plugin-install step of its own?** See [Vendoring LDO into a project](#vendoring-ldo-into-a-project) below — a project-native install with no plugin required.
+
 ## Getting started
 
 **Skip configuration for now.** The defaults already scale to the task: Haiku handles typos, Sonnet writes real changes, Opus reviews them. See [Configuration](#configuration) when you want to change it.
@@ -221,6 +223,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-init` | Write the self-routing block into the project's `CLAUDE.md` |
 | `/ldo-agent-ux` | Write agent context and output that a model and a human can both read |
 | `/ldo-resume` | Check for a pipeline run left in progress and resume it, or start fresh |
+| `/ldo-vendor` | Copy LDO into `.claude/` for a project-native install, no plugin required |
 
 Why the punctuation differs: `/ldo:ldo` is a **workflow**, and Claude Code namespaces those by plugin. The `/ldo-*` commands are **skills**, which get no automatic namespace — the `ldo-` prefix is part of their name, so they group in the palette and don't shadow built-ins like `/init`.
 
@@ -303,6 +306,20 @@ Commit two things so teammates get the same behaviour on first open:
 
 When a teammate opens the repo, Claude Code prompts them to install everything listed. Swap the LSP for your language (`gopls-lsp`, `rust-analyzer-lsp`, `pyright-lsp`, …); add `chrome-devtools-mcp` for web UIs, `frontend-design` for design direction. See [Use with the built-ins](#use-with-the-built-ins) below for what each does.
 
+## Vendoring LDO into a project
+
+The plugin install assumes a separate install step somewhere before the pipeline runs — fine on a machine you control, wrong for a repo worked on purely through a cloud session that clones it and has no such step of its own. Claude Code has a project-native path for exactly this: files placed directly under a repo's `.claude/agents/`, `.claude/skills/`, `.claude/workflows/` are picked up automatically the moment the repo is opened, locally or in the cloud — no install, no marketplace.
+
+`/ldo-vendor` copies LDO into that shape. It isn't a plain file copy — the workflow script calls every pipeline agent through a plugin-scoped reference (`ldo:planner`, `ldo:coder`, …) that only resolves inside an actual plugin install, so vendoring strips that prefix from the six agent references and from every `/ldo:ldo` mention in the skills' own prose (the vendored pipeline runs as bare `/ldo`, since project-level workflows use their name directly with no plugin prefix). Get that transform wrong and the copy either breaks on its first agent call or tells the reader the wrong command.
+
+```
+/ldo-vendor
+```
+
+It leaves `.claude/LDO_VENDORED.md` behind — the version vendored and a note that this copy has no `/plugin update` equivalent. Re-run `/ldo-vendor` when you know LDO has changed and want the update; there's no background check pulling updates into a vendored copy, and there shouldn't be.
+
+Use the plugin install unless something specifically rules it out — it updates centrally and shares across every project on the machine. Vendor when the pipeline needs to travel with the repo itself.
+
 ## How it works
 
 1. The Planner reads the codebase, writes the plan, rates complexity and security surface
@@ -350,7 +367,7 @@ agents/                      # Prompts live here
 ├── researcher.md
 └── recorder.md
 skills/                      # One slash-command per role, plus bootstrap, config, init,
-│                             # contract, docs-audit, code-audit, resume, ship, tui, agent-ux
+│                             # contract, docs-audit, code-audit, resume, vendor, ship, tui, agent-ux
 └── <name>/SKILL.md
 ldo-config.example.json      # Reference template of every config key
 
