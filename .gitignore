@@ -4,3 +4,4 @@ claude.log*
 .claude/settings.local.json
 incoming/
 tags
+.claude/ldo-runs.json
