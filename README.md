@@ -340,7 +340,7 @@ Every role has to answer: *would I route this to a different model than the Code
 - **Verification** belongs to the Reviewer. Checking your own work is weak review; the same blind spot that wrote the bug will skip the test that catches it. Reading the diff and running the app are two ways to answer one question, and both benefit from a model that didn't write the code.
 - **Codebase reading** belongs to the Planner. You can't plan what you haven't read.
 
-That leaves the three roles the protocol started with — plus two specialists that genuinely want different models and genuinely don't always run.
+That leaves the three roles the protocol started with — plus three specialists that genuinely want different models and genuinely don't always run: Researcher and Security when the task calls for them, and Recorder to persist the results of an approved non-trivial run.
 
 Bootstrapping went the other way: it produces *decisions*, not code, and decisions need a conversation. It lives as `/ldo-bootstrap`, where you can push back on a stack choice and get a revised answer.
 

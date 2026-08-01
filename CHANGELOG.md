@@ -5,64 +5,25 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.15.2] — 2026-08-01
+## [2.16.1] — 2026-08-01
 
 ### Fixed
 
-- **`/ldo-vendor` didn't mention the one real collision risk of bare-named
-  agents.** Checked: `planner`, `coder`, `reviewer`, `security`, `researcher`,
-  `recorder` don't collide with anything Claude Code ships or any official
-  plugin's agents (those are always scoped, e.g. `some-plugin:code-reviewer`,
-  never bare). But two files under `.claude/agents/` sharing the same bare
-  name resolve silently by filesystem read order, no error or warning. Added
-  a note to check for that before vendoring, and to re-check if the project
-  later adopts another tool that also drops bare-named agents there.
+- **Ran `/ldo-docs-audit` on this project's own repo again after the vendoring
+  and decomposition changes.** Two findings, both fixed:
+  - README's "Why only three core agents" section still said "plus two
+    specialists" — stale since the Recorder agent was added (2.6.0); there are
+    now three conditional agents (Researcher, Security, Recorder).
+  - This CHANGELOG's own top entries were out of version order (2.15.2,
+    2.15.1, 2.16.0, 2.15.3, 2.15.0, ...) — each release had been inserted
+    after the prior top entry instead of at the true top, so the
+    currently-shipped version sat third from the top instead of first.
+    Reordered to strict descending version order.
 
-## [2.15.1] — 2026-08-01
-
-### Fixed
-
-- **Ran `/ldo-docs-audit` and `/ldo-code-audit` on this project's own repo**, each
-  via a fresh subagent with no prior context, per their own methodology. Real
-  findings, fixed:
-  - `skills/ldo-security/SKILL.md` described the Security agent backwards — it
-    told the reader to invoke it on a diff, after the Reviewer approves.
-    `agents/security.md` runs it on the *plan*, before code exists (shift-left).
-    Root cause: the skill was never updated when Security moved to plan-time.
-    Rewritten to match.
-  - README's "What you can set" config example was missing `recorder` and
-    `maxParallelFeatures` again — the exact regression already fixed once in
-    2.10.2, in a third copy that drifted back out of sync with
-    `ldo-config.example.json` and `DEFAULT_MODELS`. Fixed, and now notes
-    `ldo-config.example.json` as the copy-paste source to reduce a fourth
-    recurrence.
-  - `workflows/ldo.js`'s Research stage was the one pipeline call that skipped
-    the `${ctx.label}:role` labeling and `logPrefix` convention every other
-    stage follows in multi-feature mode — its label and log lines were
-    indistinguishable between concurrent features, in exactly the scenario
-    that convention exists to prevent. `logPrefix` moved to the top of
-    `runOneFeature` and applied consistently; two inline duplicates of the
-    same ternary were collapsed into it.
-  - `CODER_SCHEMA.env.actions` — the Coder is told to report what environment
-    setup it performed, but `renderCoderSummary` never rendered it, so the
-    Reviewer never saw it. Same bug class as the fields fixed in 2.10.2; this
-    one slipped through that pass. Now rendered.
-  - `skills/ldo-coder/SKILL.md` and `skills/ldo-reviewer/SKILL.md` didn't
-    mention the exception-handling/comment rules (2.14.0) or the
-    complexity-scaled attack depth (2.12.0) — both real, enforced behaviors
-    documented correctly in the agent prompts but absent from the shorter
-    skill summaries most likely to be someone's first read. Added.
-  - Two comments narrated refactor history ("...as before this refactor")
-    instead of stating a constraint — the exact pattern the project's own
-    comment-discipline rule (2.14.0) tells the Coder not to write, present in
-    the orchestrator's own source. Trimmed to the substantive part.
-
-  One finding left open on purpose: `runOneFeature` in `workflows/ldo.js` is a
-  286-line, six-responsibility function — a real decomposition candidate, but
-  the audit's own routing rule says structural changes go through the pipeline
-  as a task, not a quick hand-edit, since decomposition is exactly the kind of
-  change most likely to silently break something subtle. Left as a backlog
-  item rather than rushed.
+  Everything else checked — `scripts/vendor.sh`'s described behavior, the
+  `workflows/ldo.js` six-phase decomposition, both `docs/contracts/` files,
+  the model-routing table's four copies, and the skill/file-tree listings —
+  matched source.
 
 ## [2.16.0] — 2026-08-01
 
@@ -140,6 +101,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   doesn't pick up a new release, check whether your git remote's `fetch` is
   actually reaching current `origin/master` — `git ls-remote` is a cheaper,
   more reliable way to check than trusting `origin/<branch>` after a `fetch`.
+
+## [2.15.2] — 2026-08-01
+
+### Fixed
+
+- **`/ldo-vendor` didn't mention the one real collision risk of bare-named
+  agents.** Checked: `planner`, `coder`, `reviewer`, `security`, `researcher`,
+  `recorder` don't collide with anything Claude Code ships or any official
+  plugin's agents (those are always scoped, e.g. `some-plugin:code-reviewer`,
+  never bare). But two files under `.claude/agents/` sharing the same bare
+  name resolve silently by filesystem read order, no error or warning. Added
+  a note to check for that before vendoring, and to re-check if the project
+  later adopts another tool that also drops bare-named agents there.
+
+## [2.15.1] — 2026-08-01
+
+### Fixed
+
+- **Ran `/ldo-docs-audit` and `/ldo-code-audit` on this project's own repo**, each
+  via a fresh subagent with no prior context, per their own methodology. Real
+  findings, fixed:
+  - `skills/ldo-security/SKILL.md` described the Security agent backwards — it
+    told the reader to invoke it on a diff, after the Reviewer approves.
+    `agents/security.md` runs it on the *plan*, before code exists (shift-left).
+    Root cause: the skill was never updated when Security moved to plan-time.
+    Rewritten to match.
+  - README's "What you can set" config example was missing `recorder` and
+    `maxParallelFeatures` again — the exact regression already fixed once in
+    2.10.2, in a third copy that drifted back out of sync with
+    `ldo-config.example.json` and `DEFAULT_MODELS`. Fixed, and now notes
+    `ldo-config.example.json` as the copy-paste source to reduce a fourth
+    recurrence.
+  - `workflows/ldo.js`'s Research stage was the one pipeline call that skipped
+    the `${ctx.label}:role` labeling and `logPrefix` convention every other
+    stage follows in multi-feature mode — its label and log lines were
+    indistinguishable between concurrent features, in exactly the scenario
+    that convention exists to prevent. `logPrefix` moved to the top of
+    `runOneFeature` and applied consistently; two inline duplicates of the
+    same ternary were collapsed into it.
+  - `CODER_SCHEMA.env.actions` — the Coder is told to report what environment
+    setup it performed, but `renderCoderSummary` never rendered it, so the
+    Reviewer never saw it. Same bug class as the fields fixed in 2.10.2; this
+    one slipped through that pass. Now rendered.
+  - `skills/ldo-coder/SKILL.md` and `skills/ldo-reviewer/SKILL.md` didn't
+    mention the exception-handling/comment rules (2.14.0) or the
+    complexity-scaled attack depth (2.12.0) — both real, enforced behaviors
+    documented correctly in the agent prompts but absent from the shorter
+    skill summaries most likely to be someone's first read. Added.
+  - Two comments narrated refactor history ("...as before this refactor")
+    instead of stating a constraint — the exact pattern the project's own
+    comment-discipline rule (2.14.0) tells the Coder not to write, present in
+    the orchestrator's own source. Trimmed to the substantive part.
+
+  One finding left open on purpose: `runOneFeature` in `workflows/ldo.js` is a
+  286-line, six-responsibility function — a real decomposition candidate, but
+  the audit's own routing rule says structural changes go through the pipeline
+  as a task, not a quick hand-edit, since decomposition is exactly the kind of
+  change most likely to silently break something subtle. Left as a backlog
+  item rather than rushed.
 
 ## [2.15.0] — 2026-08-01
 
