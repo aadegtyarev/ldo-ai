@@ -64,6 +64,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change most likely to silently break something subtle. Left as a backlog
   item rather than rushed.
 
+## [2.16.0] — 2026-08-01
+
+### Changed
+
+- **`/ldo-vendor` is now a real script (`scripts/vendor.sh`), not instructions
+  for a model to re-derive and re-run by hand each time.** Prompted directly
+  by hitting a version of exactly the failure vendoring exists to avoid: an
+  installed plugin's marketplace cache silently stuck on an old version while
+  the real source had moved on — no error, just a stale copy running.
+  Vendoring sidesteps that whole failure class (no cache in the loop at all),
+  but the mechanism itself was still text a model had to interpret correctly
+  every time, which is the same class of unreliability one level up.
+
+  `scripts/vendor.sh <target-project-dir>` does the actual copy: agents
+  verbatim, the workflow script with its `ldo:` agent-scope prefix stripped
+  and the result *verified* clean before writing (refuses to proceed on an
+  incomplete transform), skills with `/ldo:ldo` rewritten to bare `/ldo`,
+  `ldo-vendor` itself skipped by default, a `.claude/LDO_VENDORED.md` marker
+  written with the source version. Warns rather than silently overwrites on
+  an agent-name collision. Tested against a real temp directory before
+  documenting it as working — verified zero residual `ldo:`/`/ldo:ldo`
+  references, valid JS syntax, and both error paths (missing target,
+  self-vendor refusal).
+
+  `/ldo-vendor` is now the explanation and a manual fallback for the rare
+  case a script can't run against the target at all; the script is the
+  primary path.
+
 ## [2.15.3] — 2026-08-01
 
 ### Changed

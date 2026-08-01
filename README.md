@@ -223,7 +223,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-init` | Write the self-routing block into the project's `CLAUDE.md` |
 | `/ldo-agent-ux` | Write agent context and output that a model and a human can both read |
 | `/ldo-resume` | Check for a pipeline run left in progress and resume it, or start fresh |
-| `/ldo-vendor` | Copy LDO into `.claude/` for a project-native install, no plugin required |
+| `/ldo-vendor` | Explains vendoring; the actual copy is `scripts/vendor.sh <target>` |
 
 Why the punctuation differs: `/ldo:ldo` is a **workflow**, and Claude Code namespaces those by plugin. The `/ldo-*` commands are **skills**, which get no automatic namespace — the `ldo-` prefix is part of their name, so they group in the palette and don't shadow built-ins like `/init`.
 
@@ -309,17 +309,17 @@ When a teammate opens the repo, Claude Code prompts them to install everything l
 
 ## Vendoring LDO into a project
 
-The plugin install assumes a separate install step somewhere before the pipeline runs — fine on a machine you control, wrong for a repo worked on purely through a cloud session that clones it and has no such step of its own. Claude Code has a project-native path for exactly this: files placed directly under a repo's `.claude/agents/`, `.claude/skills/`, `.claude/workflows/` are picked up automatically the moment the repo is opened, locally or in the cloud — no install, no marketplace.
+The plugin install assumes a separate install step somewhere before the pipeline runs — fine on a machine you control, wrong for a repo worked on purely through a cloud session that clones it and has no such step of its own. It's also only as reliable as the marketplace cache behind it: that cache can lag the real source for reasons outside LDO's control, silently, with no error — just an old version quietly running. Claude Code has a project-native path that sidesteps both problems: files placed directly under a repo's `.claude/agents/`, `.claude/skills/`, `.claude/workflows/` are picked up automatically the moment the repo is opened, locally or in the cloud — no install, no marketplace, no cache to go stale.
 
-`/ldo-vendor` copies LDO into that shape. It isn't a plain file copy — the workflow script calls every pipeline agent through a plugin-scoped reference (`ldo:planner`, `ldo:coder`, …) that only resolves inside an actual plugin install, so vendoring strips that prefix from the six agent references and from every `/ldo:ldo` mention in the skills' own prose (the vendored pipeline runs as bare `/ldo`, since project-level workflows use their name directly with no plugin prefix). Get that transform wrong and the copy either breaks on its first agent call or tells the reader the wrong command.
+`scripts/vendor.sh <target-project-dir>` copies LDO into that shape — a real script, not instructions for a model to re-derive by hand each time. It isn't a plain file copy: the workflow script calls every pipeline agent through a plugin-scoped reference (`ldo:planner`, `ldo:coder`, …) that only resolves inside an actual plugin install, so the script strips that prefix from the six agent references — and **verifies** the result before writing it, refusing to proceed if anything's left half-transformed — plus rewrites every `/ldo:ldo` mention in the skills' own prose to bare `/ldo` (project-level workflows use their name directly, no plugin prefix). Run it from anywhere inside an LDO checkout; it finds the source root and the target on its own, and warns on agent-name collisions rather than silently overwriting.
 
 ```
-/ldo-vendor
+scripts/vendor.sh /path/to/target-project
 ```
 
-It leaves `.claude/LDO_VENDORED.md` behind — the version vendored and a note that this copy has no `/plugin update` equivalent. Re-run `/ldo-vendor` when you know LDO has changed and want the update; there's no background check pulling updates into a vendored copy, and there shouldn't be.
+It leaves `.claude/LDO_VENDORED.md` behind — the version vendored and a note that this copy has no `/plugin update` equivalent. Re-run the script when you know LDO has changed and want the update; there's no background check pulling updates into a vendored copy, and there shouldn't be. See `/ldo-vendor` for the full mechanism and a manual fallback for the rare case a script can't run against the target at all.
 
-Use the plugin install unless something specifically rules it out — it updates centrally and shares across every project on the machine. Vendor when the pipeline needs to travel with the repo itself.
+Use the plugin install unless something specifically rules it out — it updates centrally and shares across every project on the machine. Vendor when the pipeline needs to travel with the repo itself, or when the plugin-install path in your environment has proven unreliable.
 
 ## How it works
 
@@ -370,6 +370,7 @@ agents/                      # Prompts live here
 skills/                      # One slash-command per role, plus bootstrap, config, init,
 │                             # contract, docs-audit, code-audit, resume, vendor, ship, tui, agent-ux
 └── <name>/SKILL.md
+scripts/vendor.sh            # The actual vendoring mechanism — see /ldo-vendor
 ldo-config.example.json      # Reference template of every config key
 
 docs/contracts/               # Not shipped by the plugin — created per project via /ldo-contract
