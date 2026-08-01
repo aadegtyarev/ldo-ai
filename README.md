@@ -246,17 +246,18 @@ run ldo on "refactor the auth module", with haiku coding and opus reviewing
 ```json
 {
   "models": {
-    "trivial": { "planner": "haiku",  "coder": "haiku",  "reviewer": "sonnet", "security": "opus", "researcher": "sonnet" },
-    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus",   "security": "opus", "researcher": "opus" },
-    "complex": { "planner": "opus",   "coder": "sonnet", "reviewer": "opus",   "security": "opus", "researcher": "opus" }
+    "trivial": { "planner": "haiku",  "coder": "haiku",  "reviewer": "sonnet", "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
+    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus",   "security": "opus", "researcher": "opus",   "recorder": "haiku" },
+    "complex": { "planner": "opus",   "coder": "sonnet", "reviewer": "opus",   "security": "opus", "researcher": "opus",   "recorder": "haiku" }
   },
   "maxFixLoops": 3,
   "blockingSeverities": ["critical", "major"],
-  "researchByDefault": false
+  "researchByDefault": false,
+  "maxParallelFeatures": 12
 }
 ```
 
-Those are the defaults, in full. `securityByDefault` is deliberately unset — leave it out and the Planner decides per task; set `true` or `false` to override it everywhere.
+Those are the defaults, in full — matching `ldo-config.example.json`, the copy-paste source if you want a starting point rather than retyping this. `securityByDefault` is deliberately unset — leave it out and the Planner decides per task; set `true` or `false` to override it everywhere.
 
 The tiers differ in a way you can feel. A typo doesn't need Sonnet to plan it or Opus to review it, so `trivial` runs Haiku end to end with Sonnet checking. `medium` is the shape the project is named for: Sonnet writes, Opus checks. `complex` additionally buys a stronger Planner, because a wrong approach is the expensive kind of wrong — while the Coder stays on Sonnet, since the Reviewer above it catches what it misses.
 

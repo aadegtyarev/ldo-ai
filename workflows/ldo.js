@@ -256,6 +256,7 @@ function renderCoderSummary(r) {
   const t = [...(r.tests?.written || []), ...(r.tests?.updated || [])]
   if (t.length) lines.push(`**Test files**: ${t.join(', ')}`)
   if (r.tests?.pre_existing_failures?.length) lines.push(`**Pre-existing failures**: ${r.tests.pre_existing_failures.join('; ')}`)
+  if (r.env?.actions?.length) lines.push(`**Env actions**: ${r.env.actions.join('; ')}`)
   if (r.env?.unresolved?.length) lines.push(`**Env unresolved**: ${r.env.unresolved.join('; ')}`)
   if (r.docs_updated?.length) lines.push(`**Docs**: ${r.docs_updated.join(', ')}`)
   if (r.deviations?.length) lines.push(`**Deviations**: ${r.deviations.join('; ')}`)
@@ -401,17 +402,21 @@ const prePlanModels = routeModels('medium', CONFIG)
 // ═══════════════════════════════════════════
 
 // The single-task path and the multi-feature path share this function. Single
-// mode calls it once with ctx.isMulti = false and behaves byte-for-byte as
-// before this refactor. Multi mode calls it N times through parallel(), one
-// closure per feature — every let/const below is now scoped inside the
-// function, so N concurrent calls each get their own copy instead of racing
-// on shared module-level state. Never throws: a failure inside becomes a
+// mode calls it once with ctx.isMulti = false. Multi mode calls it N times
+// through parallel(), one closure per feature — every let/const below is
+// scoped inside the function, so N concurrent calls each get their own copy
+// instead of racing on shared state. Never throws: a failure inside becomes a
 // returned {error, ...} object for that feature, so one bad feature can't
 // abort the others running alongside it under parallel().
 async function runOneFeature(task, ctx) {
 try {
+  // Used to prefix every log line below with the feature's label in multi
+  // mode, so N concurrent features' output stays distinguishable in one
+  // interleaved stream. Empty in single mode — behavior there is unchanged.
+  const logPrefix = ctx.isMulti ? `[${ctx.label}] ` : ''
+
   log(`Budget: ${budget.total ? Math.round(budget.remaining() / 1000) + 'k' : 'unlimited'}`)
-  log(`${ctx.isMulti ? `[${ctx.label}] ` : ''}Task: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}`)
+  log(`${logPrefix}Task: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}`)
 
   // In multi mode, phase() is a shared run-global progress indicator — N
   // concurrent features calling it would each stomp the others' display.
@@ -430,14 +435,14 @@ if (DO_RESEARCH) {
 
   researchReport = await agent(
     `Deep-research this topic. Cross-verify claims across independent sources.\n\n## TOPIC\n${task}`,
-    { label: 'researcher', phase: 'Research', model: prePlanModels.researcher, agentType: 'ldo:researcher', schema: RESEARCH_SCHEMA }
+    { label: ctx.isMulti ? `${ctx.label}:researcher` : 'researcher', phase: 'Research', model: prePlanModels.researcher, agentType: 'ldo:researcher', schema: RESEARCH_SCHEMA }
   )
 
   if (researchReport) {
     const high = researchReport.findings?.filter(f => f.confidence === 'high').length || 0
-    log(`Research: ${researchReport.findings?.length || 0} findings (${high} high-confidence), ${researchReport.recommendations?.length || 0} recommendations`)
+    log(`${logPrefix}Research: ${researchReport.findings?.length || 0} findings (${high} high-confidence), ${researchReport.recommendations?.length || 0} recommendations`)
   } else {
-    log('⚠ Research returned nothing — proceeding without it.')
+    log(`${logPrefix}⚠ Research returned nothing — proceeding without it.`)
   }
 }
 
@@ -459,12 +464,12 @@ const plan = await agentWithRetry(
 )
 
 if (!plan) {
-  log(`${ctx.isMulti ? `[${ctx.label}] ` : ''}ERROR: Planner failed.`)
+  log(`${logPrefix}ERROR: Planner failed.`)
   return { error: 'Planner failed', label: ctx.label, task }
 }
 
 if (ctx.isMulti && (!plan.worktree_path || !plan.branch)) {
-  log(`[${ctx.label}] ERROR: Planner didn't report a worktree — refusing to continue agents into an undefined directory.`)
+  log(`${logPrefix}ERROR: Planner didn't report a worktree — refusing to continue agents into an undefined directory.`)
   return { error: 'Planner did not create/report a worktree in multi-feature mode', label: ctx.label, task, plan }
 }
 
@@ -473,7 +478,6 @@ const CTX = renderContext(plan.codebase_context)
 const surface = plan.security_surface || 'unrated'
 const DO_SECURITY = securityEnabled(plan)
 const WORKTREE_BLOCK = ctx.isMulti ? renderWorktree(plan.worktree_path, plan.branch) : ''
-const logPrefix = ctx.isMulti ? `[${ctx.label}] ` : ''
 
 log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
 if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch})`)
@@ -749,7 +753,7 @@ if (tasksList) {
   }
 }
 
-// Single-task mode — unchanged behavior from before this refactor.
+// Single-task mode.
 const singleTask = args?.task || (typeof args === 'string' ? args : null)
 
 if (!singleTask) {

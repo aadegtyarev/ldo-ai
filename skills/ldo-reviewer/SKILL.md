@@ -15,7 +15,7 @@ The reviewer will:
 1. Read the diff — plan compliance, correctness, simplification, efficiency
 2. Drive the actual application against each acceptance criterion
 3. Capture real output as evidence — a criterion passes only with proof
-4. **Try to break it** — boundaries, absent input, wrong shapes, scale, concurrency, dependency failure. If a threat model exists, run each exploit it named
+4. **Try to break it** — boundaries, absent input, wrong shapes, scale, concurrency, dependency failure. How many vectors scales with the plan's `complexity`: one or two for `trivial`, three or four for `medium`, more for `complex` if the surface warrants it. A threat model is exempt from that scaling — every exploit it named gets run regardless of complexity
 5. Return a verdict with specific, actionable issues, plus what it attacked and what held
 
 Confirming the work and attacking it are both its job. The author is blind exactly where they erred — the same reasoning that produced the bug explains why there's no bug. A fresh model doesn't share that blind spot, which is why the attack step belongs here and not in the Coder.
