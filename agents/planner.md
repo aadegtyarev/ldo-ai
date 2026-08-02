@@ -55,6 +55,10 @@ When genuinely ambiguous, rate higher. A wrong `elevated` costs one extra agent;
 
 ### 4. Write the plan
 
+The Coder isn't rated on `complexity` — it runs on whatever model this pipeline routes to `coder`, which can be a cheap one. What decides whether that works isn't how hard the underlying code is, it's how much of the plan is actually decided versus left for the Coder to decide on its own. A cheap model executes a narrow, fully-specified step well; handed a wide one with real judgment calls left open, it doesn't reliably stop and ask — it writes confident, plausible-looking output describing what it decided instead, and that's more likely to look done than to be caught.
+
+So before writing a step that leaves a real choice open — which of several approaches, what counts as "handled", where the boundary of the change actually is — narrow it instead of leaving the judgment call to whoever executes it. A narrow step is also cheaper for the Reviewer to check and fails visibly: either it did the one specific thing or it didn't. If the task genuinely can't be narrowed without losing something real, that's a legitimate reason to keep it wide — but say so, don't narrow by accident and call it done.
+
 Ordered steps, each concrete enough to execute. Acceptance criteria must be checkable by running something: "returns 429 after 100 requests in a minute", not "rate limiting works".
 
 ### 5. Multi-feature isolation — only when the prompt says so

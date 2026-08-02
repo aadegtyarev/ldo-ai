@@ -331,10 +331,18 @@ function renderResearch(r) {
 // review it, so trivial work runs cheap end to end. Medium is the default shape:
 // Sonnet writes, Opus checks. Complex additionally buys a stronger Planner,
 // because a wrong approach is the expensive kind of wrong.
+// planner is 'opus' in every tier deliberately, not by coincidence: complexity
+// is the Planner's own output, so it structurally cannot gate its own model —
+// only its call under the 'medium' row is ever actually read (see
+// prePlanModels below), which is also why trivial/complex.planner exist here
+// only for shape consistency, not because they take effect independently.
+// reviewer is 'opus' in every tier because catching what the Coder missed is
+// the entire premise of the protocol — a cheap Reviewer that trusts the
+// Coder is an expensive no-op, not a real review, regardless of task size.
 const DEFAULT_MODELS = {
-  trivial: { planner: 'haiku',  coder: 'haiku',  reviewer: 'sonnet', security: 'opus', researcher: 'sonnet', recorder: 'haiku' },
-  medium:  { planner: 'sonnet', coder: 'sonnet', reviewer: 'opus',   security: 'opus', researcher: 'opus',   recorder: 'haiku' },
-  complex: { planner: 'opus',   coder: 'sonnet', reviewer: 'opus',   security: 'opus', researcher: 'opus',   recorder: 'haiku' },
+  trivial: { planner: 'opus', coder: 'haiku',  reviewer: 'opus', security: 'opus', researcher: 'sonnet', recorder: 'haiku' },
+  medium:  { planner: 'opus', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus',   recorder: 'haiku' },
+  complex: { planner: 'opus', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus',   recorder: 'haiku' },
 }
 
 function routeModels(complexity, config) {
@@ -394,7 +402,11 @@ function securityEnabled(plan) {
   return plan.security_surface === 'elevated'
 }
 
-// Research and Plan run before complexity is known — resolve their models up front
+// Research and Plan run before complexity is known — resolve their models up
+// front, always from the 'medium' row. This is why prePlanModels.planner is
+// the only planner value that ever actually takes effect at runtime — the
+// trivial/complex rows' planner entries exist for config shape, not because
+// a different complexity rating changes which model plans it.
 const prePlanModels = routeModels('medium', CONFIG)
 
 // ═══════════════════════════════════════════

@@ -1,17 +1,18 @@
 {
   "_README": "This is a REFERENCE TEMPLATE, not a file LDO reads. A workflow has no filesystem access, so config reaches it only via args.config at invocation. Two ways to use this: (1) copy the values into your project's CLAUDE.md so Claude passes them on every run — /ldo-init writes that block for you; (2) pass them inline: Workflow({name:'ldo', args:{task:'...', config:{...}}}). Model names mean whatever your setup routes them to.",
 
+  "_models_note": "planner and reviewer are 'opus' in every tier on purpose. Complexity is the Planner's own output, so it structurally can't gate its own model — only the 'medium' row's planner value is ever actually read at runtime (Research and Plan run before complexity is known). Reviewer is opus everywhere because a cheap reviewer that trusts the coder isn't a review, regardless of task size — coder is the one role that's actually meant to scale down.",
   "models": {
     "trivial": {
-      "planner": "haiku",
+      "planner": "opus",
       "coder": "haiku",
-      "reviewer": "sonnet",
+      "reviewer": "opus",
       "security": "opus",
       "researcher": "sonnet",
       "recorder": "haiku"
     },
     "medium": {
-      "planner": "sonnet",
+      "planner": "opus",
       "coder": "sonnet",
       "reviewer": "opus",
       "security": "opus",

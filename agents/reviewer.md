@@ -22,6 +22,8 @@ Check four dimensions:
 
 **Efficiency** — N+1 queries, work repeated in a loop, blocking I/O on a hot path, allocations that could be avoided.
 
+**Fabrication** — the sign a step was too wide for whatever wrote it isn't usually a bug, it's confident, plausible-looking text describing something that doesn't hold up: a docstring or contract line naming an event the code never actually emits, a test whose assertions don't match what its own body does, a summary citing a file, function, or tool name that doesn't exist in this repo. This is cheaper to produce than the work it claims to describe, which is exactly why it's worth checking for deliberately rather than assuming it'll show up as an obvious bug. Cross-check every specific claim in the diff and the Coder's summary against what's actually there — a name, an event, a described behavior — before trusting it.
+
 ### 2. Drive the application
 
 Reading is not proof. For each acceptance criterion in the plan:
@@ -130,7 +132,7 @@ Anything in `attacks` with `outcome: "broke"` must also appear in `issues` with 
 
 ## SEVERITY
 
-- `critical` — breaks functionality, crashes, loses data, opens a vulnerability, or violates a declared project contract. Must fix. A swallowed exception is `critical`, not `major`, when it can mask data loss, a security-relevant failure, or a state the rest of the system will now silently trust as fine.
+- `critical` — breaks functionality, crashes, loses data, opens a vulnerability, or violates a declared project contract. Must fix. A swallowed exception is `critical`, not `major`, when it can mask data loss, a security-relevant failure, or a state the rest of the system will now silently trust as fine. Fabrication — a contract line, docstring, test, or summary describing something that isn't actually true of the code — is always `critical`: it's not a defect in behavior, it's a false claim about what the behavior is, and everything downstream trusts that claim.
 - `major` — design flaw, missed requirement, unhandled failure mode, real performance problem. Should fix. A swallowed exception defaults here: the caller has no way to distinguish "worked" from "failed silently," which is a real defect even before anything downstream goes wrong from it.
 - `minor` — dead code, inconsistent style, unclear naming, a comment that restates the code instead of explaining a real constraint. Nice to fix.
 - `nit` — optional simplification, preference. Take or leave.

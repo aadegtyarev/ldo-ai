@@ -5,6 +5,50 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.18.0] — 2026-08-01
+
+### Changed
+
+- **Model routing collapsed to one real axis: `coder`.** The default table
+  previously made `planner` and `reviewer` look like they scaled with
+  `complexity` (`trivial: planner=haiku`, `complex: planner=opus`), but that
+  was never true at runtime — the Planner produces `complexity` by planning,
+  so it structurally cannot be gated on a rating it hasn't made yet; only the
+  `medium` row's `planner` value was ever actually read (Research and Plan
+  both run before complexity is known). The `trivial`/`complex` planner
+  entries looked configurable and weren't.
+
+  Fixed by making it true instead of documenting around it: `planner` is
+  `opus` in every tier now, because its value — surfacing what a task didn't
+  ask about, not executing what it did — doesn't shrink because the plan
+  turns out short. `reviewer` moved to `opus` at every tier too, on the same
+  reasoning applied consistently: a cheap Reviewer that trusts the Coder
+  isn't a review, and task size was never why review matters. `coder` is the
+  one role that actually scales with the tier now — the axis that was real
+  is now the only one the table claims is real.
+
+  Updated everywhere the table is duplicated: `workflows/ldo.js`
+  (`DEFAULT_MODELS`), `ldo-config.example.json`, `README.md`, and
+  `skills/ldo-config/SKILL.md` — all four checked consistent after the edit.
+
+### Added
+
+- **The Planner now weighs narrowing a step before leaving it wide.** A cheap
+  Coder executes a fully-specified step well; handed a step with a real
+  judgment call left open, it doesn't reliably stop and ask — it produces
+  confident output describing what it decided, which is more likely to read
+  as done than to get caught. The Planner now narrows a step with a real
+  open choice rather than leaving the call to whoever executes it, unless
+  narrowing would genuinely lose something — in which case it says so rather
+  than silently staying wide.
+- **The Reviewer checks for fabrication as its own dimension**, alongside
+  correctness/simplification/efficiency: a contract line naming an event the
+  code never emits, a test whose assertions contradict its own body, a
+  summary citing a tool or file name that doesn't exist. This is cheaper to
+  produce than the work it claims to describe, and always `critical` — not a
+  behavioral defect but a false claim about what the behavior is, which
+  everything downstream ends up trusting.
+
 ## [2.17.0] — 2026-08-01
 
 ### Added

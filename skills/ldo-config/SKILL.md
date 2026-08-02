@@ -25,17 +25,23 @@ So "configuring LDO" means one of two things:
 
 ## The defaults
 
-The protocol exists so different roles can run on different models. Tiers actually differ — trivial gets the cheapest models throughout, medium and complex step planner and reviewer up:
+The protocol exists so different roles can run on different models — but only one role actually varies by tier. `planner` and `reviewer` are `opus` in every row on purpose, not by oversight:
 
 ```json
 {
   "models": {
-    "trivial": { "planner": "haiku",  "coder": "haiku",  "reviewer": "sonnet", "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
-    "medium":  { "planner": "sonnet", "coder": "sonnet", "reviewer": "opus",   "security": "opus", "researcher": "opus",   "recorder": "haiku" },
-    "complex": { "planner": "opus",   "coder": "sonnet", "reviewer": "opus",   "security": "opus", "researcher": "opus",   "recorder": "haiku" }
+    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus", "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
+    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus", "security": "opus", "researcher": "opus",   "recorder": "haiku" },
+    "complex": { "planner": "opus", "coder": "sonnet", "reviewer": "opus", "security": "opus", "researcher": "opus",   "recorder": "haiku" }
   }
 }
 ```
+
+**Planner is fixed because complexity is its own output.** The whole point of `complexity` is to pick a tier — but the Planner produces that rating *by planning*, so nothing can gate the Planner's model on a complexity it hasn't rated yet. Its value comes from surfacing what the task didn't ask about (an unrelated leak, a race nobody flagged, a security gap outside the stated scope) — that kind of judgment doesn't get cheaper because the resulting plan turns out short. Structurally, only the `medium` row's `planner` value is ever read at runtime (Research and Plan both run before complexity is known); the `trivial`/`complex` rows carry the same value purely for shape consistency, not because a different rating would route to a different model.
+
+**Reviewer is fixed because a cheap reviewer that trusts the Coder isn't a review.** Its entire value is not sharing the Coder's blind spot — that's not a task-size property. A cheap model executes narrow instructions well but doesn't reliably know when to stop and ask instead of writing confident, made-up prose about work it didn't actually verify: a contract line for an event that isn't in the code, a test description that contradicts its own body, a report citing a tool name that doesn't exist. That failure mode is cheaper to produce than the work it claims to describe, and a cheap Reviewer is the worst-positioned agent to catch it — it's exactly the same failure mode it would be checking for.
+
+`coder` is the one role actually meant to scale with the tier — its job is executing a plan, not making priority calls, and that width (not code difficulty) is what the tier is really measuring for it. If a task looks like it wants a stronger Coder, the better first move is usually narrowing the plan's scope rather than reaching for a stronger model: a narrow task is cheaper to review and fails visibly — done or not — where a wide one gives a cheap model room to make calls it shouldn't and describe the result confidently.
 
 These apply when nothing is passed. The source of truth is `DEFAULT_MODELS` in `workflows/ldo.js` — this table and `ldo-config.example.json` both describe it; if either ever looks stale, that's the one to check against. Model names mean whatever your setup routes them to — the pipeline assumes nothing about which is stronger.
 
@@ -45,9 +51,9 @@ Three always run:
 
 | Role | Does | Model choice |
 |------|------|--------------|
-| **planner** | Reads the codebase, writes the plan, rates complexity and security surface | Steps up on `complex`, where a wrong approach is expensive to unwind |
-| **coder** | Sets up the environment, implements, tests, updates docs | Sonnet handles this well; the Reviewer above catches what it misses |
-| **reviewer** | Reads the diff *and* drives the app to prove the criteria | **The reason for the protocol.** Put your strongest model here |
+| **planner** | Reads the codebase, writes the plan, rates complexity and security surface | Opus at every tier — it can't be gated on the complexity it's the one rating |
+| **coder** | Sets up the environment, implements, tests, updates docs | The one role that actually scales with the tier — a plan's width, not the underlying code's difficulty, is what it's routed on |
+| **reviewer** | Reads the diff *and* drives the app to prove the criteria | **The reason for the protocol.** Opus at every tier — a reviewer that trusts the coder isn't reviewing |
 
 Three are conditional:
 
