@@ -5,6 +5,32 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.0] — 2026-08-01
+
+### Added
+
+- **`scripts/check-model-table.sh` — mechanical drift detection for the
+  model-routing table's four copies.** The table lives in `workflows/ldo.js`
+  (`DEFAULT_MODELS`), `ldo-config.example.json`, `README.md`, and
+  `skills/ldo-config/SKILL.md` on purpose — a runnable default, a copy-paste
+  reference, and two docs explaining it. "On purpose" never made it safe:
+  this exact regression (a role or key silently missing from one copy) hit
+  this project three separate times across the session, caught only by a
+  full `/ldo-docs-audit` after the fact each time.
+
+  The script parses `DEFAULT_MODELS` out of `workflows/ldo.js` as the source
+  of truth and checks the other three copies against it, cell by cell —
+  every tier, every role. Tested against both failure shapes this project
+  actually hit: a changed value (`trivial.planner` edited in one copy but
+  not the others) and a missing key (`recorder` dropped from one tier row),
+  confirmed the script catches both with the exact file, cell, and mismatched
+  values named, not just "something's different."
+
+  `/ldo-docs-audit` now runs it instead of diffing the four copies by eye
+  when checking this specific duplication. README's Contributing section
+  says to run it after touching the table or any of its copies — drift
+  becomes a failure at check time instead of a finding weeks later.
+
 ## [2.18.0] — 2026-08-01
 
 ### Changed

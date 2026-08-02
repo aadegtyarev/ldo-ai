@@ -39,6 +39,8 @@ If you already have context on this project from earlier in the conversation, sa
 
 **Duplicated sources of truth** — the same fact stated in two places that can drift independently: a rule in `docs/contracts/` *and* the full prose still sitting in README or `SECURITY.md` (rather than a pointer to the contract), or two architecture docs (`docs/ARCHITECTURE.md` alongside a root-level `ARCHITECTURE.md` or `docs/DESIGN.md`) each partially describing the system. Rank this as a stale-claim risk even before the two disagree — the failure mode is that one gets updated and the other quietly doesn't, and nobody notices until they contradict each other. The fix is a pointer from the duplicate to the canonical copy, not a merge you write unasked.
 
+For the one case this project has actually hit repeatedly — the model-routing table duplicated across `workflows/ldo.js`, `ldo-config.example.json`, `README.md`, and `skills/ldo-config/SKILL.md` — don't diff it by eye. Run `scripts/check-model-table.sh` and report whatever it finds; it exists specifically because eyeballing four copies missed the same regression three times before this script did.
+
 ## How to verify
 
 Don't report from reading alone. For every claim that can be checked, check it:
