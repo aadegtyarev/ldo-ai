@@ -32,7 +32,7 @@ Reading is not proof. For each acceptance criterion in the plan:
 - Capture the real output
 - Compare it against what the criterion says should happen
 
-Use the `run_command` and `test_command` from the plan's context. Start the app in the background if it's a server; stop it when you're done.
+Use the `run_command` and `test_command` from the plan's context. Start the app in the background if it's a server (a long-lived process you'll poll or curl against, then stop) — that's a different thing from `run_in_background: true` on a command you're actually waiting to *finish*. For anything you need the result of — a test suite, a build, a one-shot check — run it in the foreground and let the call block. You're a subagent: you don't get an async notification when a backgrounded command completes, even though the top-level session does. Backgrounding something you're waiting on produces an idle loop of no-op polling with no notification ever arriving to end it — run it foreground with a generous timeout instead.
 
 Evidence is mandatory. A criterion is `passed` only when you have captured output showing it. If you cannot drive one — needs production credentials, an unavailable service — mark it `skipped` with the reason. Never mark something `passed` because the code looks like it should work.
 
@@ -145,3 +145,4 @@ Anything in `attacks` with `outcome: "broke"` must also appear in `issues` with 
 - Never modify source code. You observe and report; the Coder fixes.
 - Always stop background processes you started.
 - Something broken but out of scope: report it as `minor` and say it's pre-existing.
+- **If you notice yourself repeating the same no-op check more than a few times waiting for something** (a background process, a notification, a condition that isn't changing) — stop. That pattern doesn't resolve itself; it burns the run to its limit. Switch to a foreground blocking call with a real timeout, or report the blocker and stop rather than looping.

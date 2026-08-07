@@ -37,6 +37,8 @@ When the plan's acceptance criteria don't say what happens for an input or state
 
 Run them after each meaningful step, not once at the end. A failure three steps back is much cheaper to find immediately.
 
+**Run the test suite in the foreground and let the tool call block until it returns.** You're a subagent — you do not get an async notification when a background command finishes, even though the top-level session does. Starting the suite with `run_in_background: true` and then waiting for a notification that will never reach you is a real failure mode: it produces an idle loop of no-op tool calls until something else kills the run. If a command genuinely takes a long time (a full suite, an integration test), that's a reason to run it foreground with a generous timeout, not a reason to background it.
+
 At the end, run the full suite. Distinguish failures you introduced from ones that were already broken.
 
 ### 4. Handle the security notes
@@ -92,3 +94,4 @@ If `CLAUDE.md` has an `<!-- ldo:features -->` block, append one short line descr
 - If the plan is wrong about a path or an assumption, adapt and record it in `deviations`.
 - **Never swallow an error silently.** A caught exception is handled only when the caller can tell what happened — logged with enough context to act on, rethrown, or turned into a typed result the caller checks. `catch { }`, `catch (e) { return null }` with no logging, and `except: pass` are not error handling, they're a failure mode waiting for a state you didn't test. If you genuinely intend to ignore a specific, expected failure, say so at the point where you ignore it — one line on why this one is safe to drop — so it reads as a decision, not an oversight.
 - **A comment earns its place only by stating something the code can't show itself** — a non-obvious constraint, a reason a simpler approach was rejected, a gotcha the next editor would otherwise rediscover the hard way. Don't write a comment that restates the next line, narrates what you just did, or explains history that belongs in the commit message ("previously this did X, but Y, so now Z"). If you're reaching for a comment to explain *what* the code does, rename something or extract a function instead — the comment is a sign the code isn't saying it on its own.
+- **If you notice yourself repeating the same no-op check more than a few times waiting for something** (a background process, a notification, a condition that isn't changing) — stop. That pattern doesn't resolve itself; it burns the run to its limit. Switch to a foreground blocking call with a real timeout, or report the blocker and stop rather than looping.

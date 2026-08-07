@@ -5,6 +5,33 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.19.1] — 2026-08-06
+
+### Fixed
+
+- **Coder and Reviewer could stall for hours waiting on a background command
+  that would never notify them.** A subagent (spawned via `Agent` or via a
+  Workflow's `agent()` call) doesn't get the async task-completion
+  notification that the top-level session gets when a `run_in_background`
+  command finishes — that mechanism only reaches the top level. Reported
+  from a real run: the Coder started a 15-minute test suite backgrounded,
+  then called a no-op `Bash("true")` **110 times in a row** waiting for a
+  notification that structurally could not arrive in its context, burning
+  most of a 3-hour run on an idle loop nothing would ever break.
+
+  Not a bug in this project's own code — confirmed as an undocumented gap in
+  the platform's subagent execution model, not something a workflow script
+  can route around. The fix is telling the agents explicitly: run anything
+  you're waiting the result of (a test suite, a build, a one-shot check) in
+  the *foreground*, blocking, with a generous timeout — never
+  `run_in_background` on something you then poll for. Backgrounding a
+  long-lived server process to curl against and later stop is unaffected;
+  that's a different pattern from waiting on a command to *finish*.
+
+  Both agents also got an explicit escape hatch: noticing the same no-op
+  check repeating more than a few times is itself the signal to stop and
+  report the blocker, rather than trusting the wait to resolve on its own.
+
 ## [2.19.0] — 2026-08-01
 
 ### Added
