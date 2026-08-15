@@ -5,6 +5,19 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.0] — 2026-08-15
+
+### Changed
+
+- **Complex tasks now code on Opus and review on Fable.** Sonnet couldn't keep
+  up on complex features and provoked extra review passes, so the `complex` row
+  now routes `coder: opus` and `reviewer: fable` (`trivial`/`medium` are
+  unchanged). When `fable` isn't on the proxy route, the reviewer falls back to
+  `sonnet` — a weaker review still catches things, and no review is what a run
+  can't recover from. The fallback lives in `REVIEWER_FALLBACK` in
+  `workflows/ldo.js` and is applied by `agentWithModelFallback` at the reviewer
+  dispatch.
+
 ## [2.21.0] — 2026-08-15
 
 ### Added

@@ -261,9 +261,9 @@ run ldo on "refactor the auth module", with haiku coding and opus reviewing
 ```json
 {
   "models": {
-    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus", "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
-    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus", "security": "opus", "researcher": "opus",   "recorder": "haiku" },
-    "complex": { "planner": "opus", "coder": "sonnet", "reviewer": "opus", "security": "opus", "researcher": "opus",   "recorder": "haiku" }
+    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus",  "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
+    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus",  "security": "opus", "researcher": "opus",   "recorder": "haiku" },
+    "complex": { "planner": "opus", "coder": "opus",   "reviewer": "fable", "security": "opus", "researcher": "opus",   "recorder": "haiku" }
   },
   "maxFixLoops": 3,
   "blockingSeverities": ["critical", "major"],
@@ -274,7 +274,7 @@ run ldo on "refactor the auth module", with haiku coding and opus reviewing
 
 Those are the defaults, in full — matching `ldo-config.example.json`, the copy-paste source if you want a starting point rather than retyping this. `securityByDefault` is deliberately unset — leave it out and the Planner decides per task; set `true` or `false` to override it everywhere.
 
-Only `coder` actually moves between tiers — that's the deliberate design, not an oversight. `planner` is Opus everywhere because complexity is *its own output*: nothing can gate the Planner's model on a rating it hasn't produced yet, and its value — surfacing what the task didn't ask about, not just executing what it did — doesn't get cheaper just because the resulting plan turns out short. `reviewer` is Opus everywhere for a related reason: its entire premise is not sharing the Coder's blind spot, and a cheap model doesn't reliably know when to stop and ask instead of writing confident, made-up prose about work it didn't verify — exactly the failure mode a cheap Reviewer is worst-positioned to catch. `coder` is where the tier does real work, because executing a plan's *width* (not the underlying code's difficulty) is what actually scales with `trivial`/`medium`/`complex`.
+`coder` and `reviewer` move between tiers — deliberate, not an oversight. `planner` is Opus everywhere because complexity is *its own output*: nothing can gate the Planner's model on a rating it hasn't produced yet, and its value — surfacing what the task didn't ask about, not just executing what it did — doesn't get cheaper just because the resulting plan turns out short. `reviewer` is Opus on `trivial`/`medium` and Fable on `complex` (falling back to Sonnet when Fable isn't on your route), because its entire premise is not sharing the Coder's blind spot and a cheap model doesn't reliably know when to stop and ask instead of writing confident, made-up prose about work it didn't verify — exactly the failure mode a cheap Reviewer is worst-positioned to catch. Complex work has the most surface to miss, so it gets the strongest reviewer; Sonnet is the floor, because a weaker review still catches things and no review doesn't. `coder` is where the tier does real work — haiku/sonnet/opus — because executing a plan's *width* (not the underlying code's difficulty) is what actually scales with `trivial`/`medium`/`complex`.
 
 Security is Opus at every tier. When the Planner has decided a change can be attacked, that's not where to save money.
 

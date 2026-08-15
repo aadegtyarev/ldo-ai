@@ -47,5 +47,6 @@ the list. Offer; don't run either unasked.
 <!-- ldo:features -->
 - isolate:true — a single task can run in a worktree instead of the working tree
 - /ldo-feedback — structured, redacted bug reports filed as GitHub issues
+- complex: coder→opus, reviewer→fable (sonnet fallback when fable is off-route)
 <!-- /ldo:features -->
 <!-- END ldo -->

@@ -329,20 +329,25 @@ function renderResearch(r) {
 //
 // The tiers genuinely differ. A typo doesn't need Sonnet to plan it or Opus to
 // review it, so trivial work runs cheap end to end. Medium is the default shape:
-// Sonnet writes, Opus checks. Complex additionally buys a stronger Planner,
-// because a wrong approach is the expensive kind of wrong.
+// Sonnet writes, Opus checks. Complex additionally buys a stronger Coder and
+// Reviewer, because a wrong approach on a big change is the expensive kind of
+// wrong.
 // planner is 'opus' in every tier deliberately, not by coincidence: complexity
 // is the Planner's own output, so it structurally cannot gate its own model —
 // only its call under the 'medium' row is ever actually read (see
 // prePlanModels below), which is also why trivial/complex.planner exist here
 // only for shape consistency, not because they take effect independently.
-// reviewer is 'opus' in every tier because catching what the Coder missed is
-// the entire premise of the protocol — a cheap Reviewer that trusts the
-// Coder is an expensive no-op, not a real review, regardless of task size.
+// reviewer is 'opus' in trivial/medium and 'fable' in complex, with 'sonnet' as
+// the fallback when fable isn't on the proxy route (see REVIEWER_FALLBACK).
+// Catching what the Coder missed is the entire premise of the protocol — a
+// cheap Reviewer that trusts the Coder is an expensive no-op, not a real review.
+// Complex work has the most surface to miss, so it gets the strongest reviewer;
+// sonnet is the floor: a weaker review still catches things, and no review is
+// what a run can't recover from.
 const DEFAULT_MODELS = {
-  trivial: { planner: 'opus', coder: 'haiku',  reviewer: 'opus', security: 'opus', researcher: 'sonnet', recorder: 'haiku' },
-  medium:  { planner: 'opus', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus',   recorder: 'haiku' },
-  complex: { planner: 'opus', coder: 'sonnet', reviewer: 'opus', security: 'opus', researcher: 'opus',   recorder: 'haiku' },
+  trivial: { planner: 'opus', coder: 'haiku',  reviewer: 'opus',  security: 'opus', researcher: 'sonnet', recorder: 'haiku' },
+  medium:  { planner: 'opus', coder: 'sonnet', reviewer: 'opus',  security: 'opus', researcher: 'opus',   recorder: 'haiku' },
+  complex: { planner: 'opus', coder: 'opus',   reviewer: 'fable', security: 'opus', researcher: 'opus',   recorder: 'haiku' },
 }
 
 function routeModels(complexity, config) {
@@ -358,6 +363,25 @@ async function agentWithRetry(prompt, opts, attempts = 2) {
     if (i < attempts - 1) log(`  ↻ ${opts.label} returned nothing — retrying (${i + 2}/${attempts})`)
   }
   return null
+}
+
+// 'fable' isn't on every proxy route. When the reviewer's model has an entry
+// here, an unavailable primary (the call returns nothing, or throws) retries
+// once on the fallback instead of the run failing outright — a weaker review
+// still catches things; no review is what a run can't recover from.
+const REVIEWER_FALLBACK = { fable: 'sonnet' }
+
+async function agentWithModelFallback(prompt, opts, fallbackModel) {
+  if (!fallbackModel) return agent(prompt, opts)
+  try {
+    const result = await agent(prompt, opts)
+    if (result) return result
+  } catch (err) {
+    log(`  ↻ ${opts.label}: model '${opts.model}' failed (${err?.message || err}) — falling back to '${fallbackModel}'`)
+    return agent(prompt, { ...opts, model: fallbackModel })
+  }
+  log(`  ↻ ${opts.label}: model '${opts.model}' returned nothing — falling back to '${fallbackModel}'`)
+  return agent(prompt, { ...opts, model: fallbackModel })
 }
 
 // ═══════════════════════════════════════════
@@ -552,13 +576,13 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
 
     const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
-    const verdict = await agent(reviewerPrompt, {
+    const verdict = await agentWithModelFallback(reviewerPrompt, {
       label: ctx.isMulti ? `${ctx.label}:${reviewerLabel}` : reviewerLabel,
       phase: 'Review',
       model: models.reviewer,
       agentType: 'ldo:reviewer',
       schema: VERDICT_SCHEMA,
-    })
+    }, REVIEWER_FALLBACK[models.reviewer])
 
     if (!verdict) {
       log(`${logPrefix}ERROR: Reviewer failed.`)

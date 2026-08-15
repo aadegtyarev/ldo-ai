@@ -1,7 +1,7 @@
 {
   "_README": "This is a REFERENCE TEMPLATE, not a file LDO reads. A workflow has no filesystem access, so config reaches it only via args.config at invocation. Two ways to use this: (1) copy the values into your project's CLAUDE.md so Claude passes them on every run — /ldo-init writes that block for you; (2) pass them inline: Workflow({name:'ldo', args:{task:'...', config:{...}}}). Model names mean whatever your setup routes them to.",
 
-  "_models_note": "planner and reviewer are 'opus' in every tier on purpose. Complexity is the Planner's own output, so it structurally can't gate its own model — only the 'medium' row's planner value is ever actually read at runtime (Research and Plan run before complexity is known). Reviewer is opus everywhere because a cheap reviewer that trusts the coder isn't a review, regardless of task size — coder is the one role that's actually meant to scale down.",
+  "_models_note": "planner is 'opus' in every tier on purpose — complexity is the Planner's own output, so it structurally can't gate its own model (only the 'medium' row's planner value is ever read at runtime). reviewer is 'opus' in trivial/medium and 'fable' in complex, falling back to 'sonnet' when fable isn't on the proxy route: catching what the coder missed is the whole point of review, and complex work has the most to miss. coder is the role that scales with the tier — haiku/sonnet/opus.",
   "models": {
     "trivial": {
       "planner": "opus",
@@ -21,8 +21,8 @@
     },
     "complex": {
       "planner": "opus",
-      "coder": "sonnet",
-      "reviewer": "opus",
+      "coder": "opus",
+      "reviewer": "fable",
       "security": "opus",
       "researcher": "opus",
       "recorder": "haiku"
