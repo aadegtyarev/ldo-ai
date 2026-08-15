@@ -515,6 +515,10 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
   let reviewIssues = []
   let finalVerdict = null
   let lastIssues = []
+  // Issues sent to a fix pass that the next review did NOT re-raise — kept so
+  // an exhausted run can say "these were closed, these remain" instead of
+  // handing back an undifferentiated refusal the operator has to re-diff.
+  const resolvedIssues = []
 
   while (iteration < MAX_FIX_LOOPS) {
     const isFirstPass = iteration === 0
@@ -526,7 +530,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     // triple the cost of a multi-round fix for no proportional benefit.
     const coderPrompt = isFirstPass
       ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
-      : WORKTREE_BLOCK + `Fix the review issues below. Narrow pass — touch only these files.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}`
+      : WORKTREE_BLOCK + `Fix the review issues below. Narrow pass — touch only these files. Don't leave a comment narrating the fix ("changed X to Y because the reviewer flagged Z") — the why belongs in your summary, not in the code.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}`
 
     const coderLabel = isFirstPass ? 'coder' : `coder-fix-${iteration}`
     const coderResult = await agent(coderPrompt, {
@@ -545,7 +549,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
     const reviewerPrompt = isFirstPass
       ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
-      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
+      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
 
     const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
     const verdict = await agent(reviewerPrompt, {
@@ -584,6 +588,15 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
     lastIssues = verdict.issues || []
 
+    // Anything we sent to this pass that the review didn't re-raise is closed.
+    // Match on file+what: same file and same description means the same issue.
+    if (reviewIssues.length) {
+      const stillOpen = new Set(lastIssues.map(i => `${i.file}::${i.what}`))
+      reviewIssues.forEach(prev => {
+        if (!stillOpen.has(`${prev.file}::${prev.what}`)) resolvedIssues.push({ ...prev, resolved_in_pass: iteration + 1 })
+      })
+    }
+
     if (verdict.status === 'approved') {
       finalVerdict = verdict
       log(`${logPrefix}✓ APPROVED — ${verdict.summary}`)
@@ -608,7 +621,18 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
   if (!finalVerdict) {
     log(`${logPrefix}⚠ Max fix loops (${MAX_FIX_LOOPS}) exhausted.`)
-    finalVerdict = { status: 'changes_requested', summary: `Max ${MAX_FIX_LOOPS} fix iterations reached.`, issues: lastIssues }
+    if (resolvedIssues.length) {
+      log(`${logPrefix}  Closed across the run (${resolvedIssues.length}):`)
+      resolvedIssues.forEach(iss => log(`${logPrefix}    ✓ [${iss.severity}] ${iss.file}: ${iss.what} (pass ${iss.resolved_in_pass})`))
+    }
+    log(`${logPrefix}  Still open (${lastIssues.length}):`)
+    lastIssues.forEach(iss => log(`${logPrefix}    ✗ [${iss.severity}] ${iss.file}: ${iss.what}`))
+    finalVerdict = {
+      status: 'changes_requested',
+      summary: `Max ${MAX_FIX_LOOPS} fix iterations reached. ${resolvedIssues.length} issue(s) were closed along the way; the 'issues' list holds only what's still open — often small enough to fix by hand rather than re-running the pipeline.`,
+      issues: lastIssues,
+      resolved_issues: resolvedIssues,
+    }
   }
 
   return { finalVerdict, iteration }
@@ -805,8 +829,28 @@ if (tasksList) {
 const singleTask = args?.task || (typeof args === 'string' ? args : null)
 
 if (!singleTask) {
-  log('ERROR: No task provided. Workflow({name:"ldo", args:{task:"..."}}) or {tasks:[...]} for parallel features.')
+  log('ERROR: No task provided. Workflow({name:"ldo:ldo", args:{task:"..."}}) or {tasks:[...]} for parallel features.')
   return { error: 'No task provided' }
 }
 
+// isolate: true runs the single task through the same worktree machinery the
+// multi-feature path uses — the Coder writes into its own worktree instead of
+// the operator's working tree. Without it, the pipeline edits the tree the
+// operator may also be editing, and nothing but memory prevents a collision.
+if (args?.isolate) {
+  const label = slugify(singleTask, 'task')
+  log(`Isolated run: the pipeline will work in its own git worktree, not this working tree.`)
+  return await runOneFeature(singleTask, {
+    index: 0,
+    total: 1,
+    label,
+    isMulti: true,
+    worktreeHint: {
+      suggestedPath: `.worktrees/${label}`,
+      suggestedBranch: `ldo/${label}`,
+    },
+  })
+}
+
+log(`⚠ Working tree mode: the Coder edits THIS working tree directly. Avoid editing files here until the run finishes — or pass isolate: true to run in a separate worktree.`)
 return await runOneFeature(singleTask, { isMulti: false })

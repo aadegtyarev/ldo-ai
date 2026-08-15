@@ -38,7 +38,7 @@ This file is local session state, not project data — it belongs in `.gitignore
 
 ## The protocol (what `CLAUDE.md`'s block points here for)
 
-**Right after calling `Workflow({ name: "ldo", args: {...} })`, before waiting on its result:** the tool call itself returns a `runId` immediately (the workflow runs in the background) — append an entry to `.claude/ldo-runs.json` with `status: "running"` right then. Create the file (as `[]`) first if it doesn't exist. Don't wait for the run to finish to record that it started; the whole point is surviving an interruption mid-run.
+**Right after calling `Workflow({ name: "ldo:ldo", args: {...} })`, before waiting on its result:** the tool call itself returns a `runId` immediately (the workflow runs in the background) — append an entry to `.claude/ldo-runs.json` with `status: "running"` right then. Create the file (as `[]`) first if it doesn't exist. Don't wait for the run to finish to record that it started; the whole point is surviving an interruption mid-run.
 
 **When the run's result comes back:** update that entry's `status` — `"approved"` or `"changes_requested"` from the verdict, `"error"` if the result carries an `error` field — and set `updatedAt`. A finished run doesn't need to stay in the file forever, but don't delete it immediately either; keep the last handful (say, 20) so `/ldo-docs-audit`-style "what's been happening" questions have something to look at. Trim oldest resolved entries past that if the file is growing.
 
@@ -48,7 +48,7 @@ This file is local session state, not project data — it belongs in `.gitignore
 
 For each entry still marked `"running"`:
 
-1. **Try resuming first.** Call `Workflow({ name: "ldo", args: <the original args from the entry>, resumeFromRunId: <runId> })`. If the cache is live, this returns fast and picks up wherever the interrupted run left off — no re-planning, no re-coding what already passed review.
+1. **Try resuming first.** Call `Workflow({ name: "ldo:ldo", args: <the original args from the entry>, resumeFromRunId: <runId> })`. If the cache is live, this returns fast and picks up wherever the interrupted run left off — no re-planning, no re-coding what already passed review.
 2. **If that errors or the run ID doesn't resolve** (new/different session, cache expired), that's expected, not a failure to report as broken — mark the entry `"abandoned"` and tell the operator plainly: "a run for '<task>' was interrupted and the cache isn't reachable from this session; re-running it from scratch" — then start it fresh as a normal `/ldo:ldo` call, which will log its own new entry.
 3. **Don't do this silently.** Whichever path it takes, say so — resumed-from-cache and started-fresh are different enough outcomes (one skips real work, one redoes it) that the operator should know which happened, especially if it costs tokens either way.
 

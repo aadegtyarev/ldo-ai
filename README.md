@@ -97,7 +97,7 @@ It researches what already exists, works the stack out with you, and ends by nam
 
 The Planner rates the task, and that rating decides what runs. A refactor with no attack surface goes straight Plan → Code → Review. A change touching auth or user input adds a threat model first. You don't choose — though you can override, below.
 
-**It edits your working tree.** Once you approve the run, the Coder writes files and the Reviewer runs your app; neither stops to ask. Nothing is committed and no branch is created — you're left with uncommitted changes to inspect. Start on a clean tree, or a branch you don't mind resetting.
+**It edits your working tree.** Once you approve the run, the Coder writes files and the Reviewer runs your app; neither stops to ask. Nothing is committed and no branch is created — you're left with uncommitted changes to inspect. Start on a clean tree, or a branch you don't mind resetting. If you'd rather it not touch your tree at all, pass `isolate: true` — the run happens in its own worktree (`.worktrees/<slug>` on branch `ldo/<slug>`) and leaves your working tree untouched.
 
 **For a big or uncertain change**, opt the extra phases in:
 
@@ -132,7 +132,7 @@ Two more run only when they earn their place:
 Pass `tasks` instead of `task` and each one runs independently, isolated in its own git worktree:
 
 ```js
-Workflow({name:"ldo", args:{
+Workflow({name:"ldo:ldo", args:{
   tasks: ["add rate limiting to the API", "fix the session token refresh bug"]
 }})
 ```

@@ -36,6 +36,16 @@ Use the `run_command` and `test_command` from the plan's context. Start the app 
 
 Evidence is mandatory. A criterion is `passed` only when you have captured output showing it. If you cannot drive one — needs production credentials, an unavailable service — mark it `skipped` with the reason. Never mark something `passed` because the code looks like it should work.
 
+A test that's green on both the old and the new code proves nothing — it never exercised the fix. For each test the Coder added or changed to cover this change, prove it actually catches the defect:
+
+1. Save the working diff: `git diff > /tmp/ldo-review.patch`
+2. Revert **only the code, keeping the test**: `git checkout -- <non-test files>` (from `git diff --name-only`, minus anything under a test dir)
+3. Run the test — it **must fail**. If it passes against the old code, the test is decoration: report it as fabrication, `critical`, because it claims coverage it doesn't provide.
+4. Restore: `git apply /tmp/ldo-review.patch`
+5. Run it again — it **must pass**.
+
+Capture both runs as evidence in the criterion. This is a temporary revert-and-restore, not a modification — the working tree must end exactly as you found it. If either the revert or the restore fails, stop and report it as a blocker rather than leaving the tree half-reverted.
+
 Some changes have nothing to drive: a pure refactor, a doc update. Say so rather than inventing a check.
 
 ### 3. Try to break it
@@ -142,7 +152,7 @@ Anything in `attacks` with `outcome: "broke"` must also appear in `issues` with 
 - Read the file before reporting an issue in it. Don't flag from the diff alone.
 - Approve only when the criteria are met **and** you have evidence, or there was genuinely nothing to drive.
 - A failed criterion is at least `major` — the feature does not do what the plan promised.
-- Never modify source code. You observe and report; the Coder fixes.
+- Never modify source code, except the temporary revert-and-restore in "Prove the tests catch" above — and that must always leave the tree exactly as you found it. Otherwise you observe and report; the Coder fixes.
 - Always stop background processes you started.
 - Something broken but out of scope: report it as `minor` and say it's pre-existing.
 - **If you notice yourself repeating the same no-op check more than a few times waiting for something** (a background process, a notification, a condition that isn't changing) — stop. That pattern doesn't resolve itself; it burns the run to its limit. Switch to a foreground blocking call with a real timeout, or report the blocker and stop rather than looping.

@@ -5,6 +5,52 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.20.0] — 2026-08-15
+
+### Added
+
+- **`isolate: true` — run a single task in its own worktree instead of the
+  working tree.** Only a `tasks` batch got worktree isolation before; a single
+  `task` always edited the working tree directly, and nothing said so. The
+  pipeline now logs a loud warning before touching the working tree, and
+  `isolate: true` reuses the multi-feature worktree machinery for one feature
+  (`.worktrees/<slug>`, branch `ldo/<slug>`), leaving your tree untouched.
+
+- **The Reviewer now proves tests catch the defect, not just pass.** A test
+  that's green on both the old and the new code proves nothing — it never
+  exercised the fix. For each added or changed test the Reviewer temporarily
+  reverts the code change (keeping the test), confirms the test *fails*
+  against the old code, restores, and confirms it passes again — both runs
+  captured as evidence. A test that stays green through the revert is
+  fabrication (`critical`).
+
+### Changed
+
+- **An exhausted fix loop reports what it closed, not just what's still
+  open.** At the iteration cap the verdict used to be an undifferentiated
+  refusal the operator had to re-diff by hand. It now tracks issues resolved
+  across passes and reports "closed N, still open M" — the remaining list is
+  usually small enough to finish by hand rather than re-run the pipeline.
+
+### Fixed
+
+- **The workflow name was documented wrong everywhere.** Docs said
+  `Workflow({ name: "ldo" })`, but a plugin-installed workflow is namespaced
+  `ldo:ldo` — the bare form returns "Workflow 'ldo' not found". All docs and
+  the `CLAUDE.md` block `/ldo-init` writes now say `ldo:ldo`.
+
+- **Vendoring left `name: "ldo:ldo"` untransformed.** `scripts/vendor.sh`
+  rewrote slash-commands (`/ldo:ldo` → `/ldo`) but not the programmatic
+  `Workflow({ name: "ldo:ldo" })` form now in skill prose. It now rewrites
+  both and verifies no `ldo:ldo` survived before finishing — the same
+  refuse-rather-than-half-transform logic as the `agentType` check.
+
+- **Comment-archaeology slipped through on fix passes.** A Coder fixing a
+  review finding would leave a comment narrating the fix ("changed X to Y
+  because the reviewer flagged Z") — history that belongs in the summary or
+  commit. The fix-pass Coder and Reviewer prompts now call it out: the Coder
+  is told not to write it, the Reviewer to flag it like dead code.
+
 ## [2.19.1] — 2026-08-06
 
 ### Fixed

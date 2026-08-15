@@ -78,10 +78,19 @@ for d in "$SRC"/skills/*/; do
     continue
   fi
   mkdir -p "$TARGET/.claude/skills/$skill_name"
-  sed 's#/ldo:ldo#/ldo#g' "$d/SKILL.md" > "$TARGET/.claude/skills/$skill_name/SKILL.md"
+  sed -e 's#/ldo:ldo#/ldo#g' -e 's#name: *"ldo:ldo"#name: "ldo"#g' "$d/SKILL.md" > "$TARGET/.claude/skills/$skill_name/SKILL.md"
   skill_count=$((skill_count + 1))
 done
-echo "  skills/*/SKILL.md -> .claude/skills/ ($skill_count skills, /ldo:ldo -> /ldo in each)"
+echo "  skills/*/SKILL.md -> .claude/skills/ ($skill_count skills, /ldo:ldo and name:\"ldo:ldo\" -> bare \"ldo\" in each)"
+
+# Verify no plugin-scoped workflow reference survived — same refusal logic as
+# the agentType check in step 2. A skill still pointing at /ldo:ldo or
+# name:"ldo:ldo" after vendoring would resolve to nothing (vendored runs bare).
+if grep -rq 'ldo:ldo' "$TARGET/.claude/skills/"; then
+  echo "error: transform incomplete — 'ldo:ldo' still present in vendored skills. The source shape changed since this script was written; fix the sed above before vendoring." >&2
+  grep -rn 'ldo:ldo' "$TARGET/.claude/skills/" >&2
+  exit 1
+fi
 
 # ── 4. Marker file — a vendored copy has no auto-update, say so plainly ───
 

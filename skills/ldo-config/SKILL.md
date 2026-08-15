@@ -10,7 +10,7 @@ Walk the operator through LDO's model routing and help them set it for this proj
 A workflow has no filesystem access — it can't read a config file. Routing reaches it **only** through `args.config` at invocation:
 
 ```js
-Workflow({ name: "ldo", args: {
+Workflow({ name: "ldo:ldo", args: {
   task: "refactor the auth module",
   config: { models: { medium: { coder: "haiku", reviewer: "opus" } } }
 }})
@@ -93,16 +93,19 @@ The default accepts that cold start deliberately: an independent read is worth m
 Anything shown above can be overridden for one invocation:
 
 ```js
-Workflow({name: "ldo", args: {
+Workflow({name: "ldo:ldo", args: {
   task: "refactor the auth module",
   research: true,
   security: true,
+  isolate: true,
   config: {
     maxFixLoops: 5,
     models: { medium: { coder: "haiku", reviewer: "opus" } }
   }
 }})
 ```
+
+`isolate: true` is a top-level arg (like `research`/`security`, not a `config` key): the task runs in its own git worktree instead of your working tree — same isolation a `tasks` batch gets, for a single feature.
 
 ## Check it took effect
 

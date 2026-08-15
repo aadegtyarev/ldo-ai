@@ -29,7 +29,7 @@ what doesn't need it, and don't hand-edit around it for what does.
 
 - **Trivial** (typo, one-liner, config value, obvious bug): just do it inline.
 - **Real change** (feature, refactor, bug fix, multi-file): run the pipeline —
-  `Workflow({ name: "ldo", args: { task: "<the task>" } })`. It plans, implements,
+  `Workflow({ name: "ldo:ldo", args: { task: "<the task>" } })`. It plans, implements,
   reviews, and proves the result. For a change touching auth, secrets, user input,
   or crypto, add `security: true`. For one needing outside knowledge, `research: true`.
 - **New project** is a conversation first: `/ldo-bootstrap "idea"`.
@@ -56,9 +56,13 @@ past call, don't read it automatically. See `/ldo-note`.
 
 Models route automatically: Haiku for trivial work, Sonnet writing and Opus
 reviewing for real changes. To change that, pass the routing on the call —
-`Workflow({ name: "ldo", args: { task: "...", config: { models: { medium: {
+`Workflow({ name: "ldo:ldo", args: { task: "...", config: { models: { medium: {
 coder: "haiku", reviewer: "opus" } } } } })`. Keep any project-specific routing
 in this block so it's applied on every run.
+
+A single-task run edits the working tree directly by default — no commit, no
+branch. Pass `isolate: true` on the call to run it in a separate worktree instead
+and leave your tree untouched.
 
 **Docs drift log.** Append a line here after each user-facing change. When the
 list reaches roughly eight, offer to run `/ldo-docs-audit` and `/ldo-code-audit`
