@@ -54,8 +54,9 @@ or structural rules, read the relevant file before planning — see `/ldo-contra
 Decision history lives in `docs/DECISIONS.md` — check it before re-litigating a
 past call, don't read it automatically. See `/ldo-note`.
 
-Models route automatically: Haiku for trivial work, Sonnet writing and Opus
-reviewing for real changes. To change that, pass the routing on the call —
+Models route automatically: Haiku codes trivial work, Sonnet writes + Opus
+reviews for medium, Opus writes + Fable reviews for complex (Sonnet fallback).
+To change that, pass the routing on the call —
 `Workflow({ name: "ldo:ldo", args: { task: "...", config: { models: { medium: {
 coder: "haiku", reviewer: "opus" } } } } })`. Keep any project-specific routing
 in this block so it's applied on every run.

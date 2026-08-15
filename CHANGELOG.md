@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.1] — 2026-08-15
+
+### Fixed
+
+- **`scripts/redact.sh` wrote nothing in pipe mode — the heredoc consumed
+  stdin.** `python3 - <<'PY'` read the program from stdin, so the documented
+  `redact.sh < input.txt` silently emitted zero bytes while `--self-test` still
+  passed every check — the gate reported success while doing no work, and an
+  agent reading empty output as "clean" would file unredacted text. The program
+  now lives in its own `scripts/redact.py` and `redact.sh` is a thin `exec`
+  wrapper that leaves stdin alone; `--self-test` exercises the real stdin path,
+  and empty input now fails loudly instead of succeeding silently.
+
+- **The generated block's one-line model summary went stale after 2.22.0.**
+  `ldo-init` (and this repo's own `CLAUDE.md`) still said "Sonnet writing and
+  Opus reviewing for real changes"; it now says complex is Opus writing + Fable
+  reviewing (Sonnet fallback).
+
 ## [2.22.0] — 2026-08-15
 
 ### Changed

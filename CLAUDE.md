@@ -28,8 +28,9 @@ unsure of. See `/ldo-agent-ux`.
 Project contracts live in `docs/contracts/`. When a task touches scope, security,
 or structural rules, read the relevant file before planning — see `/ldo-contract`.
 
-Models route automatically: Haiku for trivial work, Sonnet writing and Opus
-reviewing for real changes. To change that, pass the routing on the call —
+Models route automatically: Haiku codes trivial work, Sonnet writes + Opus
+reviews for medium, Opus writes + Fable reviews for complex (Sonnet fallback).
+To change that, pass the routing on the call —
 `Workflow({ name: "ldo:ldo", args: { task: "...", config: { models: { medium: {
 coder: "haiku", reviewer: "opus" } } } } })`. Keep any project-specific routing
 in this block so it's applied on every run.
@@ -48,5 +49,6 @@ the list. Offer; don't run either unasked.
 - isolate:true — a single task can run in a worktree instead of the working tree
 - /ldo-feedback — structured, redacted bug reports filed as GitHub issues
 - complex: coder→opus, reviewer→fable (sonnet fallback when fable is off-route)
+- redact.sh pipe mode fixed — was silently emitting empty output
 <!-- /ldo:features -->
 <!-- END ldo -->
