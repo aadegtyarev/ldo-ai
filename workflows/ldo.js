@@ -767,6 +767,7 @@ async function runOneFeature(task, ctx) {
     // A thrown error inside one feature must not abort siblings running under
     // parallel() — return a failure shape instead of letting it propagate.
     log(`${ctx?.isMulti ? `[${ctx.label}] ` : ''}ERROR: ${err?.message || err}`)
+    log(`${ctx?.isMulti ? `[${ctx.label}] ` : ''}If this looks like an LDO bug rather than the task, run /ldo-feedback — it redacts secrets and files a GitHub issue.`)
     return { error: String(err?.message || err), label: ctx?.label, task, approved: false }
   }
 }

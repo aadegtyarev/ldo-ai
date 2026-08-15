@@ -5,6 +5,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.21.0] — 2026-08-15
+
+### Added
+
+- **`/ldo-feedback` — a structured, redacted path for reporting LDO bugs.**
+  Feedback used to be free-form, so two reports of the same bug carried
+  different information and a token could end up pasted into a public issue.
+  The skill replaces that with a fixed form (version + install shape, which
+  phase, what happened with evidence, expected, reproduction, impact,
+  environment), then redacts it through `scripts/redact.sh` before filing a
+  GitHub issue in `aadegtyarev/ldo-ai`.
+
+- **`scripts/redact.sh` — deterministic secret/PII redaction with a
+  self-test.** A conservative pattern list (GitHub/AWS/OpenAI/Slack/Stripe/
+  Google tokens, JWTs, private keys, `password=…`/`token=…` assignments,
+  emails, IPs, URLs with embedded credentials) replaces each match with a
+  typed `<REDACTED:…>` placeholder. `--self-test` proves the gate catches a
+  set of real token shapes before anything is filed; over-redaction is the
+  safe direction. The skill never posts without showing the operator the
+  redacted text first.
+
+- **The pipeline points at it when it breaks.** An unexpected error during a
+  run now logs a suggestion to run `/ldo-feedback`, so feedback is captured
+  while the context is fresh rather than reconstructed later.
+
 ## [2.20.0] — 2026-08-15
 
 ### Added

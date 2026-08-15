@@ -238,6 +238,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo-agent-ux` | Write agent context and output that a model and a human can both read |
 | `/ldo-resume` | Check for a pipeline run left in progress and resume it, or start fresh |
 | `/ldo-vendor` | Explains vendoring; the actual copy is `scripts/vendor.sh <target>` |
+| `/ldo-feedback` | File an LDO bug/observation — structured, secrets redacted, as a GitHub issue |
 
 Why the punctuation differs: `/ldo:ldo` is a **workflow**, and Claude Code namespaces those by plugin. The `/ldo-*` commands are **skills**, which get no automatic namespace — the `ldo-` prefix is part of their name, so they group in the palette and don't shadow built-ins like `/init`.
 
