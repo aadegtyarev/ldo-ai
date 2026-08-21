@@ -5,6 +5,60 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.23.0] — 2026-08-21
+
+Everything here comes from one operator's field report after 18 runs in a session
+against a real project (~4400 integration tests, live Postgres).
+
+### Fixed
+
+- **An `approved` verdict could hide a skipped check.** `VERDICT_SCHEMA` made
+  `status` and `verification.criteria[].status` structurally independent, so a run
+  whose most expensive criterion was `skipped` still came back as a bare
+  `approved` — the word carried no sign that the last step had been handed back to
+  the operator. It showed up in 2 of 18 runs. Any skipped criterion now forces
+  `verification.verdict` to `partial`, adds an `unproven` list to the result, and
+  appends a `NOT PROVEN` line to the summary naming what's left to run. Enforced in
+  the orchestrator rather than asked of the Reviewer: an omission is what a model
+  is least reliable at volunteering.
+- **Parallel runs overwrote each other's review reports.** The Recorder checked
+  whether `docs/reviews/<date>-<slug>.md` was free and then wrote it — three
+  concurrent runs all saw it free and all wrote the same name. Replaced with an
+  atomic claim via `set -o noclobber`, verified against 8 concurrent claimants
+  producing 8 distinct files.
+- **Resuming a run lost its arguments.** `.claude/ldo-runs.json` recorded only a
+  human-readable `task`, but `resumeFromRunId` doesn't carry arguments — flags like
+  `security`, `research`, `isolate`, and any model override were silently dropped
+  on resume. Entries now store the full `args` object.
+
+### Added
+
+- **A test suite may now outlive a single tool call.** One Bash call is capped at
+  ten minutes and can't be raised; a 17-minute suite previously became a `skipped`
+  criterion. The Reviewer and Coder are now told to detach the suite and block on
+  it in slices (`timeout 590 tail --pid=$PID -f /dev/null`, repeated until it
+  exits, real exit code recovered from a file). This blocks on the process instead
+  of polling it, so it doesn't trip the existing no-op-loop rule, and it makes
+  "too long for one call" no longer a legitimate reason to skip.
+- **The Planner now names what makes the problem real.** New optional
+  `problem_evidence` field: a `basis` of `measured` / `reported` / `inspected` /
+  `asserted`, the observation behind it, and what measurement would confirm the fix
+  worked. An `asserted` basis — the task says so, nothing observed confirms it — is
+  a legitimate answer, but it now prints a warning in the run log and renders as
+  UNVERIFIED in the plan every downstream agent reads. The pipeline builds a
+  plausible fix from a false premise as readily as from a true one; this is the
+  last cheap point to say so.
+
+### Documentation
+
+- README now points at project contracts from Getting started, where the pain
+  actually occurs — a standing rule retyped into every task ("the live database is
+  read-only") is a contract, and prose in a task is only as reliable as your memory
+  of typing it. The mechanism already existed; it was documented too far down to
+  find.
+- Documented that parallel runs with integration tests need one environment
+  variable per run for the database — worktree isolation covers files, not data.
+
 ## [2.22.1] — 2026-08-15
 
 ### Fixed

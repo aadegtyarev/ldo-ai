@@ -25,6 +25,7 @@ So the tracking file's job isn't "guarantee resume always works" — it's "know 
   {
     "runId": "wf_a1b2c3",
     "task": "add rate limiting to the API endpoints",
+    "args": { "task": "add rate limiting to the API endpoints", "security": true },
     "startedAt": "2026-07-31T14:02:00Z",
     "status": "running",
     "updatedAt": "2026-07-31T14:02:00Z"
@@ -32,13 +33,15 @@ So the tracking file's job isn't "guarantee resume always works" — it's "know 
 ]
 ```
 
+**`args` is the whole args object you passed to `Workflow`, verbatim — not a summary of it.** `resumeFromRunId` does not carry arguments: resuming means calling `Workflow` again with *both* the run id and the original `args`, and the cache only replays the prefix when the args match what produced it. `task` stays as a separate human-readable line for the operator skimming the file; `args` is what the resume call actually needs. Recording only `task` is what makes a resume look like it "lost" the arguments — flags like `security`, `research`, `isolate`, and any `config.models` override are gone, and the replayed run silently differs from the one it claims to continue.
+
 `status` is one of `running`, `approved`, `changes_requested`, `error`, `abandoned`. For a multi-feature run (`args.tasks`), one entry still — `task` becomes a short joined summary ("3 features: ...", or the count) since one Workflow call produces one `runId` covering all of them via `parallel()` internally.
 
 This file is local session state, not project data — it belongs in `.gitignore`, the same way `tags` does. `/ldo-init` adds it if the entry isn't already there.
 
 ## The protocol (what `CLAUDE.md`'s block points here for)
 
-**Right after calling `Workflow({ name: "ldo:ldo", args: {...} })`, before waiting on its result:** the tool call itself returns a `runId` immediately (the workflow runs in the background) — append an entry to `.claude/ldo-runs.json` with `status: "running"` right then. Create the file (as `[]`) first if it doesn't exist. Don't wait for the run to finish to record that it started; the whole point is surviving an interruption mid-run.
+**Right after calling `Workflow({ name: "ldo:ldo", args: {...} })`, before waiting on its result:** the tool call itself returns a `runId` immediately (the workflow runs in the background) — append an entry to `.claude/ldo-runs.json` with `status: "running"` right then — including the full `args` object you just passed, so a later session can reconstruct the call without you. Create the file (as `[]`) first if it doesn't exist. Don't wait for the run to finish to record that it started; the whole point is surviving an interruption mid-run.
 
 **When the run's result comes back:** update that entry's `status` — `"approved"` or `"changes_requested"` from the verdict, `"error"` if the result carries an `error` field — and set `updatedAt`. A finished run doesn't need to stay in the file forever, but don't delete it immediately either; keep the last handful (say, 20) so `/ldo-docs-audit`-style "what's been happening" questions have something to look at. Trim oldest resolved entries past that if the file is growing.
 
@@ -48,7 +51,7 @@ This file is local session state, not project data — it belongs in `.gitignore
 
 For each entry still marked `"running"`:
 
-1. **Try resuming first.** Call `Workflow({ name: "ldo:ldo", args: <the original args from the entry>, resumeFromRunId: <runId> })`. If the cache is live, this returns fast and picks up wherever the interrupted run left off — no re-planning, no re-coding what already passed review.
+1. **Try resuming first.** Call `Workflow({ name: "ldo:ldo", args: <the entry's `args` object, verbatim>, resumeFromRunId: <runId> })`. If the entry predates the `args` field and only has `task`, reconstruct `{ task: <task> }` and say so — flags that were on the original call can't be recovered, so the resumed run may not match it. If the cache is live, this returns fast and picks up wherever the interrupted run left off — no re-planning, no re-coding what already passed review.
 2. **If that errors or the run ID doesn't resolve** (new/different session, cache expired), that's expected, not a failure to report as broken — mark the entry `"abandoned"` and tell the operator plainly: "a run for '<task>' was interrupted and the cache isn't reachable from this session; re-running it from scratch" — then start it fresh as a normal `/ldo:ldo` call, which will log its own new entry.
 3. **Don't do this silently.** Whichever path it takes, say so — resumed-from-cache and started-fresh are different enough outcomes (one skips real work, one redoes it) that the operator should know which happened, especially if it costs tokens either way.
 

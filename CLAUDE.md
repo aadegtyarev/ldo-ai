@@ -13,8 +13,9 @@ what doesn't need it, and don't hand-edit around it for what does.
 
 **Track every pipeline call in `.claude/ldo-runs.json`** so an interrupted run can
 resume instead of restarting cold — see `/ldo-resume` for the exact protocol
-(record the `runId` right after calling, update its status when the result
-comes back). At the start of this session, before anything else, check that file
+(record the `runId` *and the full `args` object* right after calling, update its
+status when the result comes back; resuming needs both, the run id alone doesn't
+carry the arguments). At the start of this session, before anything else, check that file
 for entries still marked `running` — an earlier session may have been
 interrupted mid-run. If any exist, follow `/ldo-resume`'s recovery steps rather
 than leaving them unmentioned.
@@ -50,5 +51,10 @@ the list. Offer; don't run either unasked.
 - /ldo-feedback — structured, redacted bug reports filed as GitHub issues
 - complex: coder→opus, reviewer→fable (sonnet fallback when fable is off-route)
 - redact.sh pipe mode fixed — was silently emitting empty output
+- approved verdict now carries NOT PROVEN when a criterion was skipped
+- reviewer/coder can slice a test suite past the 10-minute tool ceiling
+- recorder claims report filenames atomically (parallel runs collided)
+- ldo-runs.json stores full args so resume doesn't drop flags
+- planner rates problem_evidence — asserted premises surface as UNVERIFIED
 <!-- /ldo:features -->
 <!-- END ldo -->

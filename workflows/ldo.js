@@ -63,6 +63,20 @@ const PLAN_SCHEMA = {
         required: ['what', 'files', 'acceptance'],
       },
     },
+    problem_evidence: {
+      type: 'object',
+      description: 'What observation shows the problem is real. A task that cannot answer this is a guess, and the pipeline builds guesses as readily as it builds fixes.',
+      properties: {
+        basis: {
+          type: 'string',
+          enum: ['measured', 'reported', 'inspected', 'asserted'],
+          description: 'measured = a number/output in hand; reported = a user or log reported it; inspected = read the code and the defect is visible there; asserted = the task says so and nothing else confirms it',
+        },
+        evidence: { type: 'string', description: 'The specific observation — the failing output, the log line, the code path. Empty when basis is asserted.' },
+        confirms: { type: 'string', description: 'What measurement would show the change worked. Must be observable, not "the code is better".' },
+      },
+      required: ['basis'],
+    },
     risks: { type: 'array', items: { type: 'string' } },
     rollback_plan: { type: 'string' },
     worktree_path: { type: 'string', description: 'Populated only in multi-feature mode — the exact path the Planner cd\'d into' },
@@ -235,6 +249,14 @@ function renderPlan(plan) {
     lines.push(`   Files: ${s.files.join(', ')}`)
     lines.push(`   Accept: ${s.acceptance}`)
   })
+  const pe = plan.problem_evidence
+  if (pe?.basis) {
+    lines.push('', '### Why we believe this problem is real')
+    lines.push(pe.basis === 'asserted'
+      ? 'UNVERIFIED — the task asserts this problem; nothing observed confirms it. Treat the premise as unproven, not as established fact.'
+      : `${pe.basis}${pe.evidence ? ` — ${pe.evidence}` : ''}`)
+    if (pe.confirms) lines.push(`Confirmed by: ${pe.confirms}`)
+  }
   if (plan.risks?.length) {
     lines.push('', '### Risks')
     plan.risks.forEach(r => lines.push(`- ${r}`))
@@ -371,6 +393,35 @@ async function agentWithRetry(prompt, opts, attempts = 2) {
 // still catches things; no review is what a run can't recover from.
 const REVIEWER_FALLBACK = { fable: 'sonnet' }
 
+function logUnproven(verdict, logPrefix) {
+  if (!verdict.unproven?.length) return
+  log(`${logPrefix}  ⚠ NOT PROVEN — ${verdict.unproven.length} criterion(s) skipped, over to you:`)
+  verdict.unproven.forEach(c => log(`${logPrefix}    ○ ${c}`))
+}
+
+// A criterion the Reviewer marked `skipped` is work handed back to the operator —
+// typically the one check too expensive to finish inside a single tool call. Nothing
+// in VERDICT_SCHEMA couples that to `status`, so a verdict could come back `approved`
+// with its most expensive criterion silently unproven, and the word "approved" carried
+// no sign of it. Couple them here rather than asking the Reviewer to self-report: an
+// omission is exactly what a model is least reliable at volunteering.
+function markUnproven(verdict) {
+  const unproven = (verdict.verification?.criteria || []).filter(c => c.status === 'skipped')
+  if (!unproven.length) return verdict
+
+  const names = unproven.map(c => c.criterion)
+  return {
+    ...verdict,
+    verification: {
+      ...verdict.verification,
+      // 'verified' asserts every criterion was proven; a skip makes that false.
+      verdict: verdict.verification.verdict === 'failed' ? 'failed' : 'partial',
+    },
+    unproven: names,
+    summary: `${verdict.summary}\n\nNOT PROVEN — ${names.length} criterion(s) skipped, left for the operator to run: ${names.join('; ')}`,
+  }
+}
+
 async function agentWithModelFallback(prompt, opts, fallbackModel) {
   if (!fallbackModel) return agent(prompt, opts)
   try {
@@ -495,6 +546,14 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
   if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch})`)
   if (surface !== 'none' && plan.security_notes?.length) {
     plan.security_notes.forEach(n => log(`${logPrefix}  ⚠ ${n}`))
+  }
+  // A task nobody can point to evidence for is the pipeline's blind spot: it builds
+  // a plausible fix for a problem that may not exist, and every downstream agent
+  // treats the premise as settled. Surface it here — the operator is the only one
+  // who can tell "no evidence yet" apart from "no problem".
+  if (plan.problem_evidence?.basis === 'asserted') {
+    log(`${logPrefix}  ⚠ Premise unverified: nothing observed confirms this problem is real — the plan takes the task's word for it.`)
+    if (plan.problem_evidence.confirms) log(`${logPrefix}    Would be confirmed by: ${plan.problem_evidence.confirms}`)
   }
   log(`${logPrefix}Plan: ${plan.steps.length} step(s), ${plan.codebase_context?.relevant_files?.length || 0} files mapped`)
   plan.steps.forEach(s => log(`${logPrefix}  • ${s.what}`))
@@ -622,8 +681,9 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     }
 
     if (verdict.status === 'approved') {
-      finalVerdict = verdict
+      finalVerdict = markUnproven(verdict)
       log(`${logPrefix}✓ APPROVED — ${verdict.summary}`)
+      logUnproven(finalVerdict, logPrefix)
       break
     }
 
@@ -634,8 +694,9 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     lastIssues.forEach(iss => log(`${logPrefix}  [${iss.severity}] ${iss.file}: ${iss.what}`))
 
     if (blocking.length === 0) {
-      finalVerdict = { ...verdict, status: 'approved', summary: `${verdict.summary} (${advisory.length} advisory issue(s) left unfixed)` }
+      finalVerdict = markUnproven({ ...verdict, status: 'approved', summary: `${verdict.summary} (${advisory.length} advisory issue(s) left unfixed)` })
       log(`${logPrefix}✓ APPROVED — no blocking issues remain`)
+      logUnproven(finalVerdict, logPrefix)
       break
     }
 
@@ -724,6 +785,7 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
     branch: plan.branch || null,
     verdict: finalVerdict,
     verification: finalVerdict.verification?.verdict || 'not_run',
+    unproven: finalVerdict.unproven || [],
     attacks: finalVerdict.attacks || [],
     stats: {
       complexity: plan.complexity,

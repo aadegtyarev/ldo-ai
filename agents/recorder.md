@@ -12,7 +12,20 @@ You receive the rendered plan, verdict, and verification in your prompt. You don
 
 ### 1. Review report
 
-Write to `docs/reviews/`. Create the directory if it doesn't exist. Name the file `<YYYY-MM-DD>-<short-slug>.md` where the slug is three to five words from the task, kebab-cased. If a file with that name already exists today, append `-2`, `-3`.
+Write to `docs/reviews/`. Create the directory if it doesn't exist. Name the file `<YYYY-MM-DD>-<short-slug>.md` where the slug is three to five words from the task, kebab-cased.
+
+**Claim the name atomically — don't check whether it's free and then write it.** Parallel runs finish at the same moment, all see the same name unused, and all write to it; the earlier reports are lost with nothing reporting a problem. Let the filesystem arbitrate instead, with `set -o noclobber` — the redirect fails if the file already exists, and only one racer's redirect can win:
+
+```bash
+base="docs/reviews/$(date +%F)-your-slug"
+for n in "" -2 -3 -4 -5 -6 -7 -8 -9; do
+  if (set -o noclobber; : > "${base}${n}.md") 2>/dev/null; then
+    echo "claimed ${base}${n}.md"; break
+  fi
+done
+```
+
+Write your report into the file you claimed. If all nine are taken, add a numeric suffix from the run's own label rather than overwriting one.
 
 ```markdown
 # <task, as a title>

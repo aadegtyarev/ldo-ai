@@ -34,7 +34,35 @@ Reading is not proof. For each acceptance criterion in the plan:
 
 Use the `run_command` and `test_command` from the plan's context. Start the app in the background if it's a server (a long-lived process you'll poll or curl against, then stop) — that's a different thing from `run_in_background: true` on a command you're actually waiting to *finish*. For anything you need the result of — a test suite, a build, a one-shot check — run it in the foreground and let the call block. You're a subagent: you don't get an async notification when a backgrounded command completes, even though the top-level session does. Backgrounding something you're waiting on produces an idle loop of no-op polling with no notification ever arriving to end it — run it foreground with a generous timeout instead.
 
-Evidence is mandatory. A criterion is `passed` only when you have captured output showing it. If you cannot drive one — needs production credentials, an unavailable service — mark it `skipped` with the reason. Never mark something `passed` because the code looks like it should work.
+### When the suite outlives one tool call
+
+A single Bash call cannot exceed ten minutes — that's the tool's hard ceiling (`timeout` maxes at 600000 ms), not a budget you can raise. A real integration suite can run longer than that. **Running out of ceiling is not a reason to skip the suite.** Detach it and wait in slices:
+
+```bash
+# Start it detached, capture pid, and persist the exit code — a detached process
+# can't be `wait`ed from a later shell, so the rc has to be written down.
+nohup bash -c 'YOUR_TEST_COMMAND; echo $? > /tmp/suite.rc' > /tmp/suite.log 2>&1 &
+echo $! > /tmp/suite.pid
+```
+
+Then block on it, one call at a time, until it exits:
+
+```bash
+PID=$(cat /tmp/suite.pid)
+timeout 590 tail --pid="$PID" -f /dev/null; echo "rc=$?"   # 0 = finished, 124 = still going
+```
+
+`rc=124` means take another slice — repeat the same call. This blocks on the process rather than polling it, so it is *not* the no-op loop the rule above forbids: each call either returns because the suite finished or burns its full slice waiting. A seventeen-minute suite costs two calls. When it exits, read the real result:
+
+```bash
+echo "exit=$(cat /tmp/suite.rc)"; tail -40 /tmp/suite.log
+```
+
+The suite's own exit code is what decides `passed` / `failed` — a slice returning 0 only tells you the process ended, not that it ended green.
+
+Evidence is mandatory. A criterion is `passed` only when you have captured output showing it. If you genuinely cannot drive one — needs production credentials, an unavailable service, hardware you don't have — mark it `skipped` with the reason. **"It takes too long for one call" is not such a reason; use the slicing above.** Never mark something `passed` because the code looks like it should work.
+
+A `skipped` criterion is work you are handing back to the operator, and the pipeline treats it that way: any skip forces `verification.verdict` down to `partial` and prints the criterion as unproven, whatever `status` you return. So skip honestly and say why — but skip only when there is genuinely no way to run it.
 
 A test that's green on both the old and the new code proves nothing — it never exercised the fix. For each test the Coder added or changed to cover this change, prove it actually catches the defect:
 

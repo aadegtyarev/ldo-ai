@@ -99,6 +99,8 @@ The Planner rates the task, and that rating decides what runs. A refactor with n
 
 **It edits your working tree.** Once you approve the run, the Coder writes files and the Reviewer runs your app; neither stops to ask. Nothing is committed and no branch is created — you're left with uncommitted changes to inspect. Start on a clean tree, or a branch you don't mind resetting. If you'd rather it not touch your tree at all, pass `isolate: true` — the run happens in its own worktree (`.worktrees/<slug>` on branch `ldo/<slug>`) and leaves your working tree untouched.
 
+**A rule that must hold on every run doesn't belong in the task text.** If you find yourself retyping "the live database is read-only", "don't touch the pinned production worktree", or "check no other run is in flight" into task after task, that's a [project contract](#project-contracts) — record it once with `/ldo-contract` and the Planner and Reviewer enforce it on every run, with a violation rated `critical` automatically. Prose in a task is only as reliable as your memory of typing it.
+
 **For a big or uncertain change**, opt the extra phases in:
 
 ```
@@ -138,6 +140,8 @@ Workflow({name:"ldo:ldo", args:{
 ```
 
 Each feature's Planner creates its own worktree (`.worktrees/<n>-<slug>` on branch `ldo/<n>-<slug>`) before reading the codebase, and every later agent in that feature's chain works inside it — features never see each other's changes. This is comparable to several developers on separate branches: conflicts get resolved as routine at merge time, not solved architecturally by the orchestrator. Each approved feature ships independently — run `/ldo-ship` from inside that feature's worktree, where it's already on the right branch.
+
+**If the features run integration tests against a real database**, worktree isolation covers the files but not the data — two runs migrating and truncating the same database will corrupt each other's results, and the failures look like flaky tests rather than interference. You don't need anything elaborate: give each run its own database via whatever environment variable your test setup already reads, and the file isolation handles the rest. Record it as a code contract (`/ldo-contract`) so the Coder and Reviewer set it on every run instead of you remembering to mention it.
 
 Starting a project from nothing is a conversation, not a pipeline — use `/ldo-bootstrap "your idea"` for that. It researches prior art, works through the stack with you, and hands the first task to `/ldo:ldo`.
 

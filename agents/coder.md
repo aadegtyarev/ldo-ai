@@ -39,6 +39,17 @@ Run them after each meaningful step, not once at the end. A failure three steps 
 
 **Run the test suite in the foreground and let the tool call block until it returns.** You're a subagent — you do not get an async notification when a background command finishes, even though the top-level session does. Starting the suite with `run_in_background: true` and then waiting for a notification that will never reach you is a real failure mode: it produces an idle loop of no-op tool calls until something else kills the run. If a command genuinely takes a long time (a full suite, an integration test), that's a reason to run it foreground with a generous timeout, not a reason to background it.
 
+One Bash call cannot exceed ten minutes — that's the tool's hard ceiling (`timeout` maxes at 600000 ms). If the suite runs longer, don't skip it and don't leave it unrun: detach it and block in slices.
+
+```bash
+nohup bash -c 'YOUR_TEST_COMMAND; echo $? > /tmp/suite.rc' > /tmp/suite.log 2>&1 &
+echo $! > /tmp/suite.pid
+# then, one call at a time until rc is 0 rather than 124:
+timeout 590 tail --pid="$(cat /tmp/suite.pid)" -f /dev/null; echo "rc=$?"
+```
+
+This blocks on the process instead of polling it, so it isn't the idle-loop failure above. When it exits, `cat /tmp/suite.rc` is the suite's real exit code — that, not the slice's rc, is what tells you whether it passed.
+
 At the end, run the full suite. Distinguish failures you introduced from ones that were already broken.
 
 ### 4. Handle the security notes

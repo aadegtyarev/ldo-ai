@@ -36,8 +36,9 @@ what doesn't need it, and don't hand-edit around it for what does.
 
 **Track every pipeline call in `.claude/ldo-runs.json`** so an interrupted run can
 resume instead of restarting cold — see `/ldo-resume` for the exact protocol
-(record the `runId` right after calling, update its status when the result
-comes back). At the start of this session, before anything else, check that file
+(record the `runId` *and the full `args` object* right after calling, update its
+status when the result comes back; resuming needs both, the run id alone doesn't
+carry the arguments). At the start of this session, before anything else, check that file
 for entries still marked `running` — an earlier session may have been
 interrupted mid-run. If any exist, follow `/ldo-resume`'s recovery steps rather
 than leaving them unmentioned.
