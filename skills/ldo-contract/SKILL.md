@@ -42,7 +42,29 @@ A contract is a rule an agent can check against a diff or a plan, not a wish. Wr
 Bad: "be secure"
 Good: "no raw SQL string concatenation — only parameterized queries or the query builder"
 
-Keep each entry to one or two lines. If it needs a paragraph to state, it's probably two contracts.
+Four disciplines keep an entry cheap to read on every run without losing what makes it checkable:
+
+**(i) Rule, not reasoning, target ≤200 characters, one line.** The contract file is re-rendered into the Planner's and Reviewer's prompt on every run that touches its area — the rule is read every time, the reasoning behind it is read once, when the operator decided it. State the imperative, checkable rule; leave the "why we decided this" out of the line entirely.
+
+**(ii) Reference, don't restate, when the rule already lives somewhere.** When the rule already exists as an agent instruction (`agents/*.md`) or in another doc, the contract's job isn't to repeat it — it's to point at it and declare the enforcement the contract adds (what severity a violation gets, who checks it). Worked example, this repo's own error-swallowing entry:
+
+Before (628 characters, restates the rule agents/coder.md already states):
+```
+- [2026-08-01] Never swallow an error silently. A caught exception is handled only when the caller can tell what happened — logged with enough context to act on, rethrown, or turned into a typed result the caller checks. `catch { }`, `catch (e) { return null }` with no logging, and `except: pass` are not error handling. If a specific, expected failure is genuinely safe to ignore, say so at the point where it's ignored — one line on why — so it reads as a decision, not an oversight. (Source: `agents/coder.md`; the two `catch` blocks in `workflows/ldo.js` already follow this — both log and return an explicit error object.)
+```
+
+After (~170 characters, references instead):
+```
+- [2026-08-01] Never swallow an error silently — see agents/coder.md, "Never swallow an error silently", for what counts as handled. A violation is blocking `critical`, not a nit.
+```
+
+Checkability is unchanged: the definition of "handled" is one reference away, exactly as precise as before, and the enforcement — `critical`, not a nit — is now stated explicitly, which the long version never actually said.
+
+**(iii) Provenance moves to a `## Sources` section, out of the rule line.** Not because an agent reading the file skips it — it's because the Planner copies contract text verbatim into `risks` (`agents/planner.md`, step 1.7's carry-forward instruction) and from there it's re-rendered into every downstream prompt for the rest of the run. A `(Source: …)` tail welded to the rule line gets multiplied by every pass that carries it forward; a separate section at the bottom of the file never leaves the file. Put it there instead, keyed by the entry's date and first few words — one file per area is preserved, so the operator still audits everything in place.
+
+**(iv) Price it.** This repo's own `docs/contracts/` — 4 entries, ~1935 characters — costs roughly 452 tokens read into the Planner's and Reviewer's prompt on every run that touches code or scope, with the old `(Source: …)` tails accounting for 14-23% of each file's bytes. That's a recurring cost paid every run, not a one-time style preference — worth trimming for the same reason `renderPlanCompact` exists at all.
+
+Keep each entry to one line. If it needs a paragraph to state, it's probably two contracts.
 
 ### 4. Append
 
@@ -111,3 +133,7 @@ If a contract is retired outright, mark it rather than deleting it — `~~struck
 - One contract per line. Don't bundle three rules into one bullet.
 - Classify honestly. A scope boundary checked only by Security won't catch a Planner writing a plan that violates it before Security ever sees it.
 - Don't write contracts for things `conventions` already covers (naming, formatting, general style) — this is for rules with teeth, not preferences.
+- Target ≤200 characters per entry: the rule, not the reasoning behind it.
+- When the rule already exists as an agent instruction or another doc, reference it and state the enforcement the contract adds — don't restate it.
+- Provenance goes in a trailing `## Sources` section, keyed by date and first few words — never in the rule line itself.
+- A contract file's byte cost is paid on every run that touches its area; that's a reason to keep entries short, not an afterthought.

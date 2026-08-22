@@ -160,6 +160,7 @@ const VERDICT_SCHEMA = {
           severity: { type: 'string', enum: ['critical', 'major', 'minor', 'nit'] },
           what: { type: 'string' },
           suggestion: { type: 'string' },
+          introduced_by_fix: { type: 'boolean', description: 'True only when this defect is a consequence of the fix just made — code the Coder wrote or changed in this pass. Leave it off for anything pre-existing.' },
         },
         required: ['file', 'severity', 'what', 'suggestion'],
       },
@@ -334,6 +335,28 @@ function renderMigrations(plan) {
     `Identifiers: ${(plan.migrations.identifiers || []).join(', ') || '(none listed)'}`,
     'Create exactly these. If you find you need a number that is not on this list, stop and say so in `deviations` — do not take the next free one. In a parallel run another feature already owns it, and two migrations with the same number have undefined apply order.',
   ].join('\n')
+}
+
+// renderPlanCompact deliberately carries only `what`/`files` because a fix
+// pass is narrow, but agents/planner.md:30 tells the Planner to carry project
+// contracts verbatim into `risks` or a step's `acceptance` — so the compact
+// renderer dropped exactly the text agents/reviewer.md:142 makes an
+// always-`critical` blocking check, letting a fix pass manufacture a contract
+// violation the Coder cannot see the rule for. Separate from renderPlan for
+// the same reason renderMigrations is: the fix passes must not pay for the
+// full plan.
+function renderConstraints(plan) {
+  const lines = []
+  const withAcceptance = (plan.steps || []).filter(s => s.acceptance)
+  if (withAcceptance.length) {
+    lines.push('', '### Acceptance criteria (from the plan — unchanged by a fix pass)')
+    withAcceptance.forEach((s, i) => lines.push(`${i + 1}. ${s.what} — ${s.acceptance}`))
+  }
+  if (plan.risks?.length) {
+    lines.push('', '### Risks and project contracts (verbatim from the plan)')
+    plan.risks.forEach(r => lines.push(`- ${r}`))
+  }
+  return lines.join('\n')
 }
 
 function renderPlanCompact(plan) {
@@ -514,6 +537,61 @@ function markUnproven(verdict) {
     },
     unproven: names,
     summary: `${verdict.summary}\n\nNOT PROVEN — ${names.length} criterion(s) skipped, left for the operator to run: ${names.join('; ')}`,
+  }
+}
+
+// The first review is the full-scrutiny gate; a fix pass is narrow by
+// construction — it only asked the Coder to touch specific files, so a fresh
+// `major` the Reviewer didn't attribute to that work is a pre-existing defect,
+// not a regression. Restarting the loop for it is how a run stops being able
+// to finish: the field case was a feature never approved across three rounds
+// despite each round's own prose saying the work was done. Decided here rather
+// than asked of the Reviewer, same reason as markUnproven — an omission
+// (forgetting to mark `introduced_by_fix`) is what a model is least reliable
+// at volunteering, and a conscientious model will over-mark rather than
+// under-mark if the incentive is "mark it or it gets ignored". A regression
+// the fix actually caused keeps its severity and still blocks; a re-raised
+// issue from the verification list is untouched; first-pass reviews never
+// call this at all.
+// Returns { verdict, downgraded } rather than a verdict alone. `downgraded` is
+// a Map from issue key to the pass number that downgraded it, computed here by
+// the orchestrator from what THIS call actually did — it is the only thing any
+// downstream blocking test or report may consult. Nothing downstream reads a
+// field off the issue objects themselves: `advisory` and `downgrade_reason`
+// live on model-authored JSON (a Reviewer verdict, not orchestrator state) and
+// are not in VERDICT_SCHEMA, so a Reviewer is free to write them in. They are
+// stripped from every issue here and re-set only on the ones this function
+// downgrades, so the raw verdict an operator reads can't carry a self-declared
+// dismissal either.
+function downgradeUnrelatedFindings(verdict, sentIssues, iteration) {
+  const sentKeys = new Set(sentIssues.map(i => `${i.file}::${i.what}`))
+  const names = []
+  const downgraded = new Map()
+
+  const issues = (verdict.issues || []).map(raw => {
+    const { advisory, downgrade_reason, ...iss } = raw
+    const isBlockingSeverity = BLOCKING_SEVERITIES.includes(iss.severity)
+    const key = `${iss.file}::${iss.what}`
+    const wasSent = sentKeys.has(key)
+    // Strict === true, not truthy — a Reviewer that marks everything true
+    // keeps the loop blocking (fail-safe), never bypasses it; a stray string
+    // must not widen the check.
+    if (!isBlockingSeverity || wasSent || iss.introduced_by_fix === true) return iss
+
+    names.push(`[${iss.severity}] ${iss.file}: ${iss.what}`)
+    downgraded.set(key, iteration)
+    return { ...iss, advisory: true, downgrade_reason: `new in fix pass ${iteration}, not marked introduced_by_fix` }
+  })
+
+  if (!names.length) return { verdict: { ...verdict, issues }, downgraded }
+
+  return {
+    verdict: {
+      ...verdict,
+      issues,
+      summary: `${verdict.summary}\n\nDOWNGRADED TO ADVISORY — ${names.length} issue(s) new in this fix pass, not on the verification list and not marked introduced_by_fix: ${names.join('; ')}`,
+    },
+    downgraded,
   }
 }
 
@@ -775,11 +853,25 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
   let iteration = 0
   let reviewIssues = []
   let finalVerdict = null
+  let lastVerdict = null
   let lastIssues = []
   // Issues sent to a fix pass that the next review did NOT re-raise — kept so
   // an exhausted run can say "these were closed, these remain" instead of
   // handing back an undifferentiated refusal the operator has to re-diff.
   const resolvedIssues = []
+  // Distinct issues downgraded across the whole run, keyed by `${file}::${what}`
+  // (same identity as downgradeUnrelatedFindings) — a Set, not a counter, so a
+  // pre-existing finding re-raised on every fix pass is still one entry, not one
+  // per pass it survived. Used ONLY for the exhausted-run summary's distinct
+  // count; it must never reach the report, because `finalVerdict.issues` is
+  // always the LAST pass's issues and only the last pass's decision describes
+  // them (see lastDowngraded below).
+  const downgradedKeys = new Set()
+  // The last completed pass's downgrade decision — key → the pass that made it.
+  // This is what phaseRecord annotates from: an issue downgraded on pass 1 and
+  // re-raised on pass 2 with `introduced_by_fix: true` is blocking now, and a
+  // report built from the run-lifetime Set would label it advisory anyway.
+  let lastDowngraded = new Map()
 
   while (iteration < MAX_FIX_LOOPS) {
     const isFirstPass = iteration === 0
@@ -791,7 +883,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     // triple the cost of a multi-round fix for no proportional benefit.
     const coderPrompt = isFirstPass
       ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
-      : WORKTREE_BLOCK + `Fix the review issues below. Narrow pass — touch only these files. Don't leave a comment narrating the fix ("changed X to Y because the reviewer flagged Z") — the why belongs in your summary, not in the code.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}`
+      : WORKTREE_BLOCK + `Fix the review issues below. Narrow pass — touch only these files. Don't leave a comment narrating the fix ("changed X to Y because the reviewer flagged Z") — the why belongs in your summary, not in the code.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}`
 
     const coderLabel = isFirstPass ? 'coder' : `coder-fix-${iteration}`
     const coderResult = await agent(coderPrompt, {
@@ -816,7 +908,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
     const reviewerPrompt = isFirstPass
       ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
-      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderMigrations(plan)}`
+      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}${renderMigrations(plan)}`
 
     const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
     const rawVerdict = await agentWithModelFallback(reviewerPrompt, {
@@ -831,8 +923,39 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       log(`${logPrefix}ERROR: Reviewer failed.`)
       return { error: 'Reviewer failed', plan, label: ctx.label, task }
     }
-    const verdict = enforceMigrationGate(rawVerdict, plan)
-    if (verdict !== rawVerdict) {
+
+    // A `null` or non-object entry in the Reviewer's array used to abort the
+    // whole feature on the first property access. Drop them here — before any
+    // other stage touches the verdict — rather than guarding every read
+    // downstream. This is the first thing done to a raw verdict for a reason:
+    // downgradeUnrelatedFindings destructures every entry.
+    {
+      const raw = rawVerdict.issues || []
+      const clean = raw.filter(i => i && typeof i === 'object')
+      if (clean.length !== raw.length) {
+        log(`${logPrefix}  ⚠ Dropped ${raw.length - clean.length} malformed issue entr(ies) from the verdict`)
+      }
+      rawVerdict.issues = clean
+    }
+
+    // Must run before enforceMigrationGate: the gate injects a `critical`
+    // issue that is by construction neither on the sent list nor marked
+    // introduced_by_fix, and downgrading it after the fact would silently
+    // disable the gate.
+    const { verdict: downgradedVerdict, downgraded: newlyDowngraded } = isFirstPass
+      ? { verdict: rawVerdict, downgraded: new Map() }
+      : downgradeUnrelatedFindings(rawVerdict, reviewIssues, iteration)
+    lastDowngraded = newlyDowngraded
+    if (newlyDowngraded.size) {
+      (downgradedVerdict.issues || [])
+        .filter(iss => newlyDowngraded.has(`${iss.file}::${iss.what}`))
+        .forEach(iss => {
+          downgradedKeys.add(`${iss.file}::${iss.what}`)
+          log(`${logPrefix}  ⚠ DOWNGRADED TO ADVISORY [was ${iss.severity}] ${iss.file}: ${iss.what} (new in fix pass ${newlyDowngraded.get(`${iss.file}::${iss.what}`)}, not marked introduced_by_fix)`)
+        })
+    }
+    const verdict = enforceMigrationGate(downgradedVerdict, plan)
+    if (verdict !== downgradedVerdict) {
       log(`${logPrefix}✗ Migration gate: ${verdict.migrations_check?.status || rawVerdict.migrations_check?.status || 'missing check'}`)
     } else if (plan.migrations?.count > 0 && verdict.migrations_check?.status === 'ok') {
       log(`${logPrefix}✓ Migration numbering verified: ${verdict.migrations_check.evidence || 'no collision, count matches'}`)
@@ -871,6 +994,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       broke.forEach(a => log(`${logPrefix}  ✗ ${a.vector}`))
     }
 
+    lastVerdict = verdict
     lastIssues = verdict.issues || []
 
     // Anything we sent to this pass that the review didn't re-raise is closed.
@@ -889,8 +1013,18 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       break
     }
 
-    const blocking = lastIssues.filter(i => BLOCKING_SEVERITIES.includes(i.severity))
-    const advisory = lastIssues.filter(i => !BLOCKING_SEVERITIES.includes(i.severity))
+    // A downgraded issue keeps its original severity but no longer counts as
+    // blocking — see downgradeUnrelatedFindings above. The test trusts
+    // `newlyDowngraded`, this pass's own decision, never the `advisory` field
+    // on the issue itself (that field arrives on the Reviewer's own verdict
+    // JSON and is not part of VERDICT_SCHEMA, so nothing stops a Reviewer from
+    // writing it in to bypass the loop) and never the run-lifetime
+    // `downgradedKeys` Set — a downgrade decided on one pass must not bind a
+    // later pass where the Reviewer re-raises the same finding with
+    // `introduced_by_fix: true`.
+    const isBlocking = i => BLOCKING_SEVERITIES.includes(i.severity) && !newlyDowngraded.has(`${i.file}::${i.what}`)
+    const blocking = lastIssues.filter(isBlocking)
+    const advisory = lastIssues.filter(i => !isBlocking(i))
 
     log(`${logPrefix}✗ ${lastIssues.length} issue(s): ${blocking.length} blocking, ${advisory.length} advisory`)
     lastIssues.forEach(iss => log(`${logPrefix}  [${iss.severity}] ${iss.file}: ${iss.what}`))
@@ -914,15 +1048,25 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     }
     log(`${logPrefix}  Still open (${lastIssues.length}):`)
     lastIssues.forEach(iss => log(`${logPrefix}    ✗ [${iss.severity}] ${iss.file}: ${iss.what}`))
-    finalVerdict = {
+    finalVerdict = markUnproven({
       status: 'changes_requested',
-      summary: `Max ${MAX_FIX_LOOPS} fix iterations reached. ${resolvedIssues.length} issue(s) were closed along the way; the 'issues' list holds only what's still open — often small enough to fix by hand rather than re-running the pipeline.`,
+      summary: `Max ${MAX_FIX_LOOPS} fix iterations reached. ${resolvedIssues.length} issue(s) were closed along the way; the 'issues' list holds only what's still open — often small enough to fix by hand rather than re-running the pipeline.${downgradedKeys.size ? ` ${downgradedKeys.size} issue(s) were downgraded to advisory along the way (new in a fix pass, not attributed to it).` : ''}`,
       issues: lastIssues,
       resolved_issues: resolvedIssues,
-    }
+      // Carried from the last real verdict — the Recorder's VERIFICATION and
+      // ATTACKS sections read straight off this object, and an exhausted run
+      // still has three rounds of falsification evidence worth writing down.
+      verification: lastVerdict?.verification,
+      attacks: lastVerdict?.attacks,
+      // Explicit rather than inferred from resolved_issues' presence — see
+      // phaseRecord, which branches its prompt on this flag rather than
+      // guessing the run's outcome from what else happens to be on the verdict.
+      loops_exhausted: true,
+    })
+    logUnproven(finalVerdict, logPrefix)
   }
 
-  return { finalVerdict, iteration }
+  return { finalVerdict, iteration, downgraded: lastDowngraded }
 }
 
 // ── phaseRecord ────────────────────────────
@@ -948,14 +1092,61 @@ function verifyRecordLocation(recordResult, plan, ctx) {
 // script itself, because the script has no filesystem access — only agents
 // it spawns can read/write, so persisting anything to disk has to go through
 // an agent call even when the "work" is just rendering already-known data.
-async function phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix) {
-  if (!approved || plan.complexity === 'trivial') {
+async function phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded) {
+  if ((!approved && finalVerdict.loops_exhausted !== true) || plan.complexity === 'trivial') {
     return { recordMisplaced: false }
   }
 
   logStage('Record')
 
-  const recordPrompt = WORKTREE_BLOCK + `Persist this run's results to the repo. Write the review report with full evidence, update the architecture doc, and create backlog items for anything unfixed.
+  // The never-approved field case left no artifact at all — three rounds of
+  // falsification evidence, criteria proven and attacks run, none of it
+  // written down — and the operator had to read raw verdicts to decide the
+  // work was mergeable, which is exactly the decision this pass exists to
+  // hand them. But the run isn't final, so unlike the approved path this must
+  // not touch the architecture doc: it must not describe something that may
+  // never land.
+  const notApproved = !approved
+  const opening = notApproved
+    ? `Persist this run's results to the repo. The fix loop was exhausted before the work was approved. Write the review report with full evidence, marked NOT APPROVED, and create backlog items for the issues still open. Skip the architecture-map step entirely — the change is not final and that map must not describe something that may never land.`
+    : `Persist this run's results to the repo. Write the review report with full evidence, update the architecture doc, and create backlog items for anything unfixed.`
+
+  const verdictLine = notApproved
+    ? `${finalVerdict.status.toUpperCase()} — NOT APPROVED — max fix iterations reached — ${finalVerdict.summary}`
+    : `${finalVerdict.status.toUpperCase()} — ${finalVerdict.summary}`
+
+  // A downgraded issue keeps its original severity so the rating survives into
+  // the report, but the report must say so — otherwise a downgraded `critical`
+  // reads identically to one still holding the loop. Every part of the
+  // annotation is composed here from `downgraded`, the orchestrator's own Map
+  // of what the LAST pass downgraded. Nothing is read off the issue object:
+  // `advisory` and `downgrade_reason` are not in VERDICT_SCHEMA, so a Reviewer
+  // can write whatever it likes there, and this text lands verbatim in a
+  // persisted report an operator reads to decide whether to merge. The Map is
+  // the last pass's, not the run's, because `finalVerdict.issues` is the last
+  // pass's issues — a key downgraded on pass 1 and re-raised as blocking on
+  // pass 2 must not read as advisory here.
+  // One issue is always one line: model-authored text is newline-collapsed so
+  // it cannot forge a `## SECTION` header in the prompt below.
+  const oneLine = x => String(x ?? '').replace(/\s*\n\s*/g, ' ')
+  const renderIssue = iss => {
+    // Look up on the raw key — the Map was built from the unmodified strings;
+    // collapsing before lookup would miss any issue whose text has a newline.
+    const pass = downgraded.get(`${iss.file}::${iss.what}`)
+    const note = pass === undefined ? '' : ` (advisory — new in fix pass ${pass}, not attributed to it)`
+    return `[${oneLine(iss.severity)}] ${oneLine(iss.file)}: ${oneLine(iss.what)}${note} → ${oneLine(iss.suggestion)}`
+  }
+
+  const issuesBlock = notApproved
+    ? `## ISSUES STILL OPEN
+${(finalVerdict.issues || []).map(renderIssue).join('; ') || 'none'}
+
+## ISSUES CLOSED ALONG THE WAY
+${(finalVerdict.resolved_issues || []).map(iss => `[${oneLine(iss.severity)}] ${oneLine(iss.file)}: ${oneLine(iss.what)} (closed in pass ${oneLine(iss.resolved_in_pass)})`).join('\n') || 'none'}`
+    : `## ISSUES
+All: ${(finalVerdict.issues || []).map(renderIssue).join('; ') || 'none'}`
+
+  const recordPrompt = WORKTREE_BLOCK + `${opening}
 
 ## TASK
 ${task}
@@ -964,7 +1155,7 @@ ${task}
 ${renderPlan(plan)}
 
 ## VERDICT
-${finalVerdict.status.toUpperCase()} — ${finalVerdict.summary}
+${verdictLine}
 
 ## VERIFICATION
 ${(finalVerdict.verification?.criteria || []).map((c, i) => `${i + 1}. [${c.status}] ${c.criterion}\n   Evidence: ${c.evidence || '(none)'}`).join('\n')}
@@ -972,8 +1163,7 @@ ${(finalVerdict.verification?.criteria || []).map((c, i) => `${i + 1}. [${c.stat
 ## ATTACKS
 ${(finalVerdict.attacks || []).map((a, i) => `${i + 1}. [${a.outcome}] ${a.vector}\n   Evidence: ${a.evidence || '(none)'}`).join('\n')}
 
-## ISSUES
-All: ${(finalVerdict.issues || []).map(iss => `[${iss.severity}] ${iss.file}: ${iss.what} → ${iss.suggestion}`).join('; ') || 'none'}
+${issuesBlock}
 
 ## SECURITY (if any)
 ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f.severity}] ${f.category}: ${f.what} → ${f.mitigation}`).join('\n') : 'none'}`
@@ -1023,7 +1213,10 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
       securitySurface: surface,
       securityStatus: securityReport?.status || 'not_run',
       models,
-      coder_passes: iteration + 1,
+      // Capped: on an exhausted run `iteration` has already been incremented
+      // past the last pass, so `iteration + 1` would report one Code call more
+      // than actually ran.
+      coder_passes: Math.min(iteration + 1, MAX_FIX_LOOPS),
       researched: !!researchReport,
       files_mapped: plan.codebase_context?.relevant_files?.length || 0,
     },
@@ -1071,12 +1264,12 @@ async function runOneFeature(task, ctx) {
     // Phase 4: Code + Review
     const reviewResult = await phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix)
     if (reviewResult.error) return reviewResult
-    const { finalVerdict, iteration } = reviewResult
+    const { finalVerdict, iteration, downgraded } = reviewResult
 
     const approved = finalVerdict.status === 'approved'
 
     // Phase 5: Record
-    const { recordMisplaced } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix)
+    const { recordMisplaced } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded)
 
     // Phase 6: Shape result
     return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced)

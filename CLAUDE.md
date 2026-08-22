@@ -63,5 +63,10 @@ the list. Offer; don't run either unasked.
 - planner declares migrations; reviewer runs a cross-worktree collision gate
 - coder captures a pre-edit test baseline so pre_existing_failures is evidence
 - ldo-runs.json args moved to a per-run side file, referenced not inlined
+- fix-pass prompts now carry acceptance criteria and contract risks
+- reviewer told that severity gates the loop, plus introduced_by_fix
+- unrelated fix-pass findings downgraded to advisory instead of holding the loop
+- recorder now runs on an exhausted run, marked not approved, architecture doc skipped
+- contract entries capped at 200 chars with provenance moved to a Sources section
 <!-- /ldo:features -->
 <!-- END ldo -->

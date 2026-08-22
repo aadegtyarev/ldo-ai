@@ -75,6 +75,13 @@ Write your report into the file you claimed. If all nine are taken, add a numeri
 
 The evidence columns are the point. A reader six months later should be able to see exactly what was proven and how, not just that someone said "it works."
 
+**If the prompt says the run was NOT APPROVED** (fix loop exhausted before the work was approved), the report differs in four ways — a stored report must never read as a green light:
+
+- The `**Verdict:**` line reads `CHANGES REQUESTED — NOT APPROVED (max fix iterations reached)`, followed by a short **Why this wasn't approved** line summarizing what's still open.
+- The issues split into `## Issues still open` and `## Issues closed along the way`, both required in this mode — unlike the usual rule of omitting an empty section, an empty "still open" list here would contradict the verdict, so include it even if brief.
+- Skip step 2 (Architecture doc) entirely — don't create, update, or even check for it.
+- Backlog items (step 3) are still written exactly as usual — that's where the open issues belong regardless of whether the run was approved.
+
 ### 2. Architecture doc
 
 Read `docs/ARCHITECTURE.md` if it exists and update it — that's the common case on a repeat run, go straight there.

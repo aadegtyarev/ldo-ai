@@ -1,4 +1,10 @@
 # Code — structural rules the Reviewer blocks on
 
-- [2026-08-01] Never swallow an error silently. A caught exception is handled only when the caller can tell what happened — logged with enough context to act on, rethrown, or turned into a typed result the caller checks. `catch { }`, `catch (e) { return null }` with no logging, and `except: pass` are not error handling. If a specific, expected failure is genuinely safe to ignore, say so at the point where it's ignored — one line on why — so it reads as a decision, not an oversight. (Source: `agents/coder.md`; the two `catch` blocks in `workflows/ldo.js` already follow this — both log and return an explicit error object.)
-- [2026-08-01] A comment earns its place only by stating something the code can't show itself — a non-obvious constraint, a reason a simpler approach was rejected, a gotcha the next editor would otherwise rediscover the hard way. Don't write a comment that restates the next line, narrates what was just done, or explains history that belongs in a commit message. If reaching for a comment to explain *what* the code does, rename something or extract a function instead. (Source: `agents/coder.md`.)
+- [2026-08-01] Never swallow an error silently — see agents/coder.md, "Never swallow an error silently", for what counts as handled. A violation is blocking `critical`, not a nit.
+- [2026-08-01] A comment must state something the code can't show itself — see agents/coder.md, "A comment earns its place", for the standard. Violations block as `critical`.
+
+## Sources
+
+**Never swallow an error silently** (2026-08-01) — `agents/coder.md`; the two `catch` blocks in `workflows/ldo.js` already followed this at the time this contract was written — both log and return an explicit error object.
+
+**A comment earns its place** (2026-08-01) — `agents/coder.md`.

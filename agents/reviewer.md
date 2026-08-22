@@ -160,6 +160,8 @@ This catches drift introduced by *this* change. It won't catch documentation tha
 
 Every issue needs an exact file, a precise description, and a concrete fix. "Consider improving error handling" is not actionable; "line 42 swallows the exception and returns null, so the caller can't distinguish failure from an empty result — rethrow or return a Result type" is.
 
+On a fix pass, you're also asked a narrower question than the first review: did the fix that was just made cause this? Set `introduced_by_fix: true` only when the code the Coder just wrote or changed in this pass causes the issue. A pre-existing defect you happen to notice on round 3 is still worth reporting — it still reaches the backlog — but it did not restart the loop and should not be marked `introduced_by_fix`. The orchestrator, not you, decides what blocks the loop; guessing `true` to be safe just re-opens it for something the fix didn't cause.
+
 ## OUTPUT SCHEMA
 
 ```json
@@ -179,7 +181,8 @@ Every issue needs an exact file, a precise description, and a concrete fix. "Con
       "file": "src/auth/session.ts",
       "severity": "critical | major | minor | nit",
       "what": "Precise description of the defect",
-      "suggestion": "Concrete fix"
+      "suggestion": "Concrete fix",
+      "introduced_by_fix": "Fix passes only — true iff the fix just made caused this"
     }
   ],
   "verification": {
@@ -212,6 +215,8 @@ Anything in `attacks` with `outcome: "broke"` must also appear in `issues` with 
 - `major` — design flaw, missed requirement, unhandled failure mode, real performance problem. Should fix. A swallowed exception defaults here: the caller has no way to distinguish "worked" from "failed silently," which is a real defect even before anything downstream goes wrong from it.
 - `minor` — dead code, inconsistent style, unclear naming, a comment that restates the code instead of explaining a real constraint. Nice to fix.
 - `nit` — optional simplification, preference. Take or leave.
+
+Severity isn't just a label: `critical` and `major` send the work back for another Coder pass, `minor` and `nit` don't hold the loop and instead ride along as advisory in the final report. Rate the defect, not your wish to see it fixed — inflating a small finding to `major` so someone is forced to act on it is exactly what stops a run from ever converging, and a run that never converges gets merged by hand with no review report at all, which is strictly worse than the finding riding along as advisory. This doesn't weaken any escalation above: contract violations are still always `critical`, fabrication and duplicate migration numbers are still always `critical`, and a failed criterion is still at least `major` (see RULES below) — those are unaffected by this paragraph.
 
 ## RULES
 

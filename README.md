@@ -120,7 +120,7 @@ The Planner rates the task, and that rating decides what runs. A refactor with n
 
 **Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff, drives the running application to prove each acceptance criterion — that part never scales down — then switches posture and attacks it. How much attacking scales with the plan's own `complexity` rating: one or two vectors for `trivial`, three or four for `medium`, more for `complex` if the surface warrants it. A threat model is attacked in full regardless — `security_surface` is rated independently of `complexity` for exactly this reason, so a one-line fix to an auth check still gets every exploit scenario run against it.
 
-On approved medium or complex tasks, a fourth pass **Record** writes the run's results to disk: a review report in `docs/reviews/` with the full verification evidence and attack log (the receipts that would otherwise vanish with the session), a one-page `docs/ARCHITECTURE.md` kept current, and backlog items — GitHub Issues if `gh` is connected, otherwise `docs/BACKLOG.md`. In a parallel or `isolate: true` run, backlog items go to `docs/backlog/<label>.md` instead — one file per feature, so two Recorders writing at once never race over the same section numbers. Record also confirms it's writing inside its own worktree before it touches disk; a run reports it plainly if a Recorder wrote outside the tree it was assigned.
+On approved medium or complex tasks, a fourth pass **Record** writes the run's results to disk: a review report in `docs/reviews/` with the full verification evidence and attack log (the receipts that would otherwise vanish with the session), a one-page `docs/ARCHITECTURE.md` kept current, and backlog items — GitHub Issues if `gh` is connected, otherwise `docs/BACKLOG.md`. In a parallel or `isolate: true` run, backlog items go to `docs/backlog/<label>.md` instead — one file per feature, so two Recorders writing at once never race over the same section numbers. Record also confirms it's writing inside its own worktree before it touches disk; a run reports it plainly if a Recorder wrote outside the tree it was assigned. Record also runs when the fix loop exhausts without approval — the report is written and marked NOT APPROVED, backlog items still go out, but the architecture doc is deliberately left untouched since the change may never land.
 
 Two more run only when they earn their place:
 
@@ -163,7 +163,7 @@ The Planner rates every task on two independent axes:
 
 Risk doesn't scale with diff size — a one-line change to an auth check is `trivial` work with an `elevated` surface. When the rating is ambiguous the Planner rounds up: a wrong `elevated` costs one agent, a wrong `none` ships the vulnerability.
 
-**Review finds blocking issues → back to Code.** Up to 3 iterations, configurable.
+**Review finds blocking issues → back to Code.** Up to 3 iterations, configurable. After the first pass, a new blocking finding that the fix didn't cause and wasn't on the verification list is recorded as advisory instead of buying another iteration — otherwise a conscientious Reviewer flagging every fresh small thing as `major` can keep a run from ever converging.
 
 ### Project contracts
 
@@ -347,7 +347,7 @@ Use the plugin install unless something specifically rules it out — it updates
 1. The Planner reads the codebase, writes the plan, rates complexity and security surface
 2. Complexity picks the models; security surface decides whether a Security agent runs
 3. Each agent returns schema-validated JSON, rendered compactly for the next stage
-4. Coder and Reviewer loop until approved, or until no `critical`/`major` issues remain
+4. Coder and Reviewer loop until approved, or until no `critical`/`major` issues remain — a fix-pass finding not caused by the fix and not re-verified rides along as advisory instead of holding the loop
 5. The Reviewer's verdict includes captured evidence — a criterion passes only with proof
 
 **Portable**: the protocol isn't tied to Claude Code. Each role is a prompt plus a JSON Schema contract. The orchestrator can be any script calling any LLM runner.
@@ -370,7 +370,7 @@ Bootstrapping went the other way: it produces *decisions*, not code, and decisio
 - **One codebase read** — the Planner's `codebase_context` becomes a shared prefix reused by Coder and Reviewer. They never re-scan.
 - **Prompt cache** — Anthropic keys the cache on (model, prefix bytes). Coder and Reviewer on the same model both hit it. A stronger Reviewer costs one cold start — usually worth it.
 - **Narrow fix loop** — after the first pass, the Coder sees only the specific issues and files, not the whole context. Roughly 75% fewer input tokens per iteration.
-- **Severity gating** — only `critical` and `major` buy another Code pass. Minor findings ride along in the final report instead of burning an iteration.
+- **Severity gating** — only `critical` and `major` buy another Code pass. Minor findings ride along in the final report instead of burning an iteration. On a fix pass, a fresh `major` the Reviewer doesn't attribute to the fix itself is downgraded to advisory the same way, so the loop still terminates.
 - **Structured hand-offs** — every agent returns schema-validated JSON, rendered compactly for the next stage. No raw dumps, no truncation.
 - **Prompts live in agent files** — the workflow passes one line; `.claude/agents/*.md` carries the instructions. One place to edit each role.
 
@@ -405,7 +405,9 @@ docs/contracts/               # Not shipped by the plugin — created per projec
                                #   by ldo-runs.json rather than inlined; gitignored,
                                #   self-protecting via its own inner .gitignore
 
-docs/reviews/<date>-<slug>.md # Not shipped — written by the Recorder each approved run
+docs/reviews/<date>-<slug>.md # Not shipped — written by the Recorder on approval, and also
+                               #   when the fix loops exhaust without one (marked NOT APPROVED,
+                               #   architecture doc left untouched)
 docs/ARCHITECTURE.md          # Not shipped — created/updated by the Recorder (or an
                                #   existing equivalent doc, updated in place instead)
 docs/BACKLOG.md               # Not shipped — written by the Recorder only if `gh` isn't available

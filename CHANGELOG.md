@@ -5,6 +5,78 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.25.0] — 2026-08-22
+
+A third operator field report, this one about a run that could not finish: a
+feature reviewed three times, each round's own prose saying the work was done,
+each round returning `changes_requested` on a fresh finding the previous round
+hadn't raised. The run ended with no verdict, no report, and nothing on disk.
+Everything here is about that failure mode — a loop that never converges — plus
+the token cost of the contract files, raised in the same report.
+
+### Fixed
+
+- **A fix pass could manufacture a contract violation the Coder couldn't see
+  the rule for.** `renderPlanCompact` carries only each step's `what` and
+  `files`, but `agents/planner.md` tells the Planner to carry project contracts
+  verbatim into `risks` or a step's `acceptance` — so from round 2 onward both
+  the Coder's and the Reviewer's prompts lost exactly the text
+  `agents/reviewer.md` makes an always-`critical` blocking check. A new
+  `renderConstraints` renders acceptance criteria and risks into both fix-pass
+  prompts, separate from `renderPlan` for the same reason `renderMigrations`
+  is: a fix pass must not pay for the full plan.
+- **A fresh blocking finding on a fix pass could restart the loop
+  indefinitely.** A fix pass is narrow by construction — it asks the Coder to
+  touch specific files — so a `critical`/`major` the Reviewer doesn't attribute
+  to that work is a pre-existing defect, not a regression. After the first
+  pass, such a finding is now downgraded to advisory: it keeps its severity in
+  the report, is labelled as downgraded, and reaches the backlog, but doesn't
+  buy another iteration. A regression the fix actually caused
+  (`introduced_by_fix: true`, new in `VERDICT_SCHEMA`) keeps blocking, as does
+  anything re-raised from the verification list, and the first review is
+  untouched. Decided in the orchestrator, not asked of the Reviewer — the same
+  reasoning as `markUnproven`: an omission is what a model is least reliable at
+  volunteering, and the downgrade decision is read from the orchestrator's own
+  record of what it did, never from a field on model-authored JSON.
+- **An exhausted run left no artifact at all.** Three rounds of falsification
+  evidence — criteria proven, attacks run, issues closed along the way — and
+  none of it written down, leaving the operator to read raw verdicts to decide
+  whether the work was mergeable. The Recorder now runs when the loop exhausts:
+  the review report is written and marked NOT APPROVED, issues split into still
+  open and closed along the way, backlog items go out as usual. The
+  architecture doc is deliberately left untouched — it must not describe a
+  change that may never land.
+
+### Changed
+
+- **The Reviewer is told what severity actually does.** Nothing in
+  `agents/reviewer.md` said `critical`/`major` re-enter the fix loop while
+  `minor`/`nit` ride along advisory, so there was no way for it to know that
+  inflating a small finding costs a whole iteration. It now says so, without
+  weakening any existing escalation: contract violations, fabrication, and
+  duplicate migration numbers are still always `critical`, a failed criterion
+  still at least `major`.
+- **Contract entries are capped at ~200 characters, provenance moved out of the
+  rule line.** A contract file is re-rendered into the Planner's and Reviewer's
+  prompt on every run that touches its area, and the Planner carries its text
+  verbatim into `risks`, which is then re-rendered into every downstream prompt
+  for the rest of the run — so a `(Source: …)` tail welded to the rule gets
+  multiplied by every pass that carries it forward. Provenance now lives in a
+  trailing `## Sources` section, and a rule that already exists as an agent
+  instruction is referenced rather than restated, with the contract stating the
+  enforcement it adds. This repo's own contracts shrank accordingly;
+  `skills/ldo-contract/SKILL.md` documents the format with a worked example and
+  the measured cost.
+
+### Fixed (found while reviewing the above)
+
+- A `null` entry in a Reviewer's `issues` array aborted the whole feature on
+  the first property access; malformed entries are now dropped once, before
+  anything else touches the verdict, with a log of how many.
+- `coder_passes` over-reported by one on an exhausted run.
+- Model-authored issue text is newline-collapsed before it enters the Record
+  prompt, so it cannot forge a `## SECTION` header there.
+
 ## [2.24.0] — 2026-08-22
 
 Everything here comes from a second operator field report — a parallel
