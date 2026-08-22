@@ -36,12 +36,14 @@ what doesn't need it, and don't hand-edit around it for what does.
 
 **Track every pipeline call in `.claude/ldo-runs.json`** so an interrupted run can
 resume instead of restarting cold — see `/ldo-resume` for the exact protocol
-(record the `runId` *and the full `args` object* right after calling, update its
-status when the result comes back; resuming needs both, the run id alone doesn't
-carry the arguments). At the start of this session, before anything else, check that file
-for entries still marked `running` — an earlier session may have been
-interrupted mid-run. If any exist, follow `/ldo-resume`'s recovery steps rather
-than leaving them unmentioned.
+(write the full `args` object to `.claude/ldo-args/<runId>.json` right after
+calling, then record the `runId` and that reference in the tracking entry, and
+update its status when the result comes back; resuming needs both the run id
+and the real args, and the tracking entry alone doesn't carry them). At the
+start of this session, before anything else, check that file for entries still
+marked `running` — an earlier session may have been interrupted mid-run. If any
+exist, follow `/ldo-resume`'s recovery steps rather than leaving them
+unmentioned.
 
 When working inline, keep the discipline: read before editing, write or update a
 test for any behavior change, and update README/CHANGELOG for user-facing changes.
@@ -97,7 +99,7 @@ Eight is a starting point, not a rule. A docs-heavy project might want five; one
 
 ## After writing
 
-Tell the operator the block was added and that it loads automatically every session. Also add `tags` and `.claude/ldo-runs.json` to the project's `.gitignore` if they aren't already there — the Coder generates a `ctags` symbol index on each run, and `ldo-runs.json` is local session-tracking state (see `/ldo-resume`); neither belongs in version control. Suggest they skim the block and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
+Tell the operator the block was added and that it loads automatically every session. Also add `tags`, `.claude/ldo-runs.json`, and `.claude/ldo-args/` to the project's `.gitignore` if they aren't already there — the Coder generates a `ctags` symbol index on each run, and `ldo-runs.json`/`ldo-args/` are local session-tracking state (see `/ldo-resume`); none of it belongs in version control. `.claude/ldo-args/` also gets its own `.gitignore` (just `*`) the first time `/ldo-resume`'s protocol creates it, so a project that upgrades LDO after this file was written is still covered even before its root `.gitignore` catches up — don't delete that inner file as clutter, it's the reason the directory protects itself regardless of when a project was initialized. Suggest they skim the block and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
 
 Run `/ldo-init` once per project. Re-running updates the block in place, preserving any drift-log entries already there.
 

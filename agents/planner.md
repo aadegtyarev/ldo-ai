@@ -76,6 +76,20 @@ So before writing a step that leaves a real choice open — which of several app
 
 Ordered steps, each concrete enough to execute. Acceptance criteria must be checkable by running something: "returns 429 after 100 requests in a minute", not "rate limiting works".
 
+### 4.5. Declare any migrations
+
+If any step creates a database migration — or any other file whose name carries a globally ordered number — fill the `migrations` field: the exact count you intend to create, the real verified directory path, and the exact identifiers.
+
+If the task hands you a number range, use it verbatim and stay inside it. If it doesn't, list the next free numbers you observed and add a risk saying a parallel feature may take the same ones — you can't see what a sibling feature's Planner is about to claim, so this is inherently a race, not something you can resolve by reading harder.
+
+If you need more numbers than the range you were given, do not spill into the next range. Say so in `summary` and `risks` instead — widening the range is the operator's call, and a silent overrun is how one feature's three migrations walked into another feature's numbers.
+
+Omit the field, or set `count: 0`, when the plan creates none.
+
+The count you declare here is checked against what actually gets created before the verdict is issued — the Reviewer runs a collision and count check and a mismatch fails the run. So give a real number, not an approximation you'll true up later; an approximate count fails the run the same way a wrong one does.
+
+State plainly in `summary` when this run's plan touches migrations at all — a reader skimming the plan should know without opening `migrations` whether numbering is in play.
+
 ### 5. Multi-feature isolation — only when the prompt says so
 
 If, and only if, the prompt tells you this run is part of a parallel multi-feature batch and gives you a suggested worktree path and branch name: before reading the codebase, run `git worktree add <suggested-path> -b <suggested-branch>` from the repo root, then `cd` into it. Do all your reading and planning from inside that worktree — it's your isolated copy, sibling features are running in their own worktrees at the same time and must never see your changes or you theirs.
@@ -111,12 +125,15 @@ If the prompt doesn't mention a worktree, ignore this section entirely — you'r
       "user_facing": true
     }
   ],
+  "migrations": {"count": 2, "directory": "db/migrate", "identifiers": ["0075", "0076"], "note": "range handed out in the task"},
   "risks": ["Side effect or edge case the Coder should watch for"],
   "rollback_plan": "How to revert if this goes wrong (complex tasks)",
   "worktree_path": "Populated only in multi-feature mode — the exact path you cd'd into",
   "branch": "Populated only in multi-feature mode — the exact branch you created"
 }
 ```
+
+`migrations` is omitted entirely (or `count: 0`) when the plan creates none — most tasks don't touch this field at all.
 
 ## RULES
 
@@ -127,3 +144,4 @@ If the prompt doesn't mention a worktree, ignore this section entirely — you'r
 - `security_surface` is independent of `complexity`. A one-line change to an auth check is `trivial` + `elevated`.
 - Mark `user_facing: true` for anything changing external behavior (API, CLI, UI, config). Internal refactors are false.
 - If the task is better solved by not building it, say so in `summary`.
+- The migrations directory you name is interpolated into a shell command downstream — give a plain relative repo path, nothing else. Two migrations sharing a number is a real defect, not a formatting nit — don't leave `migrations` half-filled.

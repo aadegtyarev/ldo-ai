@@ -81,6 +81,17 @@ const PLAN_SCHEMA = {
     rollback_plan: { type: 'string' },
     worktree_path: { type: 'string', description: 'Populated only in multi-feature mode — the exact path the Planner cd\'d into' },
     branch: { type: 'string', description: 'Populated only in multi-feature mode — the exact branch the Planner created' },
+    migrations: {
+      type: 'object',
+      description: 'Only when this plan creates database migrations or any other globally-numbered file',
+      properties: {
+        count: { type: 'number', description: 'How many migration files this plan creates. 0 or omit the field when it creates none.' },
+        directory: { type: 'string', description: 'Real, verified path to the migrations directory, relative to the repo root' },
+        identifiers: { type: 'array', items: { type: 'string' }, description: 'The exact filename number prefixes to use, e.g. ["0075","0076"]' },
+        note: { type: 'string' },
+      },
+      required: ['count', 'directory'],
+    },
   },
   required: ['complexity', 'summary', 'steps', 'codebase_context'],
 }
@@ -96,7 +107,18 @@ const CODER_SCHEMA = {
         written: { type: 'array', items: { type: 'string' } },
         updated: { type: 'array', items: { type: 'string' } },
         result: { type: 'string', description: 'e.g. "42 passed, 0 failed"' },
-        pre_existing_failures: { type: 'array', items: { type: 'string' } },
+        pre_existing_failures: { type: 'array', items: { type: 'string' }, description: 'Exactly the entries in tests.baseline.failing that still fail at the end — not recollection' },
+        baseline: {
+          type: 'object',
+          description: 'The suite\'s state before any edit, captured up front so pre_existing_failures is evidence, not memory',
+          properties: {
+            captured: { type: 'boolean' },
+            command: { type: 'string' },
+            result: { type: 'string', description: 'e.g. "39 passed, 3 failed" as of before any edit' },
+            failing: { type: 'array', items: { type: 'string' } },
+            note: { type: 'string', description: 'Why it could not be captured, if it could not' },
+          },
+        },
       },
     },
     env: {
@@ -117,6 +139,18 @@ const VERDICT_SCHEMA = {
   properties: {
     status: { type: 'string', enum: ['approved', 'changes_requested'] },
     summary: { type: 'string' },
+    worktree_root: { type: 'string', description: 'Verbatim output of `git rev-parse --show-toplevel` from where you reviewed — the revert-and-restore proof rewrites files, so this must be confirmed before that step runs' },
+    migrations_check: {
+      type: 'object',
+      description: 'Only when the plan declares a migrations block',
+      properties: {
+        status: { type: 'string', enum: ['ok', 'mismatch', 'collision', 'not_applicable'] },
+        declared: { type: 'number' },
+        created: { type: 'array', items: { type: 'string' } },
+        collisions: { type: 'array', items: { type: 'string' } },
+        evidence: { type: 'string' },
+      },
+    },
     issues: {
       type: 'array',
       items: {
@@ -165,6 +199,24 @@ const VERDICT_SCHEMA = {
     },
   },
   required: ['status', 'summary'],
+}
+
+const RECORD_SCHEMA = {
+  type: 'object',
+  properties: {
+    worktree_root: { type: 'string', description: 'Verbatim output of `git rev-parse --show-toplevel` from where you wrote' },
+    files_written: { type: 'array', items: { type: 'string' }, description: 'Paths relative to worktree_root' },
+    backlog: {
+      type: 'object',
+      properties: {
+        destination: { type: 'string', enum: ['github', 'file'] },
+        file: { type: 'string' },
+        count: { type: 'number' },
+      },
+    },
+    notes: { type: 'string' },
+  },
+  required: ['worktree_root', 'files_written'],
 }
 
 const SECURITY_SCHEMA = {
@@ -262,7 +314,26 @@ function renderPlan(plan) {
     plan.risks.forEach(r => lines.push(`- ${r}`))
   }
   if (plan.rollback_plan) lines.push('', '### Rollback', plan.rollback_plan)
+  const migrations = renderMigrations(plan)
+  if (migrations) lines.push(migrations)
   return lines.join('\n')
+}
+
+// Separate from renderPlan because the fix-pass prompts send the compact plan,
+// and a Reviewer without this block reports `not_applicable` — which
+// enforceMigrationGate then converts into an issue no Coder edit can clear.
+// plan.migrations.directory is validated (and deleted if unsafe) once, in
+// phasePlan, before this function ever runs — never re-trust the raw string here.
+function renderMigrations(plan) {
+  if (!(plan?.migrations?.count > 0) || !safeMigrationsDir(plan.migrations.directory)) return ''
+  return [
+    '',
+    '### Migrations (numbering is a hard constraint)',
+    `Directory: ${plan.migrations.directory}`,
+    `Count: ${plan.migrations.count}`,
+    `Identifiers: ${(plan.migrations.identifiers || []).join(', ') || '(none listed)'}`,
+    'Create exactly these. If you find you need a number that is not on this list, stop and say so in `deviations` — do not take the next free one. In a parallel run another feature already owns it, and two migrations with the same number have undefined apply order.',
+  ].join('\n')
 }
 
 function renderPlanCompact(plan) {
@@ -275,6 +346,11 @@ function renderCoderSummary(r) {
   const lines = [`**Files changed**: ${r.files_changed?.join(', ') || '(none)'}`]
   if (r.summary) lines.push(`**Summary**: ${r.summary}`)
   if (r.tests?.result) lines.push(`**Tests**: ${r.tests.result}`)
+  if (r.tests?.baseline?.captured) {
+    lines.push(`**Baseline (before any edit)**: ${r.tests.baseline.result || '(no result recorded)'} — failing: ${(r.tests.baseline.failing || []).join(', ') || '(none)'}`)
+  } else if (r.tests?.baseline) {
+    lines.push(`**Baseline**: NOT CAPTURED — pre-existing and introduced failures cannot be told apart${r.tests.baseline.note ? ` (${r.tests.baseline.note})` : ''}`)
+  }
   const t = [...(r.tests?.written || []), ...(r.tests?.updated || [])]
   if (t.length) lines.push(`**Test files**: ${t.join(', ')}`)
   if (r.tests?.pre_existing_failures?.length) lines.push(`**Pre-existing failures**: ${r.tests.pre_existing_failures.join('; ')}`)
@@ -321,9 +397,28 @@ function slugify(text, fallback) {
   return SAFE_SLUG.test(s) ? s : fallback
 }
 
-function renderWorktree(worktreePath, branch) {
+// Same reasoning as SAFE_SLUG above: plan.migrations.directory originates in
+// Planner output derived from task text (often pasted from an issue tracker,
+// not the operator's own keyboard), and it reaches a shell command in the
+// Reviewer's collision check. Character-class validation alone lets through
+// paths like `.git/hooks`, `.`, or `-rf` that are syntactically safe but a
+// bad write/scan target — so reject by path segment, not by regex alone.
+const SAFE_REL_PATH = /^[A-Za-z0-9._\/-]+$/
+
+function safeMigrationsDir(dir) {
+  const d = String(dir || '')
+  if (!d || !SAFE_REL_PATH.test(d) || d.startsWith('/')) return null
+  const normalized = d.replace(/\/+$/, '')
+  const segments = normalized.split('/')
+  if (segments.includes('..')) return null
+  if (segments.some(seg => seg.startsWith('.') || seg.startsWith('-'))) return null
+  return normalized
+}
+
+function renderWorktree(worktreePath, branch, label) {
   if (!worktreePath || !branch) return ''
-  return `## ISOLATION\nYour work happens in \`${worktreePath}\` on branch \`${branch}\`. cd there before anything else and verify with \`pwd\` / \`git rev-parse --show-toplevel\`. Other features are running in sibling worktrees right now — never touch the main tree or another feature's directory.\n\n`
+  const labelLine = label ? ` This feature's label is \`${label}\` — use it wherever a per-feature filename is called for.` : ''
+  return `## ISOLATION\nYour work happens in \`${worktreePath}\` on branch \`${branch}\`. cd there before anything else and verify with \`pwd\` / \`git rev-parse --show-toplevel\`. Other features are running in sibling worktrees right now — never touch the main tree or another feature's directory.${labelLine}\n\n`
 }
 
 function renderResearch(r) {
@@ -419,6 +514,77 @@ function markUnproven(verdict) {
     },
     unproven: names,
     summary: `${verdict.summary}\n\nNOT PROVEN — ${names.length} criterion(s) skipped, left for the operator to run: ${names.join('; ')}`,
+  }
+}
+
+// Verifies a self-reported location against the location the pipeline told the
+// agent to be in — used for both the Recorder (workflows/ldo.js:phaseRecord)
+// and the Reviewer (workflows/ldo.js:phaseCodeReview). This is honesty-of-report,
+// not location-of-write: it checks what the agent says it saw, not what actually
+// happened on disk, so it reliably catches "forgot to cd and honestly reported
+// where it was" but is not a containment boundary against a model that
+// misreports. That's the actual failure mode observed in the field (a weak
+// model losing a prompt-only instruction), so it's worth building for even
+// though it isn't a guarantee.
+function verifyAgentLocation(reportedRoot, plan, ctx) {
+  if (!ctx?.isMulti) return false
+  // `git rev-parse --show-toplevel` — what both schemas ask the agent to
+  // report verbatim — ends in a newline, and stray leading/trailing spaces
+  // are just as plausible from a model's text output. Trim before
+  // normalising, or a fully compliant report false-positives as misplaced.
+  const wp = String(plan?.worktree_path || '').trim().replace(/\/+$/, '').replace(/^\.\//, '')
+  const root = String(reportedRoot || '').trim().replace(/\/+$/, '')
+  if (!wp || !root) return false
+  // Exact match or path-suffix only — never includes(), which would let
+  // `.worktrees/1-foo-evil` pass against `.worktrees/1-foo`.
+  return root !== wp && !root.endsWith('/' + wp)
+}
+
+// A number claimed by two migrations means undefined apply order and a
+// possibly broken schema — before this gate, only a human eye at merge time
+// caught it. Enforced here, not asked of the Reviewer's self-report, because
+// an omitted check is exactly what a model is least reliable at volunteering:
+// it's easy to forget to run and cheap to skip silently, and "I didn't check"
+// looks identical to "approved" unless something downstream refuses to accept it.
+function enforceMigrationGate(verdict, plan) {
+  if (!(plan?.migrations?.count > 0)) return verdict
+
+  const c = verdict.migrations_check
+  // The plan is the authority on whether migrations exist, so a Reviewer
+  // reporting `not_applicable` here is always a contradiction, not a valid
+  // outcome — treat it the same as a missing check rather than letting it
+  // bypass the gate.
+  if (c?.status === 'ok') return verdict
+
+  // The schema declares `collisions`/`created` as arrays, but that's a hint
+  // to the model, not a runtime guarantee — a single collision is exactly
+  // the shape a model tends to fill with a lone string instead of a
+  // one-element array. Coerce rather than crash: the safe direction on a
+  // malformed report is to keep the gate blocking, not to abort the run.
+  const list = a => (Array.isArray(a) ? a : a ? [String(a)] : [])
+
+  const what = c?.status === 'collision'
+    ? `Migration numbering collision: ${list(c.collisions).join(', ') || '(no numbers listed)'}`
+    : c?.status === 'mismatch'
+      ? `Migration count/identifier mismatch — declared ${plan.migrations.count}, created ${list(c.created).join(', ') || '(not reported)'}`
+      : c?.status === 'not_applicable'
+        ? 'migrations_check reported not_applicable, but the plan declares migrations — the plan is authoritative, so this is treated as an unrun check'
+        : 'migrations_check was not run — the plan declared migrations but the Reviewer never ran the collision/count check'
+
+  const issue = {
+    file: plan.migrations.directory,
+    severity: 'critical',
+    what,
+    suggestion: c?.status === 'collision'
+      ? 'Renumber the colliding migration(s) inside the declared range so no identifier is claimed twice.'
+      : 'Run the migration collision/count check and report the result in `migrations_check` before this can be approved.',
+  }
+
+  return {
+    ...verdict,
+    status: 'changes_requested',
+    issues: [...(verdict.issues || []), issue],
+    summary: `${verdict.summary}\n\nMIGRATION GATE: ${what}`,
   }
 }
 
@@ -536,11 +702,20 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
     return { error: 'Planner did not create/report a worktree in multi-feature mode', label: ctx.label, task, plan }
   }
 
+  // Validate once, here, so renderPlan/enforceMigrationGate/the Reviewer's prompt
+  // never see a rejected directory string — a Planner-supplied path often
+  // originates in pasted task text, not the operator's own keyboard, and it
+  // reaches a shell command downstream in the Reviewer's hands.
+  if (plan.migrations?.count > 0 && !safeMigrationsDir(plan.migrations.directory)) {
+    log(`${logPrefix}⚠ Rejected migrations.directory as unsafe: '${plan.migrations.directory}' — migration gate disabled for this run.`)
+    delete plan.migrations
+  }
+
   const models = routeModels(plan.complexity, CONFIG)
   const CTX = renderContext(plan.codebase_context)
   const surface = plan.security_surface || 'unrated'
   const DO_SECURITY = securityEnabled(plan)
-  const WORKTREE_BLOCK = ctx.isMulti ? renderWorktree(plan.worktree_path, plan.branch) : ''
+  const WORKTREE_BLOCK = ctx.isMulti ? renderWorktree(plan.worktree_path, plan.branch, ctx.label) : ''
 
   log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
   if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch})`)
@@ -557,6 +732,9 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
   }
   log(`${logPrefix}Plan: ${plan.steps.length} step(s), ${plan.codebase_context?.relevant_files?.length || 0} files mapped`)
   plan.steps.forEach(s => log(`${logPrefix}  • ${s.what}`))
+  if (plan.migrations?.count > 0) {
+    log(`${logPrefix}Migrations: ${plan.migrations.count} in ${plan.migrations.directory} — ${(plan.migrations.identifiers || []).join(', ') || '(no identifiers listed)'}`)
+  }
 
   return { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK }
 }
@@ -627,15 +805,21 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     if (coderResult?.tests?.result) log(`${logPrefix}Coder pass ${iteration + 1}: ${coderResult.tests.result}`)
     else log(`${logPrefix}Coder pass ${iteration + 1} complete`)
     if (coderResult?.env?.unresolved?.length) log(`${logPrefix}  ⚠ Env: ${coderResult.env.unresolved.join('; ')}`)
+    // Warning, not a gate — a suite too expensive to run twice is a real
+    // situation, and an honest `captured: false` with a reason is the correct
+    // answer there. This just makes the gap visible instead of silent.
+    if (isFirstPass && !coderResult?.tests?.baseline?.captured) {
+      log(`${logPrefix}⚠ No test baseline captured before the first edit — pre-existing failures are unattributable`)
+    }
 
     logStage('Review')
 
     const reviewerPrompt = isFirstPass
       ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
-      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}`
+      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderMigrations(plan)}`
 
     const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
-    const verdict = await agentWithModelFallback(reviewerPrompt, {
+    const rawVerdict = await agentWithModelFallback(reviewerPrompt, {
       label: ctx.isMulti ? `${ctx.label}:${reviewerLabel}` : reviewerLabel,
       phase: 'Review',
       model: models.reviewer,
@@ -643,9 +827,27 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       schema: VERDICT_SCHEMA,
     }, REVIEWER_FALLBACK[models.reviewer])
 
-    if (!verdict) {
+    if (!rawVerdict) {
       log(`${logPrefix}ERROR: Reviewer failed.`)
       return { error: 'Reviewer failed', plan, label: ctx.label, task }
+    }
+    const verdict = enforceMigrationGate(rawVerdict, plan)
+    if (verdict !== rawVerdict) {
+      log(`${logPrefix}✗ Migration gate: ${verdict.migrations_check?.status || rawVerdict.migrations_check?.status || 'missing check'}`)
+    } else if (plan.migrations?.count > 0 && verdict.migrations_check?.status === 'ok') {
+      log(`${logPrefix}✓ Migration numbering verified: ${verdict.migrations_check.evidence || 'no collision, count matches'}`)
+    }
+
+    // Destructive on a wrong tree: the revert-and-restore proof runs `git
+    // checkout --` and `git apply` against whatever the Reviewer thinks is its
+    // worktree. This is honesty-of-report (see verifyAgentLocation), not a
+    // containment guarantee, but it catches the documented failure — a weak
+    // model losing the prompt-only ISOLATION instruction — before the operator
+    // finds their uncommitted work gone.
+    if (verifyAgentLocation(verdict.worktree_root, plan, ctx)) {
+      log(`${logPrefix}✗ REVIEWER OPERATED OUTSIDE ITS WORKTREE — expected ${plan.worktree_path}, reported ${verdict.worktree_root}`)
+    } else if (ctx.isMulti && !verdict.worktree_root) {
+      log(`${logPrefix}⚠ Reviewer did not report worktree_root — its location could not be verified`)
     }
 
     const v = verdict.verification
@@ -725,13 +927,30 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
 // ── phaseRecord ────────────────────────────
 
+// The Recorder runs on the weakest model in the pipeline (Haiku), and a prompt
+// instruction with no reinforcement loses on it — the field-report symptom was a
+// review report landing in the main checkout mid-run and getting swept into a
+// neighbouring feature's commit, with nothing catching it until merge. This
+// checks what the Recorder itself reported, using the same honesty-of-report
+// comparison as the Reviewer's location check (see verifyAgentLocation above),
+// plus a stricter rule specific to what it writes: a reported path must never be
+// absolute or contain a `..` segment, regardless of which worktree it claims.
+function verifyRecordLocation(recordResult, plan, ctx) {
+  if (!ctx?.isMulti) return false
+  if (verifyAgentLocation(recordResult.worktree_root, plan, ctx)) return true
+  return (recordResult.files_written || []).some(f => {
+    const path = String(f || '')
+    return path.startsWith('/') || path.split('/').includes('..')
+  })
+}
+
 // A formatting agent (Haiku) writes these files rather than the workflow
 // script itself, because the script has no filesystem access — only agents
 // it spawns can read/write, so persisting anything to disk has to go through
 // an agent call even when the "work" is just rendering already-known data.
 async function phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix) {
   if (!approved || plan.complexity === 'trivial') {
-    return
+    return { recordMisplaced: false }
   }
 
   logStage('Record')
@@ -764,22 +983,34 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
     phase: 'Record',
     model: models.recorder || 'haiku',
     agentType: 'ldo:recorder',
+    schema: RECORD_SCHEMA,
   })
 
-  if (recordResult) {
-    log(`${logPrefix}Record: ${recordResult.slice(0, 120)}`)
-  } else {
+  if (!recordResult) {
     log(`${logPrefix}⚠ Recorder returned nothing — artifacts not persisted.`)
+    return { recordMisplaced: false }
   }
+
+  const files = recordResult.files_written || []
+  log(`${logPrefix}Record: wrote ${files.join(', ') || '(nothing reported)'}${recordResult.backlog?.destination ? ` — backlog → ${recordResult.backlog.destination}` : ''}`)
+
+  const misplaced = verifyRecordLocation(recordResult, plan, ctx)
+  if (misplaced) {
+    log(`${logPrefix}✗ RECORDER WROTE OUTSIDE ITS WORKTREE — expected ${plan.worktree_path}, reported ${recordResult.worktree_root}`)
+    log(`${logPrefix}  Files: ${files.join(', ') || '(none reported)'}`)
+  }
+
+  return { recordMisplaced: misplaced }
 }
 
 // ── shapeResult ────────────────────────────
 
 // approved leads the object — a caller checking the run's outcome shouldn't
 // have to dig past everything else to find it.
-function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx) {
+function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced) {
   return {
     approved,
+    record_misplaced: !!recordMisplaced,
     label: ctx.label,
     worktree_path: plan.worktree_path || null,
     branch: plan.branch || null,
@@ -845,10 +1076,10 @@ async function runOneFeature(task, ctx) {
     const approved = finalVerdict.status === 'approved'
 
     // Phase 5: Record
-    await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix)
+    const { recordMisplaced } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix)
 
     // Phase 6: Shape result
-    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx)
+    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced)
   } catch (err) {
     // A thrown error inside one feature must not abort siblings running under
     // parallel() — return a failure shape instead of letting it propagate.
@@ -902,6 +1133,7 @@ if (tasksList) {
   features.forEach(f => {
     if (f.worktree_path) log(`  [${f.label}] ${f.approved ? '✓' : '✗'} → run /ldo-ship from ${f.worktree_path} (already on ${f.branch})`)
     else log(`  [${f.label}] ✗ ${f.error || 'no worktree — see error above'}`)
+    if (f.record_misplaced) log(`  [${f.label}] ⚠ Recorder wrote outside its worktree — check the main checkout before you git add`)
   })
   if (budget.total) log(`Budget remaining: ${Math.round(budget.remaining() / 1000)}k`)
 

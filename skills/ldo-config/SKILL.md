@@ -61,7 +61,7 @@ Three are conditional:
 |------|-----------|--------------|
 | **researcher** | `research: true`, or `researchByDefault` — task needs knowledge from outside the repo | Opus at medium/complex — cross-verifying sources is worth it |
 | **security** | The Planner rates `security_surface: "elevated"` — new input, auth, secrets, injection, dependency, or crypto surface. Force with `security: true/false` or `securityByDefault` | Opus at every tier — a missed vulnerability costs more than a strong model does |
-| **recorder** | Approved, and `complexity != "trivial"` — persists the review report, architecture doc, and backlog so they survive past the session | Haiku at every tier — it formats and files, it doesn't judge |
+| **recorder** | Approved, and `complexity != "trivial"` — persists the review report, architecture doc, and backlog so they survive past the session. In a parallel or `isolate: true` run it writes backlog items to `docs/backlog/<label>.md` instead of the shared `docs/BACKLOG.md`, so sibling features never race over the same section numbers | Haiku at every tier — it formats and files, it doesn't judge |
 
 Starting a project from scratch isn't part of the pipeline — `/ldo-bootstrap` handles that as a conversation, then hands the first task to `/ldo:ldo`.
 

@@ -5,6 +5,71 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.24.0] — 2026-08-22
+
+Everything here comes from a second operator field report — a parallel
+multi-feature batch (3 features, 18 agents, 8h40m, all approved and shipped)
+that surfaced races and gaps the single-feature runs behind 2.23.0 hadn't hit.
+
+### Fixed
+
+- **A Recorder could write outside its assigned worktree.** Prompt text alone
+  told it to stay inside `worktree_path`, but nothing checked that it had —
+  in a parallel run a misdirected write would land in a sibling feature's tree
+  or the main working copy with no signal it had happened. The orchestrator
+  now verifies the Recorder's reported location against the Planner's
+  `worktree_path` and surfaces a mismatch in the run summary instead of
+  absorbing it silently. The Reviewer's reported location is checked the same
+  way and a mismatch is logged during the run, but — because the Reviewer's
+  verdict already flows through a fix loop rather than a single write — that
+  check doesn't yet carry a flag into the run summary the way the Recorder's
+  does.
+- **Parallel Recorders collided on `docs/BACKLOG.md` section numbers.** Two
+  features finishing close together both read the same "next" section number
+  and both appended it, corrupting the file's numbering. A Recorder running
+  inside a parallel or `isolate: true` worktree now writes to its own
+  `docs/backlog/<label>.md` instead of the shared file, so there's nothing
+  left to race over.
+- **Migration filename numbers collided across parallel features.** Two
+  features could independently pick the same next-free migration number since
+  neither Planner can see what a sibling is about to claim. The Planner now
+  declares the exact count, directory, and identifiers it intends to create;
+  the Reviewer runs a collision check across every active worktree before
+  approving, and two migrations sharing a number now fails the run as
+  `critical` instead of shipping silently.
+- **`/ldo-resume`'s tracking file echoed the full args blob.** Every append to
+  `.claude/ldo-runs.json` re-emitted every prior run's complete `args` object,
+  including whatever task text an operator had pasted in — a needless write on
+  disk and a needless thing to have sitting in a file the operator might skim.
+  Args now live in a per-run side file, `.claude/ldo-args/<runId>.json`, with
+  the tracking entry holding only a small reference to it; a trimmed run
+  deletes its args file in the same operation. Older entries without an
+  `argsFile` still resume correctly — `/ldo-resume` reads inline `args` when
+  that's all a pre-2.24.0 entry has.
+
+### Added
+
+- **A migration numbering gate.** See above — the Planner's `migrations` field
+  and the Reviewer's collision check are new, and only apply when a plan
+  actually declares migrations; most tasks don't touch this at all.
+- **A test baseline captured before the Coder's first edit.** Previously
+  `pre_existing_failures` was whatever the Coder recalled noticing on its way
+  through, not something it had actually run before touching code. The Coder
+  now runs the test command once at the very start of section 1 and records
+  the result as `tests.baseline` — command, raw result, and which tests were
+  already failing — so `pre_existing_failures` in the final report is evidence
+  instead of recollection. Reported honestly as not captured when the
+  environment couldn't run it, rather than silently left blank.
+
+### Documentation
+
+- README documents per-feature backlog files, the Recorder/Reviewer worktree
+  check, and the migration numbering gate in the parallel-runs section, plus
+  the `.claude/ldo-args/<runId>.json` split in the resume section and both new
+  paths in the file map.
+- `/ldo-resume` rewritten to describe the args side file: what goes in it, why
+  it's separate from the tracking entry, and how a trimmed run cleans it up.
+
 ## [2.23.0] — 2026-08-21
 
 Everything here comes from one operator's field report after 18 runs in a session

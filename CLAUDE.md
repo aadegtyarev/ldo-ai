@@ -13,12 +13,14 @@ what doesn't need it, and don't hand-edit around it for what does.
 
 **Track every pipeline call in `.claude/ldo-runs.json`** so an interrupted run can
 resume instead of restarting cold — see `/ldo-resume` for the exact protocol
-(record the `runId` *and the full `args` object* right after calling, update its
-status when the result comes back; resuming needs both, the run id alone doesn't
-carry the arguments). At the start of this session, before anything else, check that file
-for entries still marked `running` — an earlier session may have been
-interrupted mid-run. If any exist, follow `/ldo-resume`'s recovery steps rather
-than leaving them unmentioned.
+(write the full `args` object to `.claude/ldo-args/<runId>.json` right after
+calling, then record the `runId` and that reference in the tracking entry, and
+update its status when the result comes back; resuming needs both the run id
+and the real args, and the tracking entry alone doesn't carry them). At the
+start of this session, before anything else, check that file for entries still
+marked `running` — an earlier session may have been interrupted mid-run. If any
+exist, follow `/ldo-resume`'s recovery steps rather than leaving them
+unmentioned.
 
 When working inline, keep the discipline: read before editing, write or update a
 test for any behavior change, and update README/CHANGELOG for user-facing changes.
@@ -56,5 +58,10 @@ the list. Offer; don't run either unasked.
 - recorder claims report filenames atomically (parallel runs collided)
 - ldo-runs.json stores full args so resume doesn't drop flags
 - planner rates problem_evidence — asserted premises surface as UNVERIFIED
+- recorder/reviewer worktree location verified by the orchestrator, not just asked for
+- parallel recorders write docs/backlog/<label>.md instead of racing on the shared file
+- planner declares migrations; reviewer runs a cross-worktree collision gate
+- coder captures a pre-edit test baseline so pre_existing_failures is evidence
+- ldo-runs.json args moved to a per-run side file, referenced not inlined
 <!-- /ldo:features -->
 <!-- END ldo -->

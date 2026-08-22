@@ -120,7 +120,7 @@ The Planner rates the task, and that rating decides what runs. A refactor with n
 
 **Three agents always run.** Plan reads the codebase and produces the plan. Code sets up the environment, implements it, writes tests, updates docs. Review reads the diff, drives the running application to prove each acceptance criterion — that part never scales down — then switches posture and attacks it. How much attacking scales with the plan's own `complexity` rating: one or two vectors for `trivial`, three or four for `medium`, more for `complex` if the surface warrants it. A threat model is attacked in full regardless — `security_surface` is rated independently of `complexity` for exactly this reason, so a one-line fix to an auth check still gets every exploit scenario run against it.
 
-On approved medium or complex tasks, a fourth pass **Record** writes the run's results to disk: a review report in `docs/reviews/` with the full verification evidence and attack log (the receipts that would otherwise vanish with the session), a one-page `docs/ARCHITECTURE.md` kept current, and backlog items — GitHub Issues if `gh` is connected, otherwise `docs/BACKLOG.md`.
+On approved medium or complex tasks, a fourth pass **Record** writes the run's results to disk: a review report in `docs/reviews/` with the full verification evidence and attack log (the receipts that would otherwise vanish with the session), a one-page `docs/ARCHITECTURE.md` kept current, and backlog items — GitHub Issues if `gh` is connected, otherwise `docs/BACKLOG.md`. In a parallel or `isolate: true` run, backlog items go to `docs/backlog/<label>.md` instead — one file per feature, so two Recorders writing at once never race over the same section numbers. Record also confirms it's writing inside its own worktree before it touches disk; a run reports it plainly if a Recorder wrote outside the tree it was assigned.
 
 Two more run only when they earn their place:
 
@@ -139,7 +139,9 @@ Workflow({name:"ldo:ldo", args:{
 }})
 ```
 
-Each feature's Planner creates its own worktree (`.worktrees/<n>-<slug>` on branch `ldo/<n>-<slug>`) before reading the codebase, and every later agent in that feature's chain works inside it — features never see each other's changes. This is comparable to several developers on separate branches: conflicts get resolved as routine at merge time, not solved architecturally by the orchestrator. Each approved feature ships independently — run `/ldo-ship` from inside that feature's worktree, where it's already on the right branch.
+Each feature's Planner creates its own worktree (`.worktrees/<n>-<slug>` on branch `ldo/<n>-<slug>`) before reading the codebase, and every later agent in that feature's chain works inside it — features never see each other's changes. This is comparable to several developers on separate branches: conflicts get resolved as routine at merge time, not solved architecturally by the orchestrator. Each approved feature ships independently — run `/ldo-ship` from inside that feature's worktree, where it's already on the right branch. The Reviewer and Recorder each report the worktree root they confirmed, and the orchestrator compares that against the Planner's `worktree_path` — a mismatch is reported rather than absorbed. The Coder is instructed to verify its tree in its own agent definition. This catches an agent that lost the instruction and honestly reported where it ended up; it is a detection aid, not a containment boundary.
+
+**If a feature's plan creates numbered files — migrations, most often** — the Planner declares how many, where, and the exact identifiers it intends to claim. Sibling features can't see each other's claims while they're planning (that's inherent to running in parallel, not a bug), so the Reviewer runs a collision check across every active worktree before approving: same directory, same number claimed twice, fails the run with a `critical` finding rather than letting two migrations silently share a number.
 
 **If the features run integration tests against a real database**, worktree isolation covers the files but not the data — two runs migrating and truncating the same database will corrupt each other's results, and the failures look like flaky tests rather than interference. You don't need anything elaborate: give each run its own database via whatever environment variable your test setup already reads, and the file isolation handles the rest. Record it as a code contract (`/ldo-contract`) so the Coder and Reviewer set it on every run instead of you remembering to mention it.
 
@@ -212,7 +214,7 @@ If the same override or workaround shows up more than once, that's not trivia an
 
 A `/ldo:ldo` call already survives more than it looks like: every `Workflow` call gets a `runId`, and Claude Code caches each completed step (Plan, Coder, Reviewer, ...) against it. Pass that same `runId` back via `resumeFromRunId` and the cached steps return instantly — only what hadn't finished actually re-runs. The gap was that nothing wrote the `runId` down, so if the session holding it in its head went away, there was nothing to resume *from*.
 
-If you ran `/ldo-init`, every `/ldo:ldo` call now gets logged to `.claude/ldo-runs.json` the moment it starts, and updated when it finishes. At the start of a session, Claude checks that file for anything still marked `running` and tries to resume it before you ask.
+If you ran `/ldo-init`, every `/ldo:ldo` call now gets logged to `.claude/ldo-runs.json` the moment it starts, and updated when it finishes. The full arguments the call needs to resume — `task`, `security`, `research`, `isolate`, any model override — live in a side file, `.claude/ldo-args/<runId>.json`, with `ldo-runs.json` holding only a small tracking entry that points at it; that split keeps the args out of the file that gets rewritten on every run and off the operator's screen. At the start of a session, Claude checks that file for anything still marked `running` and tries to resume it before you ask.
 
 One real limit worth knowing: the cache lives in the harness session that produced the `runId`, not on disk. Picking a conversation back up in the *same* session (it got summarized, or you reopened it via its own resume) — the cache is almost always still there. A genuinely new session can't reach it; `/ldo-resume` notices, says so, and falls back to running the task fresh rather than guessing or failing silently. See `/ldo-resume` for the exact protocol.
 
@@ -399,11 +401,17 @@ docs/contracts/               # Not shipped by the plugin — created per projec
 
 .claude/ldo-runs.json         # Not shipped — local run tracking for /ldo-resume,
                                #   gitignored, same as `tags`
+.claude/ldo-args/<runId>.json # Not shipped — full args for one tracked run, referenced
+                               #   by ldo-runs.json rather than inlined; gitignored,
+                               #   self-protecting via its own inner .gitignore
 
 docs/reviews/<date>-<slug>.md # Not shipped — written by the Recorder each approved run
 docs/ARCHITECTURE.md          # Not shipped — created/updated by the Recorder (or an
                                #   existing equivalent doc, updated in place instead)
 docs/BACKLOG.md               # Not shipped — written by the Recorder only if `gh` isn't available
+docs/backlog/<label>.md       # Not shipped — written instead of docs/BACKLOG.md when the
+                               #   Recorder is running inside a parallel/isolated feature's
+                               #   worktree, one file per feature to avoid section-number races
 
 docs/NOTES.md                  # Not shipped — created per project via /ldo-note,
                                 #   read by the Coder every run, kept deliberately small
