@@ -5,6 +5,75 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.26.0] — 2026-08-23
+
+The first report filed through `/ldo-feedback` as a GitHub issue rather than
+pasted into a chat: a Planner that burned 47 minutes and ~992k tokens across
+six attempts and produced nothing. Every attempt showed a normal working
+trajectory — 34-51 tool calls, then a `tool_result` followed by exactly 180.0s
+of silence. The agents were neither stuck nor looping.
+
+### Fixed
+
+- **A long plan was indistinguishable from a hung agent, and got killed as
+  one.** Claude Code's per-agent stall watchdog clears only on a `tool_use`
+  content block. An agent with a `schema` returns its result by calling a
+  `StructuredOutput` tool — but while the model composes that call's arguments,
+  no block is emitted, so generating a large structured output looks exactly
+  like hanging and is aborted at the harness's 180-second default. LDO now
+  passes a per-role `stallMs` budget on every agent call: planner and reviewer
+  480000, coder 360000, security and researcher 300000, recorder 180000. It is
+  keyed by **role, not complexity tier**: output size tracks the schema the
+  role fills — a trivial task's Reviewer still writes full verification and
+  attack sections — and a per-complexity scale structurally could not cover the
+  Planner, whose own call is what *produces* the complexity rating. Override
+  with `config.stallMs.<role>`.
+
+- **A stalled Reviewer was misdiagnosed as a dead model and re-run on the
+  fallback.** `agentWithModelFallback` treated any throw as a model failure, so
+  a stall sent the same long verdict to the fallback model, which stalled the
+  same way: six aborts became twelve, 18 wasted minutes became 36, and the log
+  said "model failed" throughout. A stall now propagates instead of falling
+  back. Found by the pipeline's own Planner; it was not in the brief.
+
+- **The operator saw `stalled` and went looking for an infinite loop that did
+  not exist.** Every agent call now funnels through one wrapper that recognises
+  the harness's stall message and explains it: the agent was generating, not
+  hung; only tool calls reset the timer; here is the current budget and the key
+  that raises it. For the Planner it adds the workaround the issue's author
+  found on their own — a smaller brief yields a smaller plan. The error is
+  always rethrown, never absorbed.
+
+### Fixed (found while reviewing the above)
+
+- **`config.stallMs: {planner: 480}` was accepted.** It reads as "eight
+  minutes" and means 480 milliseconds — every planner call aborting instantly,
+  six times in a row, which is the exact failure the value check existed to
+  prevent. Values now have a 1000ms floor, and the warning names the unit. One
+  second cannot reject a legitimate budget; the harness default is 180000.
+
+- **A typo'd role name was silently discarded.** The merge iterated the known
+  roles and read each from the config, so `plannner` was never visited and
+  never warned about: the operator believed they had raised a budget, the run
+  behaved as if they hadn't, and nothing in the log disagreed. Unrecognised
+  keys now warn, like invalid values already did.
+
+- **The stall detector could stall.** Its regex backtracked quadratically on
+  large inputs — 240k characters took 5.1 seconds, 800k took 56 — on a failure
+  path where the payload may be a dumped stack. Bounded, made lazy, and the
+  input sliced: the same 240k now takes 1ms.
+
+- **It also matched ordinary prose.** `work stalled because there was no
+  progress on the API contract` tested true. Since stall detection now gates
+  the model fallback, a false positive would deny a genuinely failed model its
+  fallback — this fix, inverted. The pattern now requires the harness's own
+  `no progress for <n>ms`.
+
+- **A comment described a verification that never happened**, citing a grep
+  over a Claude Code source checkout — which is not how Claude Code is
+  distributed. Replaced with what was actually done: reading the constant out
+  of the 2.1.239 binary.
+
 ## [2.25.0] — 2026-08-22
 
 A third operator field report, this one about a run that could not finish: a

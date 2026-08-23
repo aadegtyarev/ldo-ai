@@ -495,10 +495,64 @@ function routeModels(complexity, config) {
   return table[complexity] || table.medium
 }
 
+// The exact string Claude Code 2.1.239 throws when its watchdog gives up:
+// 'agent stalled on all 6 attempts (no progress for 180000ms each)'. Matched
+// on the harness's own vocabulary rather than the literal sentence, so a
+// reflowed wording still matches. Three deliberate tightenings: the gap is
+// bounded and lazy (an unbounded greedy `.*` backtracks quadratically, and
+// this runs on a failure path where the payload may be a dumped stack), it
+// can't cross a sentence boundary, and it requires the trailing `for <n>ms`
+// — without that, ordinary prose like 'work stalled because there was no
+// progress on the API contract' matches, and since isStallError now gates
+// the model fallback, a false positive denies a genuinely failed model its
+// fallback: the exact behaviour this fix exists to prevent, inverted.
+const STALL_ERROR_RE = /\bstalled\b[^.]{0,200}?\bno progress for \d+\s*ms/i
+
+function isStallError(err) {
+  // Sliced as well as bounded: the regex is linear now, but there's no reason
+  // to hand a megabyte-long error payload to it.
+  return STALL_ERROR_RE.test(String(err?.message || err || '').slice(0, 2000))
+}
+
+// The single point every agent() call funnels through, so a stall can only be
+// explained once instead of re-diagnosed (or missed) at each of the six call
+// sites. Never absorbs: a stall is logged and rethrown, everything else is
+// rethrown untouched — a catch that swallowed either would look like a fix
+// and would silently convert a stalled Planner into a bare "Planner failed".
+//
+// stallMs is undocumented in Claude Code 2.1.239 — it appears only as a
+// binary constant (`Ue = we?.stallMs != null ? Number(we.stallMs) : _vw`,
+// with `_vw = 180000`), which is where issue #3 found it; nothing in the
+// published docs mentions the key. Both
+// failure directions degrade safely rather than break: a future harness that
+// ignores the key just falls back to its own 180000 default, i.e. today's
+// behaviour before this change; a harness whose stall message wording changes
+// just stops matching STALL_ERROR_RE, so the generic ERROR line at
+// runOneFeature's catch still prints instead of a wrapper throwing on an
+// unrecognised shape.
+async function runAgent(prompt, opts) {
+  try {
+    return await agent(prompt, opts)
+  } catch (err) {
+    if (!isStallError(err)) throw err
+    // Line 1: what actually happened — the agent was generating, not hung.
+    // Claude Code's watchdog counts only tool_use blocks as progress, so
+    // composing one large structured output (a long plan, a verdict with
+    // full verification + attacks) is indistinguishable from a stall until
+    // it's already been aborted six times.
+    log(`  ✗ ${opts.label} stalled — it was generating a large response, not hung. Claude Code's watchdog only counts tool calls as progress; composing a big structured output looks identical to hanging.`)
+    log(`  ✗ ${opts.label} current budget: ${opts.stallMs}ms. Raise it with config.stallMs.<role> if this keeps happening.`)
+    if (opts.label?.endsWith('planner')) {
+      log(`  ✗ ${opts.label}: a smaller brief produces a smaller plan, which fits inside the window — that lever is the operator's, not this pipeline's.`)
+    }
+    throw err
+  }
+}
+
 // One transient failure shouldn't abort a run that has already done real work
 async function agentWithRetry(prompt, opts, attempts = 2) {
   for (let i = 0; i < attempts; i++) {
-    const result = await agent(prompt, opts)
+    const result = await runAgent(prompt, opts)
     if (result) return result
     if (i < attempts - 1) log(`  ↻ ${opts.label} returned nothing — retrying (${i + 2}/${attempts})`)
   }
@@ -667,16 +721,22 @@ function enforceMigrationGate(verdict, plan) {
 }
 
 async function agentWithModelFallback(prompt, opts, fallbackModel) {
-  if (!fallbackModel) return agent(prompt, opts)
+  if (!fallbackModel) return runAgent(prompt, opts)
   try {
-    const result = await agent(prompt, opts)
+    const result = await runAgent(prompt, opts)
     if (result) return result
   } catch (err) {
+    // A stall is not a model failure — the fallback model composes the same
+    // long output and stalls the same way, so falling back turns 6 aborts
+    // into 12. On the reviewer that's 36 minutes wasted instead of 18. runAgent
+    // already logged the explanation; just let the stall propagate rather than
+    // re-diagnosing it here as "model failed".
+    if (isStallError(err)) throw err
     log(`  ↻ ${opts.label}: model '${opts.model}' failed (${err?.message || err}) — falling back to '${fallbackModel}'`)
-    return agent(prompt, { ...opts, model: fallbackModel })
+    return runAgent(prompt, { ...opts, model: fallbackModel })
   }
   log(`  ↻ ${opts.label}: model '${opts.model}' returned nothing — falling back to '${fallbackModel}'`)
-  return agent(prompt, { ...opts, model: fallbackModel })
+  return runAgent(prompt, { ...opts, model: fallbackModel })
 }
 
 // ═══════════════════════════════════════════
@@ -688,6 +748,55 @@ const MAX_FIX_LOOPS = CONFIG.maxFixLoops || 3
 const BLOCKING_SEVERITIES = CONFIG.blockingSeverities || ['critical', 'major']
 const DO_RESEARCH = args?.research ?? CONFIG.researchByDefault ?? false
 const MAX_PARALLEL_FEATURES = CONFIG.maxParallelFeatures || 12
+
+// Claude Code's own stall watchdog clears only on a tool_use block. While a
+// model is composing a large StructuredOutput call — no tool_use emitted yet —
+// that looks identical to a hung agent, and the harness aborts it at its
+// 180000ms default. That's what killed issue #3's Planner: six attempts, each
+// dying at exactly 180.0s of silence after the last tool_result, ~992k tokens
+// burned, zero output. This map raises the budget per role.
+// Keyed by ROLE, not by complexity tier: output size tracks the schema the
+// role fills (VERDICT_SCHEMA carries verification criteria and attacks even on
+// a trivial task), and a per-complexity scale structurally cannot cover the
+// Planner — its own call is what PRODUCES the complexity rating, so no rating
+// exists yet when that call needs its budget. A tier-keyed map (trivial/
+// medium/complex) would also collide with the row regex scripts/check-model-
+// table.sh matches across four files; a role-keyed one doesn't.
+// recorder is left at 180000, the harness default, on purpose — it runs on
+// haiku and writes through tools, so tool_use events keep resetting its clock
+// naturally. Blanket-raising every role regardless of whether it needs it is
+// the thing not to do here.
+// The cost of getting this wrong the other way: the harness retries a
+// genuinely stalled agent 5 times (6 attempts total), so planner/reviewer at
+// 480000 means a real hang now costs up to 48 minutes instead of 18. That's
+// the accepted trade against the 47-minute, zero-output run in issue #3.
+const DEFAULT_STALL_MS = { planner: 480000, reviewer: 480000, coder: 360000, security: 300000, researcher: 300000, recorder: 180000 }
+const MIN_STALL_MS = 1000
+const STALL_MS = { ...DEFAULT_STALL_MS }
+for (const role of Object.keys(DEFAULT_STALL_MS)) {
+  const override = CONFIG.stallMs?.[role]
+  if (override === undefined) continue
+  const n = Number(override)
+  if (Number.isFinite(n) && n >= MIN_STALL_MS) {
+    STALL_MS[role] = n
+  } else {
+    // Two failure shapes, one rejection. A malformed value (string, 0,
+    // negative, NaN) reaching setTimeout(NaN) fires immediately and turns
+    // every call for that role into an instant 6x abort loop. A small
+    // positive number is the same loop arrived at by a seconds/milliseconds
+    // mix-up — `{planner: 480}` reads as eight minutes and means 480ms — so
+    // the floor catches the unit error the type check can't. One second can't
+    // reject a legitimate budget: the harness default is already 180000.
+    log(`⚠ config.stallMs.${role} is invalid (${JSON.stringify(override)}) — expected milliseconds, at least ${MIN_STALL_MS}. Keeping default ${DEFAULT_STALL_MS[role]}ms`)
+  }
+}
+// A key the map doesn't contain is never visited by the loop above, so a
+// typo'd or wrong-case role would be silently discarded — the operator
+// believes they raised a budget and nothing in the log says otherwise. Warn
+// on it, the same way an invalid value warns.
+for (const key of Object.keys(CONFIG.stallMs || {})) {
+  if (!(key in DEFAULT_STALL_MS)) log(`⚠ config.stallMs.${key} is not a known role — ignored. Roles: ${Object.keys(DEFAULT_STALL_MS).join(', ')}`)
+}
 
 // Parses args.tasks into {task, label}[] with unique labels, or null if this
 // isn't a multi-feature run (falls through to the single-task path below).
@@ -741,9 +850,9 @@ async function phaseResearch(task, ctx, logStage, logPrefix) {
 
   logStage('Research')
 
-  const researchReport = await agent(
+  const researchReport = await runAgent(
     `Deep-research this topic. Cross-verify claims across independent sources.\n\n## TOPIC\n${task}`,
-    { label: ctx.isMulti ? `${ctx.label}:researcher` : 'researcher', phase: 'Research', model: prePlanModels.researcher, agentType: 'ldo:researcher', schema: RESEARCH_SCHEMA }
+    { label: ctx.isMulti ? `${ctx.label}:researcher` : 'researcher', phase: 'Research', model: prePlanModels.researcher, agentType: 'ldo:researcher', schema: RESEARCH_SCHEMA, stallMs: STALL_MS.researcher }
   )
 
   if (researchReport) {
@@ -767,7 +876,7 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
 
   const plan = await agentWithRetry(
     worktreeTrigger + renderResearch(researchReport) + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
-    { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA }
+    { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA, stallMs: STALL_MS.planner }
   )
 
   if (!plan) {
@@ -829,9 +938,9 @@ async function phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY
       ? `\n\n## SURFACE THE PLANNER FLAGGED\n${plan.security_notes.map(n => `- ${n}`).join('\n')}\n\nStart from these, then look for what the Planner missed.`
       : ''
 
-    securityReport = await agent(
+    securityReport = await runAgent(
       WORKTREE_BLOCK + CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${flagged}`,
-      { label: ctx.isMulti ? `${ctx.label}:security` : 'security', phase: 'Security', model: models.security, agentType: 'ldo:security', schema: SECURITY_SCHEMA }
+      { label: ctx.isMulti ? `${ctx.label}:security` : 'security', phase: 'Security', model: models.security, agentType: 'ldo:security', schema: SECURITY_SCHEMA, stallMs: STALL_MS.security }
     )
 
     if (securityReport) {
@@ -886,12 +995,13 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       : WORKTREE_BLOCK + `Fix the review issues below. Narrow pass — touch only these files. Don't leave a comment narrating the fix ("changed X to Y because the reviewer flagged Z") — the why belongs in your summary, not in the code.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}`
 
     const coderLabel = isFirstPass ? 'coder' : `coder-fix-${iteration}`
-    const coderResult = await agent(coderPrompt, {
+    const coderResult = await runAgent(coderPrompt, {
       label: ctx.isMulti ? `${ctx.label}:${coderLabel}` : coderLabel,
       phase: 'Code',
       model: models.coder,
       agentType: 'ldo:coder',
       schema: CODER_SCHEMA,
+      stallMs: STALL_MS.coder,
     })
 
     if (coderResult?.tests?.result) log(`${logPrefix}Coder pass ${iteration + 1}: ${coderResult.tests.result}`)
@@ -917,6 +1027,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       model: models.reviewer,
       agentType: 'ldo:reviewer',
       schema: VERDICT_SCHEMA,
+      stallMs: STALL_MS.reviewer,
     }, REVIEWER_FALLBACK[models.reviewer])
 
     if (!rawVerdict) {
@@ -1168,12 +1279,13 @@ ${issuesBlock}
 ## SECURITY (if any)
 ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f.severity}] ${f.category}: ${f.what} → ${f.mitigation}`).join('\n') : 'none'}`
 
-  const recordResult = await agent(recordPrompt, {
+  const recordResult = await runAgent(recordPrompt, {
     label: ctx.isMulti ? `${ctx.label}:recorder` : 'recorder',
     phase: 'Record',
     model: models.recorder || 'haiku',
     agentType: 'ldo:recorder',
     schema: RECORD_SCHEMA,
+    stallMs: STALL_MS.recorder,
   })
 
   if (!recordResult) {

@@ -87,6 +87,7 @@ The default accepts that cold start deliberately: an independent read is worth m
 | `researchByDefault` | `false` | Run the Researcher on every task |
 | `securityByDefault` | *(unset)* | Force the Security agent on or off, overriding the Planner's rating |
 | `maxParallelFeatures` | `12` | Cap on concurrent features in a multi-feature run (`args.tasks`) — a run above this logs a warning, it isn't blocked |
+| `stallMs` | per-role: planner/reviewer `480000`, coder `360000`, security/researcher `300000`, recorder `180000` | How many ms an agent may generate without a tool call before Claude Code aborts it as stalled. Only tool calls reset this timer, so a large structured output (a long plan, a full verdict) needs headroom — a genuinely hung agent costs this value six times over (the harness retries 5 times). Values are milliseconds and must be at least `1000`; anything smaller is rejected with a warning and the default kept, since `480` meaning "eight minutes" would otherwise abort the role instantly, six times over. An unrecognised role name is warned about, not silently ignored |
 
 ## Per-run override
 

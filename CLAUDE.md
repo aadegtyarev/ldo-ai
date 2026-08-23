@@ -68,5 +68,6 @@ the list. Offer; don't run either unasked.
 - unrelated fix-pass findings downgraded to advisory instead of holding the loop
 - recorder now runs on an exhausted run, marked not approved, architecture doc skipped
 - contract entries capped at 200 chars with provenance moved to a Sources section
+- per-role stallMs raises the harness stall watchdog; a stall is explained, not reported as "stalled"
 <!-- /ldo:features -->
 <!-- END ldo -->

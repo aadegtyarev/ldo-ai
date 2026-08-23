@@ -274,11 +274,21 @@ run ldo on "refactor the auth module", with haiku coding and opus reviewing
   "maxFixLoops": 3,
   "blockingSeverities": ["critical", "major"],
   "researchByDefault": false,
-  "maxParallelFeatures": 12
+  "maxParallelFeatures": 12,
+  "stallMs": {
+    "planner": 480000,
+    "reviewer": 480000,
+    "coder": 360000,
+    "security": 300000,
+    "researcher": 300000,
+    "recorder": 180000
+  }
 }
 ```
 
 Those are the defaults, in full — matching `ldo-config.example.json`, the copy-paste source if you want a starting point rather than retyping this. `securityByDefault` is deliberately unset — leave it out and the Planner decides per task; set `true` or `false` to override it everywhere.
+
+`stallMs` is keyed by role, not by tier, because how much an agent generates before its first tool call tracks the *schema* that role fills, not how complex the task is — a trivial task's Reviewer still fills out full verification and attack sections. It sets an undocumented Claude Code option; older or future harnesses that don't recognise the key simply ignore it and fall back to their own 180-second default, same as today. Values are milliseconds with a floor of 1000 — `480` meaning "eight minutes" is rejected with a warning rather than silently aborting that role six times in a row — and a role name LDO doesn't recognise is warned about instead of quietly dropped.
 
 `coder` and `reviewer` move between tiers — deliberate, not an oversight. `planner` is Opus everywhere because complexity is *its own output*: nothing can gate the Planner's model on a rating it hasn't produced yet, and its value — surfacing what the task didn't ask about, not just executing what it did — doesn't get cheaper just because the resulting plan turns out short. `reviewer` is Opus on `trivial`/`medium` and Fable on `complex` (falling back to Sonnet when Fable isn't on your route), because its entire premise is not sharing the Coder's blind spot and a cheap model doesn't reliably know when to stop and ask instead of writing confident, made-up prose about work it didn't verify — exactly the failure mode a cheap Reviewer is worst-positioned to catch. Complex work has the most surface to miss, so it gets the strongest reviewer; Sonnet is the floor, because a weaker review still catches things and no review doesn't. `coder` is where the tier does real work — haiku/sonnet/opus — because executing a plan's *width* (not the underlying code's difficulty) is what actually scales with `trivial`/`medium`/`complex`.
 
