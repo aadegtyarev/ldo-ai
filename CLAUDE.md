@@ -71,5 +71,6 @@ the list. Offer; don't run either unasked.
 - per-role stallMs raises the harness stall watchdog; a stall is explained, not reported as "stalled"
 - planner rates sizing; planOnly:true stops after plan and prints a pasteable split
 - cold resume reads the run's journal.jsonl; a recovered plan feeds back via resumePlan
+- PLAN_SCHEMA exceeded the harness safety-classifier ceiling; trimmed, plus scripts/check-schema-size.sh
 <!-- /ldo:features -->
 <!-- END ldo -->

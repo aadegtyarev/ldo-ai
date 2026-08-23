@@ -468,6 +468,8 @@ Installing the plugin adds only these. Your own settings, hooks, and agents are 
 
 The protocol is deliberately small. Before proposing a new agent, apply the test from above: *would this warrant a different model than the Coder?* If the answer is no, it probably belongs inside an existing role.
 
+Each agent's output schema is sent to the harness as a tool definition and passes a safety classifier before the agent runs. A schema past that classifier's ceiling is rejected in milliseconds with `output schema too large to classify safely` — no tokens spent, nothing logged to debug, and `node --check` still green. `PLAN_SCHEMA` crossed it once already, gradually, across three releases. After touching any schema in `workflows/ldo.js`, run `scripts/check-schema-size.sh`; when it fails, move the description prose into the agent's markdown, where the model still reads it and it costs nothing here.
+
 The model-routing table is duplicated in four places (`workflows/ldo.js`, `ldo-config.example.json`, `README.md`, `skills/ldo-config/SKILL.md`) — deliberately, but that's exactly the shape that drifts silently. After touching `DEFAULT_MODELS` or any of its copies, run `scripts/check-model-table.sh` — it parses all four against `workflows/ldo.js` as the source of truth and fails loudly on any mismatch, rather than waiting for the next `/ldo-docs-audit` to catch it after the fact.
 
 ## License

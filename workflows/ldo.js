@@ -23,15 +23,15 @@ const PLAN_SCHEMA = {
     security_surface: {
       type: 'string',
       enum: ['none', 'low', 'elevated'],
-      description: 'none = no attack surface; low = data paths, no new entry point; elevated = new input/auth/secrets/injection/dependency/crypto surface',
+      description: 'Attack surface this change introduces. See agents/planner.md.',
     },
     security_notes: { type: 'array', items: { type: 'string' } },
     summary: { type: 'string' },
     codebase_context: {
       type: 'object',
-      description: 'The ONLY codebase information downstream agents receive. Becomes the shared cache prefix.',
+      description: 'The only codebase information downstream agents receive',
       properties: {
-        stack: { type: 'string', description: 'Language, framework, package manager, test framework, database' },
+        stack: { type: 'string', description: 'Language, framework, package manager, test framework, db' },
         conventions: { type: 'string', description: 'Patterns the Coder must match. 3-8 lines.' },
         relevant_files: {
           type: 'array',
@@ -65,48 +65,48 @@ const PLAN_SCHEMA = {
     },
     problem_evidence: {
       type: 'object',
-      description: 'What observation shows the problem is real. A task that cannot answer this is a guess, and the pipeline builds guesses as readily as it builds fixes.',
+      description: 'What observation shows the problem is real. See agents/planner.md.',
       properties: {
         basis: {
           type: 'string',
           enum: ['measured', 'reported', 'inspected', 'asserted'],
-          description: 'measured = a number/output in hand; reported = a user or log reported it; inspected = read the code and the defect is visible there; asserted = the task says so and nothing else confirms it',
+          description: 'How the problem is known',
         },
-        evidence: { type: 'string', description: 'The specific observation — the failing output, the log line, the code path. Empty when basis is asserted.' },
-        confirms: { type: 'string', description: 'What measurement would show the change worked. Must be observable, not "the code is better".' },
+        evidence: { type: 'string', description: 'The specific observation. Empty when basis is asserted.' },
+        confirms: { type: 'string', description: 'What observable measurement would show the change worked' },
       },
       required: ['basis'],
     },
     risks: { type: 'array', items: { type: 'string' } },
     rollback_plan: { type: 'string' },
-    worktree_path: { type: 'string', description: 'Populated only in multi-feature mode — the exact path the Planner cd\'d into' },
-    branch: { type: 'string', description: 'Populated only in multi-feature mode — the exact branch the Planner created' },
+    worktree_path: { type: 'string', description: 'Multi-feature mode only: the path the Planner cd\'d into' },
+    branch: { type: 'string', description: 'Multi-feature mode only: the branch the Planner created' },
     migrations: {
       type: 'object',
-      description: 'Only when this plan creates database migrations or any other globally-numbered file',
+      description: 'Only when this plan creates globally-numbered files',
       properties: {
-        count: { type: 'number', description: 'How many migration files this plan creates. 0 or omit the field when it creates none.' },
-        directory: { type: 'string', description: 'Real, verified path to the migrations directory, relative to the repo root' },
-        identifiers: { type: 'array', items: { type: 'string' }, description: 'The exact filename number prefixes to use, e.g. ["0075","0076"]' },
+        count: { type: 'number', description: '0 or omit when it creates none' },
+        directory: { type: 'string', description: 'Verified path, relative to the repo root' },
+        identifiers: { type: 'array', items: { type: 'string' }, description: 'Filename number prefixes, e.g. ["0075","0076"]' },
         note: { type: 'string' },
       },
       required: ['count', 'directory'],
     },
     sizing: {
       type: 'object',
-      description: 'Whether this task is one run or several. Advisory — the orchestrator reports it and never blocks on it.',
+      description: 'One run or several. Advisory. See agents/planner.md.',
       properties: {
         fits_one_run: { type: 'boolean' },
-        reason: { type: 'string', description: 'One line: why it does or does not fit one run' },
+        reason: { type: 'string', description: 'One line' },
         suggested_split: {
           type: 'array',
-          description: 'Omitted or empty when fits_one_run is true',
+          description: 'Empty when fits_one_run is true',
           items: {
             type: 'object',
             properties: {
-              label: { type: 'string', description: 'Slug-shaped: lowercase, digits, hyphens' },
-              task: { type: 'string', description: 'Self-contained task text for a fresh pipeline run whose Planner has no memory of this one' },
-              depends_on: { type: 'array', items: { type: 'string' }, description: 'Labels of chunks that must land first. args.tasks runs features in PARALLEL worktrees, so anything with a non-empty depends_on must NOT go in the same batch' },
+              label: { type: 'string', description: 'lowercase, digits, hyphens' },
+              task: { type: 'string', description: 'Self-contained: the next Planner never sees this plan' },
+              depends_on: { type: 'array', items: { type: 'string' }, description: 'Labels of chunks that must land first' },
             },
             required: ['label', 'task'],
           },

@@ -5,6 +5,43 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.29.0] — 2026-08-23
+
+Every run of the pipeline was dead. Not slow, not degraded — the Planner was
+rejected before it started, in about twelve milliseconds, for zero tokens, with
+`output schema too large to classify safely`. The harness runs a safety
+classifier over each agent's output schema as a tool definition, and
+`PLAN_SCHEMA` had crossed its ceiling.
+
+It crossed it gradually. Three releases added `migrations`, `problem_evidence`
+and `sizing`, taking the schema from 3198 serialized characters in 2.25.0 to
+4116 in 2.28.0 — `sizing` alone accounts for 908 of the 918. None of that was
+caught, because the installed plugin lagged the repo at 2.25.0 and kept running
+the old schema; the first restart that loaded 2.28.0 broke everything at once.
+`node --check` was green throughout, and so was `check-model-table.sh`. Nothing
+in the repo could have said otherwise.
+
+### Fixed
+
+- **`PLAN_SCHEMA` trimmed to 3223 serialized chars.** Nineteen `description`
+  strings shortened; not one property, type, enum or `required` entry touched —
+  verified by stripping every description from both versions and comparing the
+  remaining structure byte for byte. Each trimmed string was checked against
+  `agents/planner.md` first: the schema copies were duplicates of prose the
+  Planner already reads, so the model loses nothing. The descriptions that
+  remain point at that file rather than restating it.
+
+### Added
+
+- **`scripts/check-schema-size.sh`.** A schema over the limit fails in a way
+  the existing gates cannot see — no syntax error, no drift, no output to
+  debug. This one discovers every `*_SCHEMA` in `workflows/ldo.js`, evaluates
+  it standalone and measures `JSON.stringify().length` against a budget of
+  3400, chosen as the largest size proven to work plus a deliberately small
+  margin. It fails loudly if its own discovery regex matches nothing, rather
+  than reporting a vacuous pass. Run it after touching any schema; the fix for
+  a failure is to move the prose into the agent's markdown, where it is free.
+
 ## [2.28.0] — 2026-08-23
 
 An interrupted run leaves three layers of state behind. `/ldo-resume` knew
