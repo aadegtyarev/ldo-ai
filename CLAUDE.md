@@ -14,11 +14,11 @@ what doesn't need it, and don't hand-edit around it for what does.
 **Track every pipeline call in `.claude/ldo-runs.json`** so an interrupted run can
 resume instead of restarting cold — see `/ldo-resume` for the exact protocol
 (write the full `args` object to `.claude/ldo-args/<runId>.json` right after
-calling, then record the `runId` and that reference in the tracking entry, and
-update its status when the result comes back; resuming needs both the run id
-and the real args, and the tracking entry alone doesn't carry them). At the
-start of this session, before anything else, check that file for entries still
-marked `running` — an earlier session may have been interrupted mid-run. If any
+calling, then record the `runId`, the `transcriptDir` the tool result hands
+back, and that reference in the tracking entry, and update its status when the
+result comes back; resuming needs both the run id and the real args, and the
+tracking entry alone doesn't carry them). At the start of this session, before
+anything else, check that file for entries still marked `running` — an earlier session may have been interrupted mid-run. If any
 exist, follow `/ldo-resume`'s recovery steps rather than leaving them
 unmentioned.
 
@@ -70,5 +70,6 @@ the list. Offer; don't run either unasked.
 - contract entries capped at 200 chars with provenance moved to a Sources section
 - per-role stallMs raises the harness stall watchdog; a stall is explained, not reported as "stalled"
 - planner rates sizing; planOnly:true stops after plan and prints a pasteable split
+- cold resume reads the run's journal.jsonl; a recovered plan feeds back via resumePlan
 <!-- /ldo:features -->
 <!-- END ldo -->

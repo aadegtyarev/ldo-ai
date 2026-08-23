@@ -48,6 +48,17 @@ PATTERNS = [
     # PII — url-with-credentials first, else user:pass@host reads as an email.
     (r'\bhttps?://[^/\s:@]+:[^/\s@]+@', 'url-with-credentials'),
     (r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', 'email'),
+    # Anchored to a path boundary: unanchored, this ate the `home`/`Users`
+    # segment of any relative path (docs/home/index.md, src/Users/model.ts),
+    # which mangles exactly the file references a bug report needs. `/{1,2}`
+    # catches file:///home/... and a doubled slash; the Windows shape needs
+    # its own rule because the separator is different.
+    (r'(?<![\w.-])/{1,2}(?:home|Users)/+[^/\s"\']+', 'home-path'),
+    (r'(?i)[A-Z]:\\Users\\[^\\\s"\']+', 'home-path'),
+    # Claude's project slug embeds the same home path with dashes for
+    # slashes (-home-alice-projects-x), so the rule above never sees it —
+    # and every transcriptDir a bug report carries contains one.
+    (r'(?<![\w-])-home-[A-Za-z0-9._-]+', 'home-path'),
     (r'\b(?:\d{1,3}\.){3}\d{1,3}\b', 'ip'),
 ]
 
@@ -78,6 +89,10 @@ SELF_TEST = [
     ('private key block', '-----BEGIN RSA PRIVATE KEY-----\nFAKEKEYMATERIAL\n-----END RSA PRIVATE KEY-----', '<REDACTED:private-key>'),
     ('password assignment', _s('password=', 'hunter2secret'), '<REDACTED:credential>'),
     ('email', 'mail someone@example.com about it', '<REDACTED:email>'),
+    ('home path', 'transcriptDir: /home/someuser/x', '<REDACTED:home-path>'),
+    ('relative path is not a home path', 'see docs/home/index.md', 'docs/home/index.md'),
+    ('windows home path', 'C:\\Users\\bob\\proj', '<REDACTED:home-path>'),
+    ('project slug home path', 'dir: /home/bob/.claude/projects/-home-bob-work-app/a', 'projects/<REDACTED:home-path>/a'),
     ('url with login', _s('clone https://user:', 'secretpw@example.com/repo'), '<REDACTED:url-with-credentials>'),
     ('ip address', 'the request came from 192.168.1.10', '<REDACTED:ip>'),
     # negative: ordinary prose must pass through untouched, no false positive.

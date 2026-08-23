@@ -222,9 +222,9 @@ If the same override or workaround shows up more than once, that's not trivia an
 
 A `/ldo:ldo` call already survives more than it looks like: every `Workflow` call gets a `runId`, and Claude Code caches each completed step (Plan, Coder, Reviewer, ...) against it. Pass that same `runId` back via `resumeFromRunId` and the cached steps return instantly — only what hadn't finished actually re-runs. The gap was that nothing wrote the `runId` down, so if the session holding it in its head went away, there was nothing to resume *from*.
 
-If you ran `/ldo-init`, every `/ldo:ldo` call now gets logged to `.claude/ldo-runs.json` the moment it starts, and updated when it finishes. The full arguments the call needs to resume — `task`, `security`, `research`, `isolate`, any model override — live in a side file, `.claude/ldo-args/<runId>.json`, with `ldo-runs.json` holding only a small tracking entry that points at it; that split keeps the args out of the file that gets rewritten on every run and off the operator's screen. At the start of a session, Claude checks that file for anything still marked `running` and tries to resume it before you ask.
+If you ran `/ldo-init`, every `/ldo:ldo` call now gets logged to `.claude/ldo-runs.json` the moment it starts, and updated when it finishes. The full arguments the call needs to resume — `task`, `security`, `research`, `isolate`, any model override — live in a side file, `.claude/ldo-args/<runId>.json`, with `ldo-runs.json` holding only a small tracking entry that points at it, alongside the `transcriptDir` the `Workflow` call itself returns; that split keeps the args out of the file that gets rewritten on every run and off the operator's screen. At the start of a session, Claude checks that file for anything still marked `running` and tries to resume it before you ask.
 
-One real limit worth knowing: the cache lives in the harness session that produced the `runId`, not on disk. Picking a conversation back up in the *same* session (it got summarized, or you reopened it via its own resume) — the cache is almost always still there. A genuinely new session can't reach it; `/ldo-resume` notices, says so, and falls back to running the task fresh rather than guessing or failing silently. See `/ldo-resume` for the exact protocol.
+One real limit worth knowing: the in-process cache lives in the harness session that produced the `runId`, not on disk. Picking a conversation back up in the *same* session (it got summarized, or you reopened it via its own resume) — the cache is almost always still there. A genuinely new session can't reach it, and when that happens `/ldo-resume` doesn't just give up and start over: it reads the run's on-disk transcript journal for whatever already completed, reports which stages survived, and feeds a recovered plan into the fresh run instead of re-planning it from scratch. See `/ldo-resume` for the exact protocol.
 
 ## Usage
 
@@ -236,6 +236,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo:ldo research:true "task"` | Add the web research phase |
 | `/ldo:ldo security:true "task"` | Force the threat model on (or `false` to skip it) |
 | `/ldo:ldo planOnly:true "task"` | Plan and stop — no code, no review; returns the plan and its sizing block |
+| `Workflow({args:{task, resumePlan}})` | Skip the Planner and run against a plan recovered from an interrupted run's transcript — a plan object, so it goes through the tool call, not the palette |
 | `/ldo-bootstrap "idea"` | Start a project — prior art, stack, roadmap (interactive) |
 | `/ldo-planner "task"` | Plan only |
 | `/ldo-coder "task"` | Implement a plan |

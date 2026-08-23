@@ -1,7 +1,7 @@
 export const meta = {
   name: 'ldo',
   description: 'Lightweight Dev Orchestrator: [Research→]Plan→[Security→]Code⇄Review, with a different model per role',
-  whenToUse: 'args.task runs one feature in the current directory. args.tasks (an array) runs N independent features in parallel, each isolated in its own git worktree created by that feature\'s Planner; each ships separately afterward via /ldo-ship run from its own worktree. Add planOnly: true to either form to stop after Plan (and Security, when the surface is elevated) and get the plan plus its sizing block back without implementing it.',
+  whenToUse: 'args.task runs one feature in the current directory. args.tasks (an array) runs N independent features in parallel, each isolated in its own git worktree created by that feature\'s Planner; each ships separately afterward via /ldo-ship run from its own worktree. Add planOnly: true to either form to stop after Plan (and Security, when the surface is elevated) and get the plan plus its sizing block back without implementing it. args.resumePlan accepts a previously produced plan object and skips the Planner in a plain single-task run (not isolate: true, not args.tasks); an invalid object logs why and the Planner runs normally.',
   phases: [
     { title: 'Research', detail: 'Multi-source web research (opt-in)' },
     { title: 'Plan', detail: 'Read the codebase, plan the change, rate complexity + security surface' },
@@ -464,6 +464,113 @@ function safeMigrationsDir(dir) {
   return normalized
 }
 
+// A recovered plan (args.resumePlan) reaches renderPlan and every downstream
+// prompt — Security, Coder, Reviewer, Recorder — with no Planner call in
+// between to catch a malformed shape. Running the pipeline on a broken plan
+// object is strictly worse than re-planning (bad shape corrupts every prompt
+// built from it), so this validates it before phasePlan ever assigns it to
+// `plan`. Checks PLAN_SCHEMA's required fields; optional fields stay optional,
+// but are shape-checked when present, because absent and malformed are not the
+// same thing to the code that reads them. Plus bounds a live Planner call is
+// implicitly subject to but a file-sourced object is not: a live call's step count and output size are bounded by the
+// model's output budget, and its worktree_path is one it just cd'd into
+// itself. A recovered object has none of those guarantees, so they're
+// checked explicitly here instead of assumed.
+function resumePlanRejection(p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return 'not a plan object'
+  if (!['trivial', 'medium', 'complex'].includes(p.complexity)) return 'complexity is not trivial|medium|complex'
+  if (typeof p.summary !== 'string' || !p.summary.trim()) return 'summary is missing'
+  if (
+    !Array.isArray(p.steps) ||
+    p.steps.length === 0 ||
+    p.steps.some(s => !s || typeof s.what !== 'string' || !s.what.trim() || !Array.isArray(s.files) || typeof s.acceptance !== 'string' || !s.acceptance.trim())
+  ) {
+    return 'steps are missing or malformed'
+  }
+  if (
+    !p.codebase_context ||
+    typeof p.codebase_context !== 'object' ||
+    typeof p.codebase_context.stack !== 'string' ||
+    !Array.isArray(p.codebase_context.relevant_files)
+  ) {
+    return 'codebase_context is missing or malformed'
+  }
+  // relevant_files, security_notes, risks, migrations and sizing are every
+  // optional field phasePlan/renderContext/renderMigrations/renderSplitPaste
+  // iterate or dereference (.map, .forEach, .join, .label, .task, .slice)
+  // with no type guard of their own, because a live Planner call always
+  // produces them in schema shape. A recovered object carries no such
+  // guarantee, so a bad element in any of them would otherwise reach those
+  // call sites as an uncaught TypeError instead of a rejection.
+  if (p.codebase_context.relevant_files.some(f => !f || typeof f !== 'object' || typeof f.path !== 'string')) {
+    return 'relevant_files entries are malformed'
+  }
+  if (p.security_notes !== undefined && (!Array.isArray(p.security_notes) || p.security_notes.some(n => typeof n !== 'string'))) {
+    return 'security_notes is malformed'
+  }
+  // security_surface is checked for a different reason than the fields around
+  // it: it doesn't crash anything, it gates a whole phase. securityEnabled
+  // compares it against 'elevated', and the missing-rating safety net below
+  // tests !plan.security_surface — so any non-empty garbage ('Elevated',
+  // 'nope', {}) is truthy enough to defeat the net and falsy enough to skip
+  // the threat model, silently. The enum comes from PLAN_SCHEMA so the two
+  // cannot drift apart.
+  if (p.security_surface !== undefined && !PLAN_SCHEMA.properties.security_surface.enum.includes(p.security_surface)) {
+    return `security_surface is not ${PLAN_SCHEMA.properties.security_surface.enum.join('|')}`
+  }
+  if (p.risks !== undefined && (!Array.isArray(p.risks) || p.risks.some(r => typeof r !== 'string'))) {
+    return 'risks is malformed'
+  }
+  if (p.migrations !== undefined) {
+    if (!p.migrations || typeof p.migrations !== 'object' || Array.isArray(p.migrations)) return 'migrations is malformed'
+    if (p.migrations.identifiers !== undefined && (!Array.isArray(p.migrations.identifiers) || p.migrations.identifiers.some(id => typeof id !== 'string'))) {
+      return 'migrations is malformed'
+    }
+  }
+  if (p.sizing !== undefined) {
+    if (!p.sizing || typeof p.sizing !== 'object' || Array.isArray(p.sizing)) return 'sizing is malformed'
+    if (p.sizing.suggested_split !== undefined) {
+      if (!Array.isArray(p.sizing.suggested_split)) return 'sizing is malformed'
+      if (
+        p.sizing.suggested_split.some(
+          c => !c || typeof c !== 'object' || typeof c.label !== 'string' || typeof c.task !== 'string' || (c.depends_on !== undefined && !Array.isArray(c.depends_on))
+        )
+      ) {
+        return 'sizing is malformed'
+      }
+    }
+  }
+  // A Planner call is bounded by MAX_STEPS_PER_RUN in its prompt and by the
+  // model's output budget in practice; a file-sourced object is bounded by
+  // neither, so both get an explicit ceiling here. 4x is generous on purpose
+  // — a false positive on a legitimately large plan costs one Planner call,
+  // not a broken run.
+  if (p.steps.length > MAX_STEPS_PER_RUN * 4) return 'too many steps for a recovered plan'
+  let size = 0
+  try {
+    size = JSON.stringify(p).length
+  } catch {
+    return 'not serializable'
+  }
+  if (size > 256_000) return 'recovered plan is implausibly large'
+  // Belt-and-braces. The live control is the ctx.isMulti rejection in
+  // phasePlan — no recovered plan reaches here in a mode where worktree_path
+  // does anything, so today this branch cannot fire on a dangerous value.
+  // It is here for the day that restriction is relaxed: worktree_path would
+  // then flow into renderWorktree's "cd there before anything else"
+  // instruction and into verifyAgentLocation, which compares an agent's
+  // self-report against this same string — an attacker-chosen path would
+  // validate itself. Do not delete the isMulti gate believing this covers it.
+  // A worktree path is relative-by-construction wherever one is produced
+  // today (the `.worktrees/<label>` hints), so absolute or `..`-bearing is
+  // never legitimate.
+  if (p.worktree_path !== undefined) {
+    const wp = String(p.worktree_path || '').trim()
+    if (wp.startsWith('/') || wp.split('/').includes('..')) return 'worktree_path is unsafe'
+  }
+  return null
+}
+
 function renderWorktree(worktreePath, branch, label) {
   if (!worktreePath || !branch) return ''
   const labelLine = label ? ` This feature's label is \`${label}\` — use it wherever a per-feature filename is called for.` : ''
@@ -809,6 +916,14 @@ const DO_RESEARCH = args?.research ?? CONFIG.researchByDefault ?? false
 // pipeline after Plan — and after Security when the surface is elevated —
 // returning the plan instead of implementing it.
 const PLAN_ONLY = args?.planOnly === true
+// A recovered plan describes ONE feature and cannot be keyed to a label, so
+// it's rejected outright in multi-feature mode rather than silently applied
+// to just the first task or silently ignored with no explanation.
+let RESUME_PLAN = args?.resumePlan
+if (args?.resumePlan !== undefined && Array.isArray(args?.tasks)) {
+  RESUME_PLAN = undefined
+  log('⚠ resumePlan is ignored in multi-feature mode (args.tasks) — one recovered plan cannot be keyed to a feature. Every feature will be planned normally.')
+}
 const MAX_PARALLEL_FEATURES = CONFIG.maxParallelFeatures || 12
 
 const PLANNER_CONFIG = CONFIG.planner || {}
@@ -906,9 +1021,15 @@ function normalizeTasks(a) {
 // Security is gated on attack surface, not task size — a one-line change to an
 // auth check is trivial work with elevated risk. The Planner rates this; the
 // dedicated agent runs only when that rating is `elevated`.
-function securityEnabled(plan) {
+// forceElevated is set only for a resumePlan run whose recovered plan carries
+// no security_surface — there was no Planner call to rate it, so treating an
+// absent rating as 'none' would silently turn off the one phase that exists
+// to catch new attack surface. An explicit `security: false` still overrides
+// this, same as it overrides any other rating.
+function securityEnabled(plan, forceElevated) {
   if (args?.security !== undefined) return args.security
   if (CONFIG.securityByDefault !== undefined) return CONFIG.securityByDefault
+  if (forceElevated) return true
   return plan.security_surface === 'elevated'
 }
 
@@ -965,10 +1086,38 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
       : 'The operator has asked for this to be planned as ONE run — only flag a split if the task is genuinely incoherent as a single run.') +
     ' Fill `sizing` either way; it is advisory and blocks nothing.\n\n'
 
-  const plan = await agentWithRetry(
-    worktreeTrigger + renderResearch(researchReport) + sizingBrief + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
-    { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA, stallMs: STALL_MS.planner }
-  )
+  // resumePlan is checked ABOVE every guard below (the `if (!plan)` failure
+  // guard, the multi-mode worktree guard, safeMigrationsDir) so a recovered
+  // plan passes through every gate a Planner-produced plan does. It is
+  // rejected outright — never validated and used — whenever ctx.isMulti is
+  // true. That covers both args.tasks (already filtered out at config time,
+  // above) and isolate:true, which also sets ctx.isMulti but isn't visible
+  // there. This is the live control that keeps a recovered worktree_path away
+  // from renderWorktree and verifyAgentLocation — see resumePlanRejection's
+  // worktree_path branch for why that matters.
+  let plan = null
+  let planFromResume = false
+  if (RESUME_PLAN !== undefined) {
+    if (ctx.isMulti) {
+      log(`${logPrefix}⚠ resumePlan ignored (isolated/multi-feature run — a recovered plan names a worktree from a dead run that this run cannot verify exists) — running the Planner normally.`)
+    } else {
+      const reason = resumePlanRejection(RESUME_PLAN)
+      if (reason) {
+        log(`${logPrefix}⚠ resumePlan ignored (${reason}) — running the Planner normally.`)
+      } else {
+        plan = RESUME_PLAN
+        planFromResume = true
+        log(`${logPrefix}Plan supplied via resumePlan — Planner skipped (${plan.steps.length} step(s) recovered).`)
+      }
+    }
+  }
+
+  if (!plan) {
+    plan = await agentWithRetry(
+      worktreeTrigger + renderResearch(researchReport) + sizingBrief + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
+      { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA, stallMs: STALL_MS.planner }
+    )
+  }
 
   if (!plan) {
     log(`${logPrefix}ERROR: Planner failed.`)
@@ -989,13 +1138,31 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
     delete plan.migrations
   }
 
+  // test_command/run_command are the one field on the plan whose entire
+  // purpose is to be executed — agents/coder.md substitutes test_command
+  // verbatim into a bash line. A live Planner call derives them by reading
+  // the codebase; a recovered plan's copy cannot be re-verified against
+  // anything, so they're dropped rather than trusted. The Coder handles their
+  // absence: agents/coder.md tells it to run the suite before touching a file
+  // and to find the command itself if the plan doesn't name one. So this
+  // costs one rediscovery and closes the only route a resumed plan has to a
+  // shell.
+  if (planFromResume && plan.codebase_context && (plan.codebase_context.test_command || plan.codebase_context.run_command)) {
+    delete plan.codebase_context.test_command
+    delete plan.codebase_context.run_command
+    log(`${logPrefix}⚠ resumePlan: dropped test_command/run_command — a recovered command string is executed by the Coder and cannot be verified from a dead run; the Coder will rediscover them.`)
+  }
+
   const models = routeModels(plan.complexity, CONFIG)
   const CTX = renderContext(plan.codebase_context)
   const surface = plan.security_surface || 'unrated'
-  const DO_SECURITY = securityEnabled(plan)
+  if (planFromResume && !plan.security_surface) {
+    log(`${logPrefix}⚠ resumePlan carries no security_surface rating — no Planner ran to rate it, so the threat model is being forced on. Pass security:false to skip it deliberately.`)
+  }
+  const DO_SECURITY = securityEnabled(plan, planFromResume && !plan.security_surface)
   const WORKTREE_BLOCK = ctx.isMulti ? renderWorktree(plan.worktree_path, plan.branch, ctx.label) : ''
 
-  log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
+  log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}${planFromResume ? ' (recovered, not re-rated)' : ''}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
   if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch})`)
   if (surface !== 'none' && plan.security_notes?.length) {
     plan.security_notes.forEach(n => log(`${logPrefix}  ⚠ ${n}`))

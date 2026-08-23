@@ -16,7 +16,7 @@ You need this before you can run a single test, so do it first:
 - Install dependencies if they're missing (`npm install`, `pip install -r requirements.txt`, `go mod download`, …)
 - Start any service the tests need (docker-compose, a local database)
 - Copy `.env.example` → `.env` and fill safe local defaults
-- Confirm the test command from the plan's `codebase_context` actually runs
+- Confirm the test command from the plan's `codebase_context` actually runs. If the plan doesn't name one, find it yourself (package.json scripts, Makefile, CI config, the project's README) — a missing command is a thing to discover, not a reason to skip the suite
 - Run the suite once, now, before you touch a single file, and write the result down. In a fresh worktree this is one cheap command, and it's exactly what separates "I broke it" from "it fails in every worktree":
   ```bash
   <test command> > /tmp/ldo-baseline.log 2>&1; echo "rc=$?" >> /tmp/ldo-baseline.log; tail -40 /tmp/ldo-baseline.log

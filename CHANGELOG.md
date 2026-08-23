@@ -5,6 +5,79 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.0] — 2026-08-23
+
+An interrupted run leaves three layers of state behind. `/ldo-resume` knew
+about two of them: the files the Coder already wrote, and the harness's
+`resumeFromRunId` cache, which lives in the process and dies with it. The
+third is `journal.jsonl` — written by every Workflow run, holding each
+completed agent's full return value, and readable months later. A run from
+three weeks ago, from a long-closed session, still reads fine on this machine.
+So the plan and any finished Code⇄Review passes were sitting on disk while
+the recovery skill told the operator to throw them away and start cold.
+
+### Added
+
+- **A journal-read step in `/ldo-resume`'s recovery.** It reports what
+  survived — "the plan survived, the first Coder pass survived, review did not
+  run" — and feeds the recovered plan into the fresh run. The journal labels
+  results by agent id, not by role, so identification goes through each
+  agent's `.meta.json` sidecar and falls back to matching the result's shape;
+  the skill says which is which rather than implying a role field exists.
+  Reading the journal is a documented-behaviour dependency on the harness, not
+  a public API, so every step degrades to the old behaviour — mark abandoned,
+  re-run fresh — when the directory is missing, unreadable, or the wrong shape.
+- **`.claude/ldo-runs.json` records `transcriptDir`.** The Workflow result
+  hands the transcript path back alongside the run id; recording it is what
+  makes the journal findable from a cold session. Entries written before this
+  release have no such field — recovery globs for it, project-pinned, and
+  degrades to today's behaviour when the directory is gone.
+- **`resumePlan`.** Pass a recovered plan object and the Planner is skipped —
+  the single most expensive stage of a re-run, paid for twice otherwise. Only
+  in a plain single-task run: not with `args.tasks`, not with `isolate: true`,
+  because a recovered plan names a worktree from a dead run that this run
+  cannot verify exists. An object that doesn't validate logs why and the
+  Planner runs normally.
+
+### Fixed (found while reviewing the above)
+
+- A recovered plan is the one plan object the harness never schema-checks, and
+  five optional fields are iterated or dereferenced without a type guard.
+  `relevant_files: [null]`, a string `security_notes`, a string `risks`, a
+  string `migrations.identifiers`, and a `suggested_split` that is a non-array
+  or holds malformed elements each aborted the whole run with an uncaught
+  TypeError — the exact opposite of the "costs a log line, not a bad run" the
+  skill promises. The `risks` case was the worst: it aborted *after* the plan
+  was accepted and `PHASE:Code` had already logged. All five now reject and
+  fall back to a normal Planner call.
+- A resumed plan's `security_surface` stays a schema enum. Annotating it with
+  "(recovered, not re-rated)" made the string `!== 'none'`, so a recovered plan
+  rated `none` printed security notes an identical fresh plan suppressed, and
+  the annotation leaked into `stats.securitySurface` in the returned result.
+  The annotation lives in the log line only.
+- `test_command`/`run_command` are stripped from a resumed plan. A command
+  string from a dead run is executed by the Coder and cannot be verified; the
+  Coder rediscovers them, which it already knows how to do.
+- A resumed plan's `security_surface` is checked against the schema enum. It
+  was the one optional field the validator didn't cover, and the only one that
+  gates a whole phase: the missing-rating safety net tests the field for
+  truthiness, so `'Elevated'`, `'nope'` or `{}` was truthy enough to defeat the
+  net and unequal enough to skip the threat model — silently, with the garbage
+  value handed back in `stats.securitySurface`. Anything not `none|low|elevated`
+  now rejects and re-plans. A genuinely absent rating still fails closed: the
+  threat model is forced on, since no Planner ran to rate it.
+- `scripts/redact.py` leaked the OS username. `/ldo-feedback` pipes reports
+  through it before filing a public GitHub issue, and this release starts
+  writing absolute home paths into `.claude/ldo-runs.json`, so the gap went
+  from theoretical to on the wire. The rule is anchored to a path boundary —
+  unanchored it ate the `home`/`Users` segment of relative paths like
+  `docs/home/index.md`, mangling exactly the file references a bug report
+  needs — and a second rule covers the Windows shape. A third covers the form
+  that motivated the whole thing: Claude's project slug spells the home path
+  with dashes (`-home-alice-projects-x`), so the username survived inside every
+  `transcriptDir` the first rule had just cleaned the front of. Four self-test
+  samples, one of them negative, each proven to fail when its rule is removed.
+
 ## [2.27.0] — 2026-08-23
 
 The operator's working preference, stated plainly: short atomic runs, because
