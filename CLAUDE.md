@@ -72,5 +72,8 @@ the list. Offer; don't run either unasked.
 - planner rates sizing; planOnly:true stops after plan and prints a pasteable split
 - cold resume reads the run's journal.jsonl; a recovered plan feeds back via resumePlan
 - PLAN_SCHEMA exceeded the harness safety-classifier ceiling; trimmed, plus scripts/check-schema-size.sh
+- issue identity is a canonicalized key plus a measured similarity match; a re-worded re-raise no longer reads as unrelated
+- a failed or unreported verification blocks approval in the orchestrator, not on the reviewer's word
+- a failed criterion blocks even when the verdict word says verified — the itemized list outranks the summary
 <!-- /ldo:features -->
 <!-- END ldo -->

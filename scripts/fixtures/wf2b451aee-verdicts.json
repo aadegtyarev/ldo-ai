@@ -1,0 +1,118 @@
+[
+  {
+    "status": "changes_requested",
+    "summary": "Round verdict from run wf_2b451aee-6ea.",
+    "issues": [
+      {
+        "file": "workflows/ldo.js",
+        "severity": "critical",
+        "what": "No implementation exists. The working tree is clean (git diff HEAD = 0 lines, no untracked files, no stash, HEAD = f8f1e17 which predates the task) and every construct the plan's 8 steps introduce is absent: no mergeModels, no MODELS const, no reviewerFix in DEFAULT_MODELS or any of the four table copies, no renderPriorRound, no enumeration field in VERDICT_SCHEMA, no changes to agents/reviewer.md, agents/coder.md, README.md, SKILL.md, or CLAUDE.md drift log. routeModels at :657 still contains the broken `{...DEFAULT_MODELS, ...config.models}` shallow merge — reproduced live: the documented partial override yields a medium row of {\"coder\":\"haiku\",\"reviewer\":\"opus\"} with planner/security/researcher/recorder gone.",
+        "suggestion": "Implement the plan.",
+        "introduced_by_fix": false
+      }
+    ],
+    "verification": {
+      "verdict": "failed",
+      "criteria": [
+        {
+          "criterion": "step 1 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 2 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 3 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 4 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 5 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 6 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 7 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 8 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        }
+      ]
+    }
+  },
+  {
+    "status": "changes_requested",
+    "summary": "Round verdict from run wf_2b451aee-6ea.",
+    "issues": [
+      {
+        "file": "workflows/ldo.js",
+        "severity": "critical",
+        "what": "No implementation exists — the fix pass produced zero changes. git diff HEAD is empty, no untracked files, no stash, HEAD = f8f1e17 (predates the task). Every construct the plan's 8 steps introduce is absent: no mergeModels, no MODELS const, no reviewerFix in DEFAULT_MODELS (:651-655) or any doc copy, no renderPriorRound, no enumeration field in VERDICT_SCHEMA, no edits to agents/reviewer.md, agents/coder.md, README.md, SKILL.md, ldo-config.example.json, or CLAUDE.md's drift log. The broken shallow merge at routeModels (:657-660) reproduces live: the documented partial override {models:{medium:{coder:'haiku',reviewer:'opus'}}} returns a medium row of {\"coder\":\"haiku\",\"reviewer\":\"opus\"} with planner, security, researcher, and recorder gone entirely.",
+        "suggestion": "Implement the plan.",
+        "introduced_by_fix": false
+      }
+    ],
+    "verification": {
+      "verdict": "failed",
+      "criteria": [
+        {
+          "criterion": "step 1 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 2 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 3 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 4 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 5 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 6 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 7 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        },
+        {
+          "criterion": "step 8 acceptance",
+          "status": "failed",
+          "evidence": "construct absent from source"
+        }
+      ]
+    }
+  }
+]

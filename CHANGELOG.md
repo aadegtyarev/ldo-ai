@@ -5,6 +5,53 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.30.0] — 2026-08-24
+
+### Fixed
+
+- **A run could be reported approved on a zero-line diff.** Run `wf_2b451aee-6ea`
+  returned `approved: true` while both reviewer rounds said `changes_requested`,
+  `verification.verdict` was `failed`, and 8 of 8 acceptance criteria had failed.
+  Two independent defects had to line up, and both are now closed.
+
+  An issue's identity was the Reviewer's verbatim prose (`${file}::${what}`),
+  computed at nine sites. A Reviewer that re-raised the same blocker in different
+  words produced a different key, so `downgradeUnrelatedFindings` read a live
+  blocker as a new unrelated finding and downgraded it to advisory, `blocking`
+  reached 0, and the loop approved. Identity is now a single `issueKey()` over a
+  canonicalized `what`, plus a Dice-coefficient similarity match for the
+  cross-round question. The 0.45 threshold is measured, not chosen: over 18 run
+  journals, 121 same-round same-file issue pairs — distinct defects by
+  construction — score at most 0.439, while the real re-worded pair scores 0.824.
+  A rewording sharing under 45% of its tokens is still missed; the verification
+  gate below is the independent backstop for that case. A false match reads as
+  ALREADY SENT and keeps the finding blocking, which is the safe direction.
+
+  Separately, neither approval branch had ever consulted `verification.verdict`,
+  and `markUnproven` does not cover it — it only rescues a `skipped` criterion
+  and passes `failed` straight through. `enforceVerificationGate` now blocks a
+  failed, malformed, or absent verification, sequenced after
+  `downgradeUnrelatedFindings` and `enforceMigrationGate` so a later downgrade
+  cannot undo it, and detected by object identity rather than a field a Reviewer
+  could write in. `partial` blocks only when a criterion actually failed, so
+  `markUnproven`'s NOT PROVEN handoff still works; `nothing_to_drive` does not
+  block on its own. Any failed criterion blocks even when the verdict word says
+  `verified` — the enum and the criteria list are written by the same model in
+  one object and nothing makes them agree, so the itemized list outranks the
+  one-word summary of it.
+
+### Added
+
+- **`scripts/check-verdict-gates.sh`** — both defects above stayed syntactically
+  perfect through the entire false approval, so `node --check` and the other two
+  gates were blind to them. This one brace-extracts the real functions out of
+  `workflows/ldo.js` and drives them against `scripts/fixtures/wf2b451aee-verdicts.json`,
+  which holds that run's two actual verdicts with the re-worded pair copied
+  verbatim. It fails against pre-fix source and passes after, and carries
+  negative controls: a genuinely unrelated finding is still downgraded, a clean
+  verified verdict is still approved, and the pass path stays reference-identical.
+  A second argument points the same assertions at another copy of the file.
+
 ## [2.29.1] — 2026-08-23
 
 ### Fixed

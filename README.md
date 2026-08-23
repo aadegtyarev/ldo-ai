@@ -472,6 +472,8 @@ Each agent's output schema is sent to the harness as a tool definition and passe
 
 The model-routing table is duplicated in four places (`workflows/ldo.js`, `ldo-config.example.json`, `README.md`, `skills/ldo-config/SKILL.md`) — deliberately, but that's exactly the shape that drifts silently. After touching `DEFAULT_MODELS` or any of its copies, run `scripts/check-model-table.sh` — it parses all four against `workflows/ldo.js` as the source of truth and fails loudly on any mismatch, rather than waiting for the next `/ldo-docs-audit` to catch it after the fact.
 
+The review loop decides whether a run is reported as approved, and it once got that wrong while staying perfectly valid JavaScript: a blocker re-raised in different words got a different identity and was written off as unrelated, and no approval branch had ever read `verification.verdict`, so a run with every acceptance criterion failed came back approved on an empty diff. `scripts/check-verdict-gates.sh` proves both halves are closed — that a re-worded re-raise of the same blocker still blocks, and that a failed verification cannot be approved. It brace-extracts the real functions out of `workflows/ldo.js` and drives them against a committed fixture of that run's actual verdicts, including the negative controls: a genuinely unrelated finding is still downgraded, and a clean verified verdict is still approved. Run it after touching the review loop's issue identity or either approval branch. Pass a second argument to point it at another copy of the file (`git show HEAD:workflows/ldo.js > /tmp/pre.js`) to see it fail on a source that lacks the gates.
+
 ## License
 
 [MIT](LICENSE) © Alexander Degtyarev

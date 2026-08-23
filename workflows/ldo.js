@@ -758,6 +758,67 @@ function markUnproven(verdict) {
   }
 }
 
+// An issue's identity is the file it names plus the Reviewer's prose describing
+// it, and that prose is model-authored free text. Run wf_2b451aee-6ea re-raised
+// the same critical on its fix pass in different words, the verbatim key missed,
+// downgradeUnrelatedFindings reclassified a still-open blocker as an unrelated
+// advisory, and the run reported approved on a zero-line diff. So identity is a
+// canonicalized key plus a similarity test, not string equality on prose.
+//
+// The threshold is measured, not chosen. Over 18 run journals, 121 pairs of
+// issues raised in the SAME round on the SAME file — distinct defects by
+// construction — score at most 0.439 Dice over distinct normalized tokens,
+// while the real re-worded pair scores 0.824. 0.45 sits just above that
+// measured ceiling and false-matches none of the 121; at 0.40 one of them
+// already does, so lowering it is not an improvement.
+//
+// What this does NOT catch: a rewording sharing under 45% of its tokens still
+// produces a different key and is still missed — a measured 8-token restatement
+// of a 24-token finding scores 0.250. enforceVerificationGate is the
+// independent backstop for that case; this only reduces how often it is needed.
+//
+// The failure direction is one-way on purpose. A false match reads as ALREADY
+// SENT and keeps the finding blocking, costing at worst a fix pass; a missed
+// match downgrades a live blocker, which is the direction that approves nothing.
+//
+// The 2000-char cap bounds regex cost over model-authored text rather than
+// meaning anything semantically: 0ms capped vs 84ms uncapped on an 800k-char
+// adversarial input, and this file has already shipped a quadratic-backtracking
+// defect in exactly this position (STALL_ERROR_RE).
+const normalizeWhat = what => String(what ?? '').slice(0, 2000).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+const issueKey = iss => `${iss.file}::${normalizeWhat(iss.what)}`
+
+// `keys` is a Set or Map of canonical keys. Anything else throws on `.has` at
+// the first call rather than scoring against a shape it cannot read — a silent
+// zero here would mean "never matched", the direction that stops blocking.
+const matchIssueKey = (iss, keys) => {
+  const exact = issueKey(iss)
+  if (keys.has(exact)) return exact
+
+  const cut = exact.indexOf('::')
+  const file = exact.slice(0, cut)
+  const tokens = new Set(exact.slice(cut + 2).split(' ').filter(Boolean))
+
+  let best = null
+  let bestScore = 0
+  for (const key of keys.keys()) {
+    const kcut = key.indexOf('::')
+    // Same file only: identical prose about two different files is two issues.
+    if (key.slice(0, kcut) !== file) continue
+    const other = new Set(key.slice(kcut + 2).split(' ').filter(Boolean))
+    let shared = 0
+    for (const t of tokens) if (other.has(t)) shared++
+    const total = tokens.size + other.size
+    const score = total ? (2 * shared) / total : 0
+    if (score > bestScore) {
+      bestScore = score
+      best = key
+    }
+  }
+  return bestScore >= ISSUE_MATCH_THRESHOLD ? best : null
+}
+
 // The first review is the full-scrutiny gate; a fix pass is narrow by
 // construction — it only asked the Coder to touch specific files, so a fresh
 // `major` the Reviewer didn't attribute to that work is a pre-existing defect,
@@ -781,16 +842,20 @@ function markUnproven(verdict) {
 // stripped from every issue here and re-set only on the ones this function
 // downgrades, so the raw verdict an operator reads can't carry a self-declared
 // dismissal either.
+// Membership against `sentKeys` is a fuzzy match (see matchIssueKey), and only
+// in the safe direction: an over-eager match keeps a finding blocking, the same
+// fail-safe this comment already commits to, while a missed match is what lets
+// a live blocker be reclassified as unrelated.
 function downgradeUnrelatedFindings(verdict, sentIssues, iteration) {
-  const sentKeys = new Set(sentIssues.map(i => `${i.file}::${i.what}`))
+  const sentKeys = new Set(sentIssues.map(issueKey))
   const names = []
   const downgraded = new Map()
 
   const issues = (verdict.issues || []).map(raw => {
     const { advisory, downgrade_reason, ...iss } = raw
     const isBlockingSeverity = BLOCKING_SEVERITIES.includes(iss.severity)
-    const key = `${iss.file}::${iss.what}`
-    const wasSent = sentKeys.has(key)
+    const key = issueKey(iss)
+    const wasSent = matchIssueKey(iss, sentKeys) !== null
     // Strict === true, not truthy — a Reviewer that marks everything true
     // keeps the loop blocking (fail-safe), never bypasses it; a stray string
     // must not widen the check.
@@ -884,6 +949,80 @@ function enforceMigrationGate(verdict, plan) {
   }
 }
 
+// Neither approval branch in phaseCodeReview ever consulted `verification.verdict`,
+// and markUnproven does not cover it — its own line only rescues a SKIPPED
+// criterion, passing a `failed` verification straight through. Run
+// wf_2b451aee-6ea therefore reported approved with 8 of 8 acceptance criteria
+// failed on a zero-line diff. Enforced here rather than asked of the Reviewer,
+// same reason as enforceMigrationGate: the Reviewer already said `failed` and
+// the orchestrator approved anyway, so the missing check is the orchestrator's.
+//
+// The enum is treated by measurement over 34 real reviewer rounds, not by taste:
+//   - 'partial' is not blocked wholesale, because markUnproven deliberately
+//     forces a skipped criterion down to 'partial' and hands it back as NOT
+//     PROVEN for the operator to run rather than as a refusal; blocking every
+//     partial would undo that shipped behaviour. It blocks only when some
+//     criterion actually says `failed`.
+//   - 'nothing_to_drive' is the legitimate answer for a docs-only change or a
+//     pure refactor with no runtime surface, and does not block on its own.
+//   - ANY failed criterion blocks, whatever the verdict word says. 'verified'
+//     or 'nothing_to_drive' alongside a `failed` criterion is a self-
+//     contradicting verdict, and the itemized list outranks the one-word
+//     summary of it. Unobserved in the 34-round corpus, so this costs nothing
+//     against real data; it closes the one shape the enum check alone missed.
+//   - an ABSENT verification block DOES block. VERDICT_SCHEMA requires only
+//     ['status','summary'], so absence is reachable; 'nothing_to_drive' already
+//     exists as the in-schema way to say there was nothing to drive; and 0 of
+//     the 34 rounds ever omitted the block. An omission is therefore
+//     indistinguishable from a Reviewer that forgot, and an unreported check
+//     looks exactly like one that was never run.
+// Applied to all 34 rounds, this rule newly blocks none of the 6 that were
+// legitimately approved; the 11 it blocks were already changes_requested.
+//
+// Pure, and the pass path returns the SAME object reference on purpose — the
+// call site detects firing by identity (gatedVerdict !== verdict), so an
+// unconditional spread would mark every run as blocked forever.
+function enforceVerificationGate(verdict) {
+  const v = verdict.verification
+  const criteria = Array.isArray(v?.criteria) ? v.criteria : []
+  const failed = criteria.filter(c => c?.status === 'failed')
+
+  // A failed criterion blocks whatever the summary word says. The enum and the
+  // criteria list are written by the same model in one JSON object and nothing
+  // makes them agree, so `{verdict:'verified', criteria:[{status:'failed'}]}` is
+  // reachable; the earlier rule read the word and approved it. Between the two,
+  // trust the itemized list: the enum is one token summarizing the very list
+  // that contradicts it, and this is the same fail-safe direction the rest of
+  // the gate takes. Costs a fix pass when a Reviewer mislabels; the other
+  // direction approves a run with a criterion it just said failed.
+  if (!failed.length && (v?.verdict === 'verified' || v?.verdict === 'nothing_to_drive')) return verdict
+  if (v?.verdict === 'partial' && !failed.length) return verdict
+
+  const what = (v?.verdict === 'verified' || v?.verdict === 'nothing_to_drive')
+    ? `Verification reported '${v.verdict}' but ${failed.length} of ${criteria.length} acceptance criteria are marked failed — the verdict word contradicts its own criteria list, and the list is what was actually checked`
+    : v?.verdict === 'failed'
+    ? `Verification reported 'failed'${criteria.length ? ` — ${failed.length} of ${criteria.length} acceptance criteria failed` : ' with no criteria reported'}`
+    : v?.verdict === 'partial'
+      ? `Verification reported 'partial' with ${failed.length} failed criterion(s): ${failed.map(c => c.criterion || '(unnamed)').join('; ')}`
+      : v?.verdict
+        ? `Verification reported an unrecognized verdict '${v.verdict}' — only 'verified', 'partial', 'failed' and 'nothing_to_drive' are meaningful, so this is treated as an unrun check`
+        : 'The Reviewer returned no verification block at all — an unreported check is indistinguishable from one that was never run, and `nothing_to_drive` is the in-schema way to say there was nothing to drive'
+
+  const issue = {
+    file: 'verification',
+    severity: 'critical',
+    what,
+    suggestion: 'Drive the failing acceptance criteria and report them passing, or fix the code so they pass, before this can be approved.',
+  }
+
+  return {
+    ...verdict,
+    status: 'changes_requested',
+    issues: [...(verdict.issues || []), issue],
+    summary: `${verdict.summary}\n\nVERIFICATION GATE: ${what}`,
+  }
+}
+
 async function agentWithModelFallback(prompt, opts, fallbackModel) {
   if (!fallbackModel) return runAgent(prompt, opts)
   try {
@@ -910,6 +1049,9 @@ async function agentWithModelFallback(prompt, opts, fallbackModel) {
 const CONFIG = args?.config || {}
 const MAX_FIX_LOOPS = CONFIG.maxFixLoops || 3
 const BLOCKING_SEVERITIES = CONFIG.blockingSeverities || ['critical', 'major']
+// Dice coefficient over distinct normalized tokens; see matchIssueKey for the
+// corpus this is calibrated against and why lowering it is not an improvement.
+const ISSUE_MATCH_THRESHOLD = 0.45
 const DO_RESEARCH = args?.research ?? CONFIG.researchByDefault ?? false
 // A top-level arg like `isolate`/`research`, not a config key: it describes
 // what this one invocation should do, not how the project is set up. Stops the
@@ -1235,10 +1377,11 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
   // an exhausted run can say "these were closed, these remain" instead of
   // handing back an undifferentiated refusal the operator has to re-diff.
   const resolvedIssues = []
-  // Distinct issues downgraded across the whole run, keyed by `${file}::${what}`
-  // (same identity as downgradeUnrelatedFindings) — a Set, not a counter, so a
-  // pre-existing finding re-raised on every fix pass is still one entry, not one
-  // per pass it survived. Used ONLY for the exhausted-run summary's distinct
+  // Distinct issues downgraded across the whole run, keyed by issueKey — the
+  // canonicalized identity, not the Reviewer's verbatim prose, so casing or
+  // whitespace variation cannot split one finding into two entries. A Set, not
+  // a counter, so a pre-existing finding re-raised on every fix pass is still
+  // one entry, not one per pass it survived. Used ONLY for the exhausted-run summary's distinct
   // count; it must never reach the report, because `finalVerdict.issues` is
   // always the LAST pass's issues and only the last pass's decision describes
   // them (see lastDowngraded below).
@@ -1316,20 +1459,20 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       rawVerdict.issues = clean
     }
 
-    // Must run before enforceMigrationGate: the gate injects a `critical`
-    // issue that is by construction neither on the sent list nor marked
-    // introduced_by_fix, and downgrading it after the fact would silently
-    // disable the gate.
+    // Must run before enforceMigrationGate and enforceVerificationGate: each
+    // gate injects a `critical` issue that is by construction neither on the
+    // sent list nor marked introduced_by_fix, so downgrading it after the fact
+    // would silently disable that gate.
     const { verdict: downgradedVerdict, downgraded: newlyDowngraded } = isFirstPass
       ? { verdict: rawVerdict, downgraded: new Map() }
       : downgradeUnrelatedFindings(rawVerdict, reviewIssues, iteration)
     lastDowngraded = newlyDowngraded
     if (newlyDowngraded.size) {
       (downgradedVerdict.issues || [])
-        .filter(iss => newlyDowngraded.has(`${iss.file}::${iss.what}`))
+        .filter(iss => newlyDowngraded.has(issueKey(iss)))
         .forEach(iss => {
-          downgradedKeys.add(`${iss.file}::${iss.what}`)
-          log(`${logPrefix}  ⚠ DOWNGRADED TO ADVISORY [was ${iss.severity}] ${iss.file}: ${iss.what} (new in fix pass ${newlyDowngraded.get(`${iss.file}::${iss.what}`)}, not marked introduced_by_fix)`)
+          downgradedKeys.add(issueKey(iss))
+          log(`${logPrefix}  ⚠ DOWNGRADED TO ADVISORY [was ${iss.severity}] ${iss.file}: ${iss.what} (new in fix pass ${newlyDowngraded.get(issueKey(iss))}, not marked introduced_by_fix)`)
         })
     }
     const verdict = enforceMigrationGate(downgradedVerdict, plan)
@@ -1337,6 +1480,15 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       log(`${logPrefix}✗ Migration gate: ${verdict.migrations_check?.status || rawVerdict.migrations_check?.status || 'missing check'}`)
     } else if (plan.migrations?.count > 0 && verdict.migrations_check?.status === 'ok') {
       log(`${logPrefix}✓ Migration numbering verified: ${verdict.migrations_check.evidence || 'no collision, count matches'}`)
+    }
+
+    const gatedVerdict = enforceVerificationGate(verdict)
+    // Object identity, the same unforgeable signal the migration gate uses
+    // above: a boolean read off the verdict would be a field outside
+    // VERDICT_SCHEMA, which a Reviewer is free to write in.
+    const verificationBlocked = gatedVerdict !== verdict
+    if (verificationBlocked) {
+      log(`${logPrefix}✗ Verification gate: ${verdict.verification?.verdict || 'no verification block reported'}`)
     }
 
     // Destructive on a wrong tree: the revert-and-restore proof runs `git
@@ -1372,21 +1524,23 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       broke.forEach(a => log(`${logPrefix}  ✗ ${a.vector}`))
     }
 
-    lastVerdict = verdict
-    lastIssues = verdict.issues || []
+    lastVerdict = gatedVerdict
+    lastIssues = gatedVerdict.issues || []
 
     // Anything we sent to this pass that the review didn't re-raise is closed.
-    // Match on file+what: same file and same description means the same issue.
+    // Fuzzy (matchIssueKey): the question is whether the Reviewer is describing
+    // a defect it already described, and the safe answer is "yes, still open" —
+    // an issue re-raised in different words must not be reported as closed.
     if (reviewIssues.length) {
-      const stillOpen = new Set(lastIssues.map(i => `${i.file}::${i.what}`))
+      const stillOpen = new Set(lastIssues.map(issueKey))
       reviewIssues.forEach(prev => {
-        if (!stillOpen.has(`${prev.file}::${prev.what}`)) resolvedIssues.push({ ...prev, resolved_in_pass: iteration + 1 })
+        if (matchIssueKey(prev, stillOpen) === null) resolvedIssues.push({ ...prev, resolved_in_pass: iteration + 1 })
       })
     }
 
-    if (verdict.status === 'approved') {
-      finalVerdict = markUnproven(verdict)
-      log(`${logPrefix}✓ APPROVED — ${verdict.summary}`)
+    if (gatedVerdict.status === 'approved') {
+      finalVerdict = markUnproven(gatedVerdict)
+      log(`${logPrefix}✓ APPROVED — ${gatedVerdict.summary}`)
       logUnproven(finalVerdict, logPrefix)
       break
     }
@@ -1400,15 +1554,23 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     // `downgradedKeys` Set — a downgrade decided on one pass must not bind a
     // later pass where the Reviewer re-raises the same finding with
     // `introduced_by_fix: true`.
-    const isBlocking = i => BLOCKING_SEVERITIES.includes(i.severity) && !newlyDowngraded.has(`${i.file}::${i.what}`)
+    // Exact, unlike the fuzzy sentKeys membership in downgradeUnrelatedFindings:
+    // this asks what the orchestrator decided about these very objects on this
+    // very pass, so a near hit would widen the downgrade set and REDUCE what
+    // blocks — the unsafe direction.
+    const isBlocking = i => BLOCKING_SEVERITIES.includes(i.severity) && !newlyDowngraded.has(issueKey(i))
     const blocking = lastIssues.filter(isBlocking)
     const advisory = lastIssues.filter(i => !isBlocking(i))
 
     log(`${logPrefix}✗ ${lastIssues.length} issue(s): ${blocking.length} blocking, ${advisory.length} advisory`)
     lastIssues.forEach(iss => log(`${logPrefix}  [${iss.severity}] ${iss.file}: ${iss.what}`))
 
-    if (blocking.length === 0) {
-      finalVerdict = markUnproven({ ...verdict, status: 'approved', summary: `${verdict.summary} (${advisory.length} advisory issue(s) left unfixed)` })
+    // `verificationBlocked` is tested alongside the injected issue, not instead
+    // of it: BLOCKING_SEVERITIES is operator-configurable (config.blockingSeverities),
+    // so a project that drops 'critical' from it would let the gate's own issue
+    // fall out of `blocking` and reopen the false-approval path.
+    if (blocking.length === 0 && !verificationBlocked) {
+      finalVerdict = markUnproven({ ...gatedVerdict, status: 'approved', summary: `${gatedVerdict.summary} (${advisory.length} advisory issue(s) left unfixed)` })
       log(`${logPrefix}✓ APPROVED — no blocking issues remain`)
       logUnproven(finalVerdict, logPrefix)
       break
@@ -1508,9 +1670,13 @@ async function phaseRecord(approved, plan, finalVerdict, securityReport, task, c
   // it cannot forge a `## SECTION` header in the prompt below.
   const oneLine = x => String(x ?? '').replace(/\s*\n\s*/g, ' ')
   const renderIssue = iss => {
-    // Look up on the raw key — the Map was built from the unmodified strings;
-    // collapsing before lookup would miss any issue whose text has a newline.
-    const pass = downgraded.get(`${iss.file}::${iss.what}`)
+    // issueKey canonicalizes on insert and on lookup alike, so a newline or a
+    // casing difference in the Reviewer's prose can no longer split one entry
+    // into two. Exact, never fuzzy: the Map records the orchestrator's decision
+    // about these exact objects, and a near hit would print "advisory" beside an
+    // issue that is still holding the loop, in a persisted report an operator
+    // reads to decide whether to merge.
+    const pass = downgraded.get(issueKey(iss))
     const note = pass === undefined ? '' : ` (advisory — new in fix pass ${pass}, not attributed to it)`
     return `[${oneLine(iss.severity)}] ${oneLine(iss.file)}: ${oneLine(iss.what)}${note} → ${oneLine(iss.suggestion)}`
   }
