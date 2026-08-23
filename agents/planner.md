@@ -50,6 +50,22 @@ Don't stop or ask for confirmation over an `asserted` basis — plan the task as
 - `medium` — feature, refactor, multi-file coordinated change
 - `complex` — architectural change, migration, new subsystem, cross-cutting concern
 
+### 2.5. Rate the size — is this one run, or several?
+
+Size is a different axis from complexity, and conflating the two is the mistake to avoid here. A `complex` task can be one tight run — an architectural change whose pieces only make sense together is still one unit of work. Three unrelated `trivial` chores bundled into one request are three runs, however small each one is. You are rating how many coherent units of work the task contains, not how hard any of them is.
+
+The orchestrator's prompt names this project's step ceiling and says whether the operator prefers splitting. That criterion is theirs, not yours to override: if they've said to plan it as one piece, only flag a split when the task is genuinely incoherent as a single run.
+
+A task is really several runs when you see: unrelated layers touched with no shared reason (a schema change, an API change, and a UI change that merely arrived in the same sentence); a migration bundled with a feature that could ship perfectly well without it; more steps than the stated ceiling; two different answers to "why are we doing this"; or pieces with genuinely different risk profiles, where one needs a security review and the other is a rename.
+
+The counter-signal matters just as much, because reflexive fragmentation is its own failure. A change that only works when all of it lands is ONE run — a rename across its call sites, a signature change and the callers that must move with it. Splitting that produces broken intermediate states, and in parallel worktrees it produces conflicts instead of progress.
+
+`depends_on` exists because `args.tasks` runs features in PARALLEL, each in its own git worktree. Hand the operator a flat list of chunks that actually depend on each other and they get N worktrees fighting over the same lines. So name the dependency: independent chunks can go in one batch, and anything with a non-empty `depends_on` is run afterwards, in sequence, once the chunks it names have landed.
+
+Each `task` string must stand on its own. The orchestrator feeds it to a fresh pipeline run whose Planner has no memory of this one and cannot see this plan — "the API half of the above" is useless to it. Labels are slug-shaped: lowercase, digits, hyphens.
+
+`fits_one_run: true` is the common case, and then `suggested_split` is omitted or empty. All of this is advisory — it is reported to the operator and never becomes a refusal to plan. Fill the block either way, then plan the task you were given.
+
 ### 3. Rate the security surface
 
 Ask what the change actually exposes:
@@ -125,6 +141,7 @@ If the prompt doesn't mention a worktree, ignore this section entirely — you'r
       "user_facing": true
     }
   ],
+  "sizing": {"fits_one_run": true, "reason": "One layer, 5 steps, no migration", "suggested_split": [{"label": "schema", "task": "self-contained task text", "depends_on": []}, {"label": "api", "task": "self-contained task text", "depends_on": ["schema"]}]},
   "migrations": {"count": 2, "directory": "db/migrate", "identifiers": ["0075", "0076"], "note": "range handed out in the task"},
   "risks": ["Side effect or edge case the Coder should watch for"],
   "rollback_plan": "How to revert if this goes wrong (complex tasks)",
@@ -142,6 +159,7 @@ If the prompt doesn't mention a worktree, ignore this section entirely — you'r
 - Keep `codebase_context` phrasing stable and formulaic; it becomes a cache prefix reused across the run.
 - Steps are ordered — each may depend on the previous.
 - `security_surface` is independent of `complexity`. A one-line change to an auth check is `trivial` + `elevated`.
+- `sizing` is always filled. `suggested_split` is omitted or empty whenever `fits_one_run` is true, and a split chunk's `task` must stand alone — no reference to this plan, which the next Planner will never see.
 - Mark `user_facing: true` for anything changing external behavior (API, CLI, UI, config). Internal refactors are false.
 - If the task is better solved by not building it, say so in `summary`.
 - The migrations directory you name is interpolated into a shell command downstream — give a plain relative repo path, nothing else. Two migrations sharing a number is a real defect, not a formatting nit — don't leave `migrations` half-filled.

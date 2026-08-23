@@ -88,6 +88,8 @@ The default accepts that cold start deliberately: an independent read is worth m
 | `securityByDefault` | *(unset)* | Force the Security agent on or off, overriding the Planner's rating |
 | `maxParallelFeatures` | `12` | Cap on concurrent features in a multi-feature run (`args.tasks`) — a run above this logs a warning, it isn't blocked |
 | `stallMs` | per-role: planner/reviewer `480000`, coder `360000`, security/researcher `300000`, recorder `180000` | How many ms an agent may generate without a tool call before Claude Code aborts it as stalled. Only tool calls reset this timer, so a large structured output (a long plan, a full verdict) needs headroom — a genuinely hung agent costs this value six times over (the harness retries 5 times). Values are milliseconds and must be at least `1000`; anything smaller is rejected with a warning and the default kept, since `480` meaning "eight minutes" would otherwise abort the role instantly, six times over. An unrecognised role name is warned about, not silently ignored |
+| `planner.maxStepsPerRun` | `8` | The soft step ceiling handed to the Planner. Above it the Planner is expected to rate `fits_one_run: false` unless the steps are genuinely one unit of work. Not enforced by the orchestrator — nothing is blocked or truncated; an invalid value (non-numeric, or below `1`) is warned about and the default kept |
+| `planner.preferSplit` | `true` | Matches the preference for short atomic runs. `false` means "plan it as one piece, I know what I'm asking for", and the Planner then only flags a split when the task is outright incoherent as one run |
 
 ## Per-run override
 
@@ -99,6 +101,7 @@ Workflow({name: "ldo:ldo", args: {
   research: true,
   security: true,
   isolate: true,
+  planOnly: true,
   config: {
     maxFixLoops: 5,
     models: { medium: { coder: "haiku", reviewer: "opus" } }
@@ -106,7 +109,7 @@ Workflow({name: "ldo:ldo", args: {
 }})
 ```
 
-`isolate: true` is a top-level arg (like `research`/`security`, not a `config` key): the task runs in its own git worktree instead of your working tree — same isolation a `tasks` batch gets, for a single feature.
+`isolate: true` and `planOnly: true` are both top-level args (like `research`/`security`, not `config` keys). `isolate` runs the task in its own git worktree instead of your working tree — same isolation a `tasks` batch gets, for a single feature. `planOnly` stops the pipeline early: Research → Plan → Security-if-elevated, then it stops and hands the plan back. The result carries `mode: 'plan-only'` and deliberately has no `approved` field, so a plan is never mistaken for a rejected run.
 
 ## Check it took effect
 

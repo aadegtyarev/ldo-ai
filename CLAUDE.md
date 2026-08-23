@@ -69,5 +69,6 @@ the list. Offer; don't run either unasked.
 - recorder now runs on an exhausted run, marked not approved, architecture doc skipped
 - contract entries capped at 200 chars with provenance moved to a Sources section
 - per-role stallMs raises the harness stall watchdog; a stall is explained, not reported as "stalled"
+- planner rates sizing; planOnly:true stops after plan and prints a pasteable split
 <!-- /ldo:features -->
 <!-- END ldo -->

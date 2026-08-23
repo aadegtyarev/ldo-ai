@@ -33,6 +33,12 @@
   "blockingSeverities": ["critical", "major"],
   "maxParallelFeatures": 12,
 
+  "_planner_note": "maxStepsPerRun is a SOFT threshold reported to the Planner, never enforced by the orchestrator — nothing is truncated, blocked, or refused above it. It tells the Planner what this project considers one run's worth of work, and above it the Planner is expected to rate fits_one_run: false unless the steps are genuinely one unit of work. preferSplit: false means 'plan it as one piece', so the Planner only flags a split when the task is incoherent as one run. Both values are interpolated into the Planner's prompt, so changing them reaches the agent doing the rating. The resulting sizing block is advisory — reported to you, never a gate.",
+  "planner": {
+    "maxStepsPerRun": 8,
+    "preferSplit": true
+  },
+
   "_stallMs_note": "Claude Code's stall watchdog counts only tool calls as progress, so an agent composing a large structured output (a long plan, a full verdict) looks identical to a hung one until it's already aborted. Keyed by role, not tier, because output size tracks the schema the role fills, not task complexity. recorder sits at the 180000 harness default on purpose — it runs on haiku and writes through tools, so tool_use events keep resetting its clock naturally. Values are MILLISECONDS with a floor of 1000: a seconds/ms mix-up like 480 would abort the role instantly six times in a row, so it's rejected with a warning rather than passed through.",
   "stallMs": {
     "planner": 480000,

@@ -147,6 +147,14 @@ Each feature's Planner creates its own worktree (`.worktrees/<n>-<slug>` on bran
 
 Starting a project from nothing is a conversation, not a pipeline — use `/ldo-bootstrap "your idea"` for that. It researches prior art, works through the stack with you, and hands the first task to `/ldo:ldo`.
 
+### Plan first, then split
+
+The Planner rates every plan for size — one run, or several — and reports it on every run, whether or not you asked. `planOnly: true` stops the pipeline after Plan, and after Security when the surface came back `elevated`, so you get the plan and its rating without anything being written. (In a multi-feature batch each Planner still creates its own worktree, as it always does — the plans land there.)
+
+When the Planner says the task is really several, the run prints a copy-pasteable `args.tasks` array containing the independent chunks, and lists the dependent ones separately underneath. The separation is the point: `tasks` runs features in parallel worktrees, so a batch whose members depend on each other produces N worktrees fighting over the same lines rather than N features. Dependent chunks get run afterwards, in sequence, once what they name has landed.
+
+LDO does not execute the split for you. The list comes back so you can read it, cut the chunk that shouldn't exist, and reword the one whose scope drifted — that review is the reason for handing it over rather than acting on it. A plan-only result carries `mode: 'plan-only'` and has no `approved` field at all, so nothing downstream can mistake a plan for a rejected run.
+
 ### Why the Planner decides about Security
 
 The Planner rates every task on two independent axes:
@@ -227,6 +235,7 @@ Type `ldo` in the command palette and everything clusters together.
 | `/ldo:ldo "task"` | Full pipeline (Plan → Code ⇄ Review) |
 | `/ldo:ldo research:true "task"` | Add the web research phase |
 | `/ldo:ldo security:true "task"` | Force the threat model on (or `false` to skip it) |
+| `/ldo:ldo planOnly:true "task"` | Plan and stop — no code, no review; returns the plan and its sizing block |
 | `/ldo-bootstrap "idea"` | Start a project — prior art, stack, roadmap (interactive) |
 | `/ldo-planner "task"` | Plan only |
 | `/ldo-coder "task"` | Implement a plan |
@@ -275,6 +284,7 @@ run ldo on "refactor the auth module", with haiku coding and opus reviewing
   "blockingSeverities": ["critical", "major"],
   "researchByDefault": false,
   "maxParallelFeatures": 12,
+  "planner": { "maxStepsPerRun": 8, "preferSplit": true },
   "stallMs": {
     "planner": 480000,
     "reviewer": 480000,
@@ -289,6 +299,8 @@ run ldo on "refactor the auth module", with haiku coding and opus reviewing
 Those are the defaults, in full — matching `ldo-config.example.json`, the copy-paste source if you want a starting point rather than retyping this. `securityByDefault` is deliberately unset — leave it out and the Planner decides per task; set `true` or `false` to override it everywhere.
 
 `stallMs` is keyed by role, not by tier, because how much an agent generates before its first tool call tracks the *schema* that role fills, not how complex the task is — a trivial task's Reviewer still fills out full verification and attack sections. It sets an undocumented Claude Code option; older or future harnesses that don't recognise the key simply ignore it and fall back to their own 180-second default, same as today. Values are milliseconds with a floor of 1000 — `480` meaning "eight minutes" is rejected with a warning rather than silently aborting that role six times in a row — and a role name LDO doesn't recognise is warned about instead of quietly dropped.
+
+`planner.maxStepsPerRun` and `planner.preferSplit` shape how the Planner rates a task's *size* — whether it's one run or several. The ceiling is soft: the orchestrator enforces nothing, doesn't truncate a longer plan and doesn't refuse it, it simply tells the Planner what this project considers one run's worth of work so a plan that sprawls past it comes back rated `fits_one_run: false`. An invalid value is warned about and the default kept. `preferSplit: false` is how you say "plan it as one piece, I know what I'm asking for" — the Planner then only flags a split when the task is outright incoherent as a single run. Both values are interpolated into the Planner's prompt rather than checked after the fact, so changing them actually reaches the agent doing the rating.
 
 `coder` and `reviewer` move between tiers — deliberate, not an oversight. `planner` is Opus everywhere because complexity is *its own output*: nothing can gate the Planner's model on a rating it hasn't produced yet, and its value — surfacing what the task didn't ask about, not just executing what it did — doesn't get cheaper just because the resulting plan turns out short. `reviewer` is Opus on `trivial`/`medium` and Fable on `complex` (falling back to Sonnet when Fable isn't on your route), because its entire premise is not sharing the Coder's blind spot and a cheap model doesn't reliably know when to stop and ask instead of writing confident, made-up prose about work it didn't verify — exactly the failure mode a cheap Reviewer is worst-positioned to catch. Complex work has the most surface to miss, so it gets the strongest reviewer; Sonnet is the floor, because a weaker review still catches things and no review doesn't. `coder` is where the tier does real work — haiku/sonnet/opus — because executing a plan's *width* (not the underlying code's difficulty) is what actually scales with `trivial`/`medium`/`complex`.
 

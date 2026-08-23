@@ -1,7 +1,7 @@
 export const meta = {
   name: 'ldo',
   description: 'Lightweight Dev Orchestrator: [Research→]Plan→[Security→]Code⇄Review, with a different model per role',
-  whenToUse: 'args.task runs one feature in the current directory. args.tasks (an array) runs N independent features in parallel, each isolated in its own git worktree created by that feature\'s Planner; each ships separately afterward via /ldo-ship run from its own worktree.',
+  whenToUse: 'args.task runs one feature in the current directory. args.tasks (an array) runs N independent features in parallel, each isolated in its own git worktree created by that feature\'s Planner; each ships separately afterward via /ldo-ship run from its own worktree. Add planOnly: true to either form to stop after Plan (and Security, when the surface is elevated) and get the plan plus its sizing block back without implementing it.',
   phases: [
     { title: 'Research', detail: 'Multi-source web research (opt-in)' },
     { title: 'Plan', detail: 'Read the codebase, plan the change, rate complexity + security surface' },
@@ -92,7 +92,33 @@ const PLAN_SCHEMA = {
       },
       required: ['count', 'directory'],
     },
+    sizing: {
+      type: 'object',
+      description: 'Whether this task is one run or several. Advisory — the orchestrator reports it and never blocks on it.',
+      properties: {
+        fits_one_run: { type: 'boolean' },
+        reason: { type: 'string', description: 'One line: why it does or does not fit one run' },
+        suggested_split: {
+          type: 'array',
+          description: 'Omitted or empty when fits_one_run is true',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', description: 'Slug-shaped: lowercase, digits, hyphens' },
+              task: { type: 'string', description: 'Self-contained task text for a fresh pipeline run whose Planner has no memory of this one' },
+              depends_on: { type: 'array', items: { type: 'string' }, description: 'Labels of chunks that must land first. args.tasks runs features in PARALLEL worktrees, so anything with a non-empty depends_on must NOT go in the same batch' },
+            },
+            required: ['label', 'task'],
+          },
+        },
+      },
+      required: ['fits_one_run'],
+    },
   },
+  // sizing is deliberately absent from `required`: a schema-validation failure
+  // aborts the Planner outright, and an advisory field that can kill a run
+  // contradicts the whole point of it being advisory. A Planner that omits it
+  // produces a run with no size rating, which phasePlan warns about.
   required: ['complexity', 'summary', 'steps', 'codebase_context'],
 }
 
@@ -459,6 +485,37 @@ function renderResearch(r) {
   return lines.join('\n') + '\n\n'
 }
 
+// Returns log lines, not a prompt string — this one is read by the operator,
+// who may paste the args.tasks array straight back into a Workflow call. The
+// chunks are model-generated free text, so the array is emitted through
+// JSON.stringify and never by concatenation: a task containing a quote or a
+// newline would otherwise hand the operator invalid JSON to run.
+// Dependent chunks are listed apart from the paste block rather than sorted
+// into it, because args.tasks runs features in PARALLEL worktrees — a batch
+// whose members depend on each other produces N conflicting worktrees.
+function renderSplitPaste(sizing) {
+  if (sizing?.fits_one_run !== false) return []
+  const chunks = sizing.suggested_split || []
+  // "Several runs" with no runs named is a Planner self-contradiction. Say so
+  // rather than returning nothing: the rating line still prints above this, so
+  // silence here leaves the operator told to split and not told into what.
+  if (!chunks.length) return ['⚠ Planner rated this as several runs but suggested no split — re-run with planOnly, or split it by hand.']
+
+  const independent = chunks.filter(c => !c.depends_on?.length)
+  const dependent = chunks.filter(c => c.depends_on?.length)
+
+  const lines = [`Suggested split — ${chunks.length} run(s). Dependent chunks must NOT go in the same batch: args.tasks runs features in parallel worktrees.`]
+  if (independent.length) {
+    lines.push('Paste this to run the independent chunks in parallel:')
+    lines.push(`  Workflow({name:"ldo:ldo", args:{tasks:${JSON.stringify(independent.map(c => ({ label: c.label, task: c.task })))}}})`)
+  }
+  if (dependent.length) {
+    lines.push('Run these afterwards, in sequence — each depends on a chunk above:')
+    dependent.forEach(c => lines.push(`  [${c.label}] after ${c.depends_on.join(', ')}`))
+  }
+  return lines
+}
+
 // ═══════════════════════════════════════════
 // MODEL ROUTING
 // ═══════════════════════════════════════════
@@ -747,7 +804,32 @@ const CONFIG = args?.config || {}
 const MAX_FIX_LOOPS = CONFIG.maxFixLoops || 3
 const BLOCKING_SEVERITIES = CONFIG.blockingSeverities || ['critical', 'major']
 const DO_RESEARCH = args?.research ?? CONFIG.researchByDefault ?? false
+// A top-level arg like `isolate`/`research`, not a config key: it describes
+// what this one invocation should do, not how the project is set up. Stops the
+// pipeline after Plan — and after Security when the surface is elevated —
+// returning the plan instead of implementing it.
+const PLAN_ONLY = args?.planOnly === true
 const MAX_PARALLEL_FEATURES = CONFIG.maxParallelFeatures || 12
+
+const PLANNER_CONFIG = CONFIG.planner || {}
+const DEFAULT_MAX_STEPS_PER_RUN = 8
+let MAX_STEPS_PER_RUN = DEFAULT_MAX_STEPS_PER_RUN
+if (PLANNER_CONFIG.maxStepsPerRun !== undefined) {
+  const n = Number(PLANNER_CONFIG.maxStepsPerRun)
+  if (Number.isFinite(n) && n >= 1) MAX_STEPS_PER_RUN = n
+  else log(`⚠ config.planner.maxStepsPerRun is invalid (${JSON.stringify(PLANNER_CONFIG.maxStepsPerRun)}) — expected a number of steps, at least 1. Keeping default ${DEFAULT_MAX_STEPS_PER_RUN}`)
+}
+// Only an explicit `false` disables it. A truthy typo ("no", 0-as-string)
+// would otherwise flip the operator's stated preference in the direction they
+// didn't ask for, silently.
+const PREFER_SPLIT = PLANNER_CONFIG.preferSplit !== false
+// Same reason the stallMs merge warns on an unrecognised role: a typo'd key is
+// never read, so the operator's setting is dropped with nothing in the log to
+// say it was. Guarding the value while leaving the key unguarded catches only
+// half the mistake.
+for (const key of Object.keys(PLANNER_CONFIG)) {
+  if (!['maxStepsPerRun', 'preferSplit'].includes(key)) log(`⚠ config.planner.${key} is not a known key — ignored. Keys: maxStepsPerRun, preferSplit`)
+}
 
 // Claude Code's own stall watchdog clears only on a tool_use block. While a
 // model is composing a large StructuredOutput call — no tool_use emitted yet —
@@ -874,8 +956,17 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
     ? `This run is part of a parallel multi-feature batch. Before reading the codebase, create your own isolated worktree:\n\n\`git worktree add ${ctx.worktreeHint.suggestedPath} -b ${ctx.worktreeHint.suggestedBranch}\`\n\nThen \`cd\` into it and do all your work there. Only deviate from this path/branch if it collides with something that already exists. Report the exact worktree_path and branch you used.\n\n`
     : ''
 
+  // Identical in plan-only and full runs on purpose: varying it on PLAN_ONLY
+  // would fork the cache prefix for no gain — the Planner's job is the same
+  // either way.
+  const sizingBrief = `## SIZING\nThis project treats ${MAX_STEPS_PER_RUN} steps as the soft ceiling for one run. ` +
+    (PREFER_SPLIT
+      ? 'The operator prefers short atomic runs — if this task is really several, say so.'
+      : 'The operator has asked for this to be planned as ONE run — only flag a split if the task is genuinely incoherent as a single run.') +
+    ' Fill `sizing` either way; it is advisory and blocks nothing.\n\n'
+
   const plan = await agentWithRetry(
-    worktreeTrigger + renderResearch(researchReport) + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
+    worktreeTrigger + renderResearch(researchReport) + sizingBrief + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
     { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA, stallMs: STALL_MS.planner }
   )
 
@@ -919,6 +1010,15 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
   }
   log(`${logPrefix}Plan: ${plan.steps.length} step(s), ${plan.codebase_context?.relevant_files?.length || 0} files mapped`)
   plan.steps.forEach(s => log(`${logPrefix}  • ${s.what}`))
+  if (!plan.sizing) {
+    log(`${logPrefix}⚠ Planner returned no sizing block — size unrated for this run.`)
+  } else if (plan.sizing.fits_one_run !== false) {
+    log(`${logPrefix}Sizing: fits one run${plan.sizing.reason ? ` — ${plan.sizing.reason}` : ''}`)
+  } else {
+    log(`${logPrefix}Sizing: does NOT fit one run${plan.sizing.reason ? ` — ${plan.sizing.reason}` : ''}`)
+    const chunks = plan.sizing.suggested_split || []
+    chunks.forEach(c => log(`${logPrefix}  ⤷ [${c.label}] ${c.task.slice(0, 100)}${c.task.length > 100 ? '...' : ''}${c.depends_on?.length ? `  (after: ${c.depends_on.join(', ')})` : ''}`))
+  }
   if (plan.migrations?.count > 0) {
     log(`${logPrefix}Migrations: ${plan.migrations.count} in ${plan.migrations.directory} — ${(plan.migrations.identifiers || []).join(', ') || '(no identifiers listed)'}`)
   }
@@ -1331,7 +1431,43 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
       coder_passes: Math.min(iteration + 1, MAX_FIX_LOOPS),
       researched: !!researchReport,
       files_mapped: plan.codebase_context?.relevant_files?.length || 0,
+      // null, not true, when the Planner returned no sizing block — "unrated"
+      // has to stay distinguishable from "rated as fitting".
+      fits_one_run: plan.sizing?.fits_one_run ?? null,
     },
+    plan,
+    researchReport,
+    securityReport,
+    task,
+  }
+}
+
+// A separate shape rather than shapeResult with a flag. Every verdict-derived
+// field shapeResult carries — approved, verdict, verification, unproven,
+// attacks, coder_passes — would be null or a lie here, and a flag parameter
+// would still leave `approved` present on the object for a caller to misread
+// as "the work happened and was rejected". This object has no `approved` key
+// at all: `if (r.approved)` is falsy, and `r.approved === false` — the
+// rejected-run test — correctly does not match. `mode` leads as the
+// discriminator.
+function shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx) {
+  return {
+    mode: 'plan-only',
+    label: ctx.label,
+    worktree_path: plan.worktree_path || null,
+    branch: plan.branch || null,
+    stats: {
+      complexity: plan.complexity,
+      securitySurface: surface,
+      securityStatus: securityReport?.status || 'not_run',
+      models,
+      researched: !!researchReport,
+      files_mapped: plan.codebase_context?.relevant_files?.length || 0,
+      fits_one_run: plan.sizing?.fits_one_run ?? null,
+    },
+    suggested_tasks: plan.sizing?.fits_one_run === false
+      ? (plan.sizing.suggested_split || []).filter(c => !c.depends_on?.length).map(c => ({ label: c.label, task: c.task }))
+      : [],
     plan,
     researchReport,
     securityReport,
@@ -1372,6 +1508,13 @@ async function runOneFeature(task, ctx) {
 
     // Phase 3: Security
     const { securityReport, SECURITY_BLOCK } = await phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY, logStage, logPrefix)
+
+    if (PLAN_ONLY) {
+      log(`${logPrefix}⏹ Plan-only run — stopped after Plan${securityReport ? ' + Security' : ''} on purpose. No code was written, no review ran, nothing was recorded.`)
+      renderSplitPaste(plan.sizing).forEach(line => log(`${logPrefix}${line}`))
+      if (plan.sizing?.fits_one_run !== false) log(`${logPrefix}The Planner rated this as one run — re-issue the same task without planOnly to implement it.`)
+      return shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx)
+    }
 
     // Phase 4: Code + Review
     const reviewResult = await phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix)
@@ -1429,6 +1572,31 @@ if (tasksList) {
   })))
 
   const features = results.map((r, i) => r || { error: 'No result returned', label: tasksList[i].label, task: tasksList[i].task, approved: false })
+
+  // Plan-only needs its own summary rather than a conditional threaded through
+  // the one below: that one counts `!f.verdict` as failed, and a plan-only
+  // feature legitimately has no verdict, so every planned feature would be
+  // reported as a failure. There is also nothing to ship, so no /ldo-ship line.
+  if (PLAN_ONLY) {
+    const planned = features.filter(f => f.mode === 'plan-only').length
+    const failed = features.filter(f => f.error).length
+
+    log('')
+    log(`Multi-feature plan-only summary: ${planned}/${features.length} planned, ${failed} failed`)
+    features.forEach(f => {
+      if (f.error) log(`  [${f.label}] ✗ ${f.error}`)
+      else if (f.worktree_path) log(`  [${f.label}] ✓ planned in ${f.worktree_path}`)
+      else log(`  [${f.label}] ✓ planned`)
+    })
+    if (budget.total) log(`Budget remaining: ${Math.round(budget.remaining() / 1000)}k`)
+
+    return {
+      mode: 'multi-plan-only',
+      summary: { total: features.length, planned, failed },
+      features,
+    }
+  }
+
   const approved = features.filter(f => f.approved).length
   const failed = features.filter(f => f.error || !f.verdict).length
   const changesRequested = features.length - approved - failed
@@ -1476,5 +1644,8 @@ if (args?.isolate) {
   })
 }
 
-log(`⚠ Working tree mode: the Coder edits THIS working tree directly. Avoid editing files here until the run finishes — or pass isolate: true to run in a separate worktree.`)
+// No Coder runs in plan-only mode and the Planner only reads, so warning the
+// operator off their own tree would be telling them something untrue.
+if (PLAN_ONLY) log('Plan-only run: nothing will be written to your working tree.')
+else log(`⚠ Working tree mode: the Coder edits THIS working tree directly. Avoid editing files here until the run finishes — or pass isolate: true to run in a separate worktree.`)
 return await runOneFeature(singleTask, { isMulti: false })

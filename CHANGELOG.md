@@ -5,6 +5,70 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.0] — 2026-08-23
+
+The operator's working preference, stated plainly: short atomic runs, because
+development moves faster that way — but sometimes you need to plan one large
+chunk and then break it into small pieces. LDO supported neither half. The
+Planner said nothing about size anywhere in its 147 lines, and the only way to
+get a plan was to run the whole pipeline, which then implemented it.
+
+### Added
+
+- **The Planner rates size on every run.** A new `sizing` block on the plan
+  schema — `fits_one_run`, a one-line `reason`, and a `suggested_split` of
+  self-contained chunks. Size is not complexity and the agent instructions say
+  so explicitly: a `complex` task can be one tight run, and three unrelated
+  `trivial` chores are three runs. The split signals are named (unrelated
+  layers with no shared reason, a migration bundled with a feature that could
+  ship without it, over the step ceiling, two different answers to "why are we
+  doing this", pieces with different risk profiles) and so is the
+  counter-signal, so this doesn't become reflexive fragmentation: a change that
+  only works when all of it lands — a rename across call sites, a signature
+  change and its callers — is ONE run.
+- **`depends_on` on each chunk, and it is load-bearing.** `args.tasks` runs
+  features in *parallel worktrees*. A flat list of chunks that actually depend
+  on each other produces N worktrees fighting over the same lines. The
+  pasteable array therefore contains the independent chunks only; dependent
+  ones are listed separately, to be run in sequence afterwards.
+- **`planOnly: true`** — a top-level arg like `isolate`. Runs
+  Research → Plan → Security (when the surface is elevated) and stops. Nothing
+  is written, nothing is reviewed, nothing is recorded. Threat-modelling a plan
+  before the code exists is what the Security agent is for, and plan-only is
+  when that is most useful, so it still runs.
+- **`config.planner.maxStepsPerRun`** (default 8) and
+  **`config.planner.preferSplit`** (default true). Both are interpolated into
+  the Planner's prompt rather than checked after the fact — a config key the
+  agent never sees is dead weight. The ceiling is soft: the orchestrator
+  enforces nothing, doesn't truncate a longer plan and doesn't refuse it.
+  `sizing` is advisory throughout; a gate here would stall runs the operator
+  deliberately chose to make big.
+
+### Fixed (found while reviewing the above)
+
+- **A plan-only result could have been misread as a rejected run.** Returning
+  `approved: false` is exactly what a rejected run looks like. Plan-only now
+  returns a separate shape with `mode: 'plan-only'` and **no `approved` key at
+  all**, so `if (r.approved)` is falsy and `r.approved === false` — the
+  rejected-run test — correctly does not match.
+- **Every plan-only feature in a multi-feature batch would have been reported
+  as a failure.** The existing summary counts `!f.verdict` as failed, and a
+  planned feature legitimately has no verdict. Plan-only gets its own summary.
+- **`sizing` is deliberately absent from the schema's `required` array.** A
+  validation failure aborts the Planner outright; an advisory field that can
+  kill a run contradicts itself. A missing block is warned about and rated
+  `null` — "unrated" stays distinguishable from "rated as fitting".
+- **The pasteable array is emitted through `JSON.stringify`, never by string
+  concatenation.** The chunks are model-generated free text; one containing a
+  quote or a newline would otherwise hand the operator invalid JSON to run.
+- **A typo'd key under `config.planner` is now warned about**, matching the
+  `stallMs` pattern. Guarding the value while leaving the key unguarded catches
+  only half the mistake — the operator believes they set something and nothing
+  in the log says otherwise.
+- **A Planner that rates `fits_one_run: false` and then names no chunks now
+  says so.** Previously the run printed the rating and then nothing, leaving
+  the operator told to split and not told into what.
+
 ## [2.26.0] — 2026-08-23
 
 The first report filed through `/ldo-feedback` as a GitHub issue rather than
