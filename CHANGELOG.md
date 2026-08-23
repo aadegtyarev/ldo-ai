@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.29.1] — 2026-08-23
+
+### Fixed
+
+- **The marketplace entry carried no `homepage` and no `author`.** `plugin.json`
+  has had both since the start, but a plugin listing is rendered from
+  `marketplace.json`, and that entry had neither — so the install surface showed
+  no link back to the project and no author. Both added, matching the shape the
+  official marketplace uses for its 286 entries (270 of which carry `homepage`).
+  Both URLs verified to resolve.
+
 ## [2.29.0] — 2026-08-23
 
 Every run of the pipeline was dead. Not slow, not degraded — the Planner was
