@@ -75,5 +75,11 @@ the list. Offer; don't run either unasked.
 - issue identity is a canonicalized key plus a measured similarity match; a re-worded re-raise no longer reads as unrelated
 - a failed or unreported verification blocks approval in the orchestrator, not on the reviewer's word
 - a failed criterion blocks even when the verdict word says verified — the itemized list outranks the summary
+- config.models merges per role, not per tier; an unknown tier, role or bad model value warns instead of routing nothing
+- reviewerFix routes the fix-pass reviewer per round, defaulting to the same model reviewer already uses
+- the previous round's criteria and attack outcomes reach the fix-pass reviewer, so "skip what held" names a list
+- reviewer reports a repeated defect as a class with an enumeration command; coder closes the class, not the listed lines
+- the verification log block guards its aliased reads; a malformed criteria no longer aborts an already-approved run
+- record_status distinguishes a Recorder that failed from one that wrote nothing by design
 <!-- /ldo:features -->
 <!-- END ldo -->

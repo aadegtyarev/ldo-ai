@@ -204,6 +204,76 @@ assert('CONTROL: a verified verdict with no issues is still approved', ['downgra
   return { ok: r.approved === true, detail: `approved = ${r.approved}` }
 })
 
+// The verification-log block reads the same model-authored object through the
+// alias `const v = verdict.verification`, which hides it from any enumeration
+// grepping for `verification?.criteria`. `?.` guards null but not type: a
+// string `criteria` reaches .filter and throws, and `blockers: 'none'` has a
+// truthy .length and throws on .join. A verdict whose word is 'verified'
+// passes enforceVerificationGate by reference and lands here, so the throw
+// aborts the run after the review already succeeded. Driven as the real
+// extracted block rather than asserted by reading it.
+const logBlock = (() => {
+  const marks = []
+  let idx = -1
+  while ((idx = src.indexOf('const v = verdict.verification', idx + 1)) >= 0) marks.push(idx)
+  if (marks.length < 2) return null // the first is enforceVerificationGate's own
+  const start = src.indexOf('if (v) {', marks[marks.length - 1])
+  if (start < 0) return null
+  let depth = 0
+  for (let k = start; k < src.length; k++) {
+    const c = src[k]
+    if (c === '{') depth++
+    else if (c === '}') { depth--; if (depth === 0) return src.slice(start, k + 1) }
+  }
+  return null
+})()
+
+const driveLog = v => {
+  const lines = []
+  new Function('v', 'log', 'logPrefix', logBlock)(v, m => lines.push(m), '')
+  return lines
+}
+
+const logAssert = (label, fn) => {
+  if (!logBlock) {
+    console.log(`✗ ${label} — could not run: verification log block not extracted`)
+    problems.push(`${label}: could not run, verification log block not extracted from ${target}`)
+    return
+  }
+  let ok = false
+  let detail = ''
+  try {
+    const r = fn()
+    ok = r === true || r?.ok === true
+    detail = typeof r === 'object' && r?.detail ? ` — ${r.detail}` : ''
+  } catch (e) {
+    detail = ` — threw: ${e.message}`
+  }
+  console.log(`${ok ? '✓' : '✗'} ${label}${detail}`)
+  if (!ok) problems.push(`${label}${detail}`)
+}
+
+logAssert("the verification log survives a criteria that is a string, not an array", () => {
+  const lines = driveLog({ verdict: 'verified', criteria: 'oops' })
+  return { ok: lines.length === 1, detail: JSON.stringify(lines) }
+})
+
+logAssert("the verification log survives blockers that is a string, not an array", () => {
+  const lines = driveLog({ verdict: 'failed', criteria: [], blockers: 'nope' })
+  return { ok: !lines.some(l => l.includes('Blockers')), detail: JSON.stringify(lines) }
+})
+
+logAssert("the verification log survives a null entry inside a well-formed criteria array", () => {
+  const lines = driveLog({ verdict: 'partial', criteria: [null, { criterion: 'c2', status: 'failed' }] })
+  return { ok: lines.some(l => l.includes('c2')), detail: JSON.stringify(lines) }
+})
+
+logAssert("CONTROL: a well-formed verification still logs counts, failures and blockers", () => {
+  const lines = driveLog({ verdict: 'verified', criteria: [{ criterion: 'c1', status: 'passed' }, { criterion: 'c2', status: 'failed', note: 'n' }], blockers: ['b1'] })
+  const ok = lines[0].includes('1/2 criteria proven') && lines.some(l => l.includes('✗ c2 — n')) && lines.some(l => l.includes('⚠ Blockers: b1'))
+  return { ok, detail: JSON.stringify(lines) }
+})
+
 if (problems.length) {
   console.error('\n✗ Verdict gate check failed:\n')
   problems.forEach(p => console.error(`  - ${p}`))

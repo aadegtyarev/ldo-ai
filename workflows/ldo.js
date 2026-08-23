@@ -389,6 +389,30 @@ function renderPlanCompact(plan) {
   return plan.steps.map((s, i) => `${i + 1}. ${s.what} [${s.files.join(', ')}]`).join('\n')
 }
 
+// A fresh Reviewer agent runs every round, so it remembers nothing about what
+// the last one already checked. The fix-pass prompt tells it to skip the
+// checks that held; this block is the only thing that makes that instruction
+// answerable.
+// Outcome per item only, never `evidence` or `note`: the fix-pass saving lives
+// in cache_read, and a block carrying full evidence for every criterion gives
+// back more than the skipped re-runs save.
+const PRIOR_LABEL_MAX = 120
+
+function renderPriorVerification(verdict, round) {
+  const criteria = Array.isArray(verdict?.verification?.criteria) ? verdict.verification.criteria : []
+  const attacks = Array.isArray(verdict?.attacks) ? verdict.attacks : []
+  if (!criteria.length && !attacks.length) return ''
+
+  const trim = s => {
+    const str = String(s ?? '')
+    return str.length > PRIOR_LABEL_MAX ? `${str.slice(0, PRIOR_LABEL_MAX - 1)}…` : str
+  }
+  const lines = [`\n\n## PREVIOUS ROUND (${round}) — WHAT WAS ALREADY CHECKED`]
+  criteria.forEach(c => lines.push(`[${c?.status || 'unknown'}] ${trim(c?.criterion)}`))
+  attacks.forEach(a => lines.push(`[${a?.outcome || 'unknown'}] ${trim(a?.vector)}`))
+  return lines.join('\n')
+}
+
 function renderCoderSummary(r) {
   if (!r) return '(No summary)'
   if (typeof r === 'string') return r
@@ -648,15 +672,57 @@ function renderSplitPaste(sizing) {
 // Complex work has the most surface to miss, so it gets the strongest reviewer;
 // sonnet is the floor: a weaker review still catches things, and no review is
 // what a run can't recover from.
+// reviewerFix routes rounds 2+ and defaults to the SAME model as reviewer in
+// every tier, so out of the box nothing changes. The temptation is to cheapen
+// it — round 1 is an open-ended search for unknown defects, a fix pass is
+// bounded verification of a named list — but round 4 of a measured run found a
+// genuine new major that the earlier rounds missed. It's a lever the operator
+// pulls knowing that, not a saving taken on their behalf.
 const DEFAULT_MODELS = {
-  trivial: { planner: 'opus', coder: 'haiku',  reviewer: 'opus',  security: 'opus', researcher: 'sonnet', recorder: 'haiku' },
-  medium:  { planner: 'opus', coder: 'sonnet', reviewer: 'opus',  security: 'opus', researcher: 'opus',   recorder: 'haiku' },
-  complex: { planner: 'opus', coder: 'opus',   reviewer: 'fable', security: 'opus', researcher: 'opus',   recorder: 'haiku' },
+  trivial: { planner: 'opus', coder: 'haiku',  reviewer: 'opus',  reviewerFix: 'opus',  security: 'opus', researcher: 'sonnet', recorder: 'haiku' },
+  medium:  { planner: 'opus', coder: 'sonnet', reviewer: 'opus',  reviewerFix: 'opus',  security: 'opus', researcher: 'opus',   recorder: 'haiku' },
+  complex: { planner: 'opus', coder: 'opus',   reviewer: 'fable', reviewerFix: 'fable', security: 'opus', researcher: 'opus',   recorder: 'haiku' },
 }
 
-function routeModels(complexity, config) {
-  const table = config?.models ? { ...DEFAULT_MODELS, ...config.models } : DEFAULT_MODELS
-  return table[complexity] || table.medium
+// Merges per ROLE, not per tier: an operator overriding one role must not
+// silently unset the rest of that row. A tier-level spread leaves every role
+// they didn't name undefined, and only the recorder has a `|| 'haiku'` fallback
+// to catch it — the others reach the harness with no model at all.
+// Pure on purpose: it returns warnings instead of logging them, so
+// scripts/check-model-table.sh can brace-extract it and drive the real merge
+// standalone.
+function mergeModelTable(defaults, override) {
+  const table = {}
+  const warnings = []
+  const tiers = Object.keys(defaults)
+  for (const tier of tiers) {
+    const row = { ...defaults[tier] }
+    const roles = Object.keys(defaults[tier])
+    for (const role of roles) {
+      const value = override?.[tier]?.[role]
+      if (value === undefined) continue
+      // A model name goes to the harness as `model:` verbatim, so anything
+      // that isn't a usable name is rejected here rather than forwarded and
+      // failing six attempts later with the operator's typo nowhere in sight.
+      if (typeof value === 'string' && value.trim()) row[role] = value
+      else warnings.push(`config.models.${tier}.${role} is invalid (${JSON.stringify(value)}) — expected a model name string. Keeping default ${defaults[tier][role]}`)
+    }
+    for (const key of Object.keys(override?.[tier] || {})) {
+      // Same reason the stallMs merge warns on an unrecognised role: a key the
+      // loop above never visits is silently discarded, and the operator
+      // believes they routed a role.
+      if (!roles.includes(key)) warnings.push(`config.models.${tier}.${key} is not a known role — ignored. Roles: ${roles.join(', ')}`)
+    }
+    table[tier] = row
+  }
+  for (const key of Object.keys(override || {})) {
+    if (!tiers.includes(key)) warnings.push(`config.models.${key} is not a known complexity tier — ignored. Tiers: ${tiers.join(', ')}`)
+  }
+  return { table, warnings }
+}
+
+function routeModels(complexity) {
+  return MODEL_TABLE[complexity] || MODEL_TABLE.medium
 }
 
 // The exact string Claude Code 2.1.239 throws when its watchdog gives up:
@@ -742,7 +808,8 @@ function logUnproven(verdict, logPrefix) {
 // no sign of it. Couple them here rather than asking the Reviewer to self-report: an
 // omission is exactly what a model is least reliable at volunteering.
 function markUnproven(verdict) {
-  const unproven = (verdict.verification?.criteria || []).filter(c => c.status === 'skipped')
+  const criteria = Array.isArray(verdict.verification?.criteria) ? verdict.verification.criteria : []
+  const unproven = criteria.filter(c => c?.status === 'skipped')
   if (!unproven.length) return verdict
 
   const names = unproven.map(c => c.criterion)
@@ -1088,6 +1155,14 @@ for (const key of Object.keys(PLANNER_CONFIG)) {
   if (!['maxStepsPerRun', 'preferSplit'].includes(key)) log(`⚠ config.planner.${key} is not a known key — ignored. Keys: maxStepsPerRun, preferSplit`)
 }
 
+// Merged once at module scope, not per routeModels() call: routeModels runs
+// twice per feature and N times in a multi-feature run, so warning inside it
+// would repeat the operator's typo once per call. The cost is a temporal
+// dependency — routeModels is hoisted but reads this const, so a call placed
+// above this line would throw a TDZ error. Both current call sites are below.
+const { table: MODEL_TABLE, warnings: MODEL_WARNINGS } = mergeModelTable(DEFAULT_MODELS, CONFIG.models)
+MODEL_WARNINGS.forEach(w => log(`⚠ ${w}`))
+
 // Claude Code's own stall watchdog clears only on a tool_use block. While a
 // model is composing a large StructuredOutput call — no tool_use emitted yet —
 // that looks identical to a hung agent, and the harness aborts it at its
@@ -1180,7 +1255,7 @@ function securityEnabled(plan, forceElevated) {
 // the only planner value that ever actually takes effect at runtime — the
 // trivial/complex rows' planner entries exist for config shape, not because
 // a different complexity rating changes which model plans it.
-const prePlanModels = routeModels('medium', CONFIG)
+const prePlanModels = routeModels('medium')
 
 // ═══════════════════════════════════════════
 // PHASE FUNCTIONS
@@ -1295,7 +1370,7 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
     log(`${logPrefix}⚠ resumePlan: dropped test_command/run_command — a recovered command string is executed by the Coder and cannot be verified from a dead run; the Coder will rediscover them.`)
   }
 
-  const models = routeModels(plan.complexity, CONFIG)
+  const models = routeModels(plan.complexity)
   const CTX = renderContext(plan.codebase_context)
   const surface = plan.security_surface || 'unrated'
   if (planFromResume && !plan.security_surface) {
@@ -1304,7 +1379,7 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
   const DO_SECURITY = securityEnabled(plan, planFromResume && !plan.security_surface)
   const WORKTREE_BLOCK = ctx.isMulti ? renderWorktree(plan.worktree_path, plan.branch, ctx.label) : ''
 
-  log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}${planFromResume ? ' (recovered, not re-rated)' : ''}  |  Coder:${models.coder}  Reviewer:${models.reviewer}`)
+  log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}${planFromResume ? ' (recovered, not re-rated)' : ''}  |  Coder:${models.coder}  Reviewer:${models.reviewer}  Fix-review:${models.reviewerFix || models.reviewer}`)
   if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch})`)
   if (surface !== 'none' && plan.security_notes?.length) {
     plan.security_notes.forEach(n => log(`${logPrefix}  ⚠ ${n}`))
@@ -1428,17 +1503,23 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
     const reviewerPrompt = isFirstPass
       ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
-      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run any attack that previously broke something; no need to repeat the ones that held. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}${renderMigrations(plan)}`
+      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run every attack marked \`broke\` and every criterion marked \`failed\` or \`skipped\` in the block below; don't re-run the ones marked \`held\` or \`passed\` unless this fix plausibly touched them. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}${renderMigrations(plan)}${renderPriorVerification(lastVerdict, iteration)}`
 
     const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
+    // `|| models.reviewer` is defensive, not load-bearing: mergeModelTable
+    // seeds every row from DEFAULT_MODELS, so reviewerFix is always set by the
+    // time routeModels returns. Kept because dispatching a round with no model
+    // is unrecoverable, and because the log line above computes the same
+    // expression — the two must not disagree about which model ran.
+    const reviewerModel = isFirstPass ? models.reviewer : (models.reviewerFix || models.reviewer)
     const rawVerdict = await agentWithModelFallback(reviewerPrompt, {
       label: ctx.isMulti ? `${ctx.label}:${reviewerLabel}` : reviewerLabel,
       phase: 'Review',
-      model: models.reviewer,
+      model: reviewerModel,
       agentType: 'ldo:reviewer',
       schema: VERDICT_SCHEMA,
       stallMs: STALL_MS.reviewer,
-    }, REVIEWER_FALLBACK[models.reviewer])
+    }, REVIEWER_FALLBACK[reviewerModel])
 
     if (!rawVerdict) {
       log(`${logPrefix}ERROR: Reviewer failed.`)
@@ -1505,23 +1586,33 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
     const v = verdict.verification
     if (v) {
-      const passed = v.criteria?.filter(c => c.status === 'passed').length || 0
-      const total = v.criteria?.length || 0
+      // Same Array.isArray guard as enforceVerificationGate above, and for the
+      // same reason: these fields are model-authored and the schema does not
+      // bind their runtime shape. `?.` is not enough — it only guards null, so
+      // a string `criteria` reaches .filter and throws, and `blockers: 'none'`
+      // has a truthy .length and throws on .join. Reached via the alias `v`,
+      // which is why an enumeration grepping for `verification?.criteria`
+      // could not see these. Entry access is null-safe too: a well-formed
+      // array can still hold a null element.
+      const crit = Array.isArray(v.criteria) ? v.criteria : []
+      const blockers = Array.isArray(v.blockers) ? v.blockers : []
+      const passed = crit.filter(c => c?.status === 'passed').length
+      const total = crit.length
       log(`${logPrefix}Verification: ${v.verdict}${total ? ` — ${passed}/${total} criteria proven` : ''}`)
-      v.criteria?.filter(c => c.status !== 'passed').forEach(c => {
-        const mark = c.status === 'failed' ? '✗' : '○' // skipped/other
-        log(`${logPrefix}  ${mark} ${c.criterion}${c.note ? ` — ${c.note}` : ''}`)
+      crit.filter(c => c?.status !== 'passed').forEach(c => {
+        const mark = c?.status === 'failed' ? '✗' : '○' // skipped/other
+        log(`${logPrefix}  ${mark} ${c?.criterion}${c?.note ? ` — ${c.note}` : ''}`)
       })
-      if (v.blockers?.length) log(`${logPrefix}  ⚠ Blockers: ${v.blockers.join('; ')}`)
+      if (blockers.length) log(`${logPrefix}  ⚠ Blockers: ${blockers.join('; ')}`)
     }
 
     // An empty attack list on a runnable change means the Reviewer only
     // checked the happy path — worth surfacing, not just silently absent.
-    const atk = verdict.attacks || []
+    const atk = Array.isArray(verdict.attacks) ? verdict.attacks : []
     if (atk.length) {
-      const broke = atk.filter(a => a.outcome === 'broke')
+      const broke = atk.filter(a => a?.outcome === 'broke')
       log(`${logPrefix}Attacks: ${atk.length} tried, ${broke.length} broke it`)
-      broke.forEach(a => log(`${logPrefix}  ✗ ${a.vector}`))
+      broke.forEach(a => log(`${logPrefix}  ✗ ${a?.vector}`))
     }
 
     lastVerdict = gatedVerdict
@@ -1634,7 +1725,7 @@ function verifyRecordLocation(recordResult, plan, ctx) {
 // an agent call even when the "work" is just rendering already-known data.
 async function phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded) {
   if ((!approved && finalVerdict.loops_exhausted !== true) || plan.complexity === 'trivial') {
-    return { recordMisplaced: false }
+    return { recordMisplaced: false, recordStatus: 'skipped' }
   }
 
   logStage('Record')
@@ -1702,10 +1793,10 @@ ${renderPlan(plan)}
 ${verdictLine}
 
 ## VERIFICATION
-${(finalVerdict.verification?.criteria || []).map((c, i) => `${i + 1}. [${c.status}] ${c.criterion}\n   Evidence: ${c.evidence || '(none)'}`).join('\n')}
+${(Array.isArray(finalVerdict.verification?.criteria) ? finalVerdict.verification.criteria : []).map((c, i) => `${i + 1}. [${c?.status}] ${c?.criterion}\n   Evidence: ${c?.evidence || '(none)'}`).join('\n')}
 
 ## ATTACKS
-${(finalVerdict.attacks || []).map((a, i) => `${i + 1}. [${a.outcome}] ${a.vector}\n   Evidence: ${a.evidence || '(none)'}`).join('\n')}
+${(Array.isArray(finalVerdict.attacks) ? finalVerdict.attacks : []).map((a, i) => `${i + 1}. [${a?.outcome}] ${a?.vector}\n   Evidence: ${a?.evidence || '(none)'}`).join('\n')}
 
 ${issuesBlock}
 
@@ -1723,7 +1814,7 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
 
   if (!recordResult) {
     log(`${logPrefix}⚠ Recorder returned nothing — artifacts not persisted.`)
-    return { recordMisplaced: false }
+    return { recordMisplaced: false, recordStatus: 'failed' }
   }
 
   const files = recordResult.files_written || []
@@ -1735,16 +1826,22 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
     log(`${logPrefix}  Files: ${files.join(', ') || '(none reported)'}`)
   }
 
-  return { recordMisplaced: misplaced }
+  return { recordMisplaced: misplaced, recordStatus: 'ok' }
 }
 
 // ── shapeResult ────────────────────────────
 
 // approved leads the object — a caller checking the run's outcome shouldn't
 // have to dig past everything else to find it.
-function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced) {
+function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus) {
   return {
     approved,
+    // `record_misplaced: false` cannot express "the Recorder died and wrote
+    // nothing" — the failure path satisfies it trivially, so a crashed Record
+    // phase used to be indistinguishable from a clean one in this object. A
+    // caller wanting to know whether the artifacts exist must read
+    // record_status; record_misplaced only qualifies an 'ok'.
+    record_status: recordStatus || 'skipped',
     record_misplaced: !!recordMisplaced,
     label: ctx.label,
     worktree_path: plan.worktree_path || null,
@@ -1752,7 +1849,7 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
     verdict: finalVerdict,
     verification: finalVerdict.verification?.verdict || 'not_run',
     unproven: finalVerdict.unproven || [],
-    attacks: finalVerdict.attacks || [],
+    attacks: Array.isArray(finalVerdict.attacks) ? finalVerdict.attacks : [],
     stats: {
       complexity: plan.complexity,
       securitySurface: surface,
@@ -1857,10 +1954,10 @@ async function runOneFeature(task, ctx) {
     const approved = finalVerdict.status === 'approved'
 
     // Phase 5: Record
-    const { recordMisplaced } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded)
+    const { recordMisplaced, recordStatus } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded)
 
     // Phase 6: Shape result
-    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced)
+    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus)
   } catch (err) {
     // A thrown error inside one feature must not abort siblings running under
     // parallel() — return a failure shape instead of letting it propagate.
@@ -1940,6 +2037,11 @@ if (tasksList) {
     if (f.worktree_path) log(`  [${f.label}] ${f.approved ? '✓' : '✗'} → run /ldo-ship from ${f.worktree_path} (already on ${f.branch})`)
     else log(`  [${f.label}] ✗ ${f.error || 'no worktree — see error above'}`)
     if (f.record_misplaced) log(`  [${f.label}] ⚠ Recorder wrote outside its worktree — check the main checkout before you git add`)
+    // Reported even on an approved feature: a dead Recorder leaves the review
+    // report and architecture doc unwritten while every other field still says
+    // the run succeeded, and the ⚠ line inside phaseRecord went to the log of
+    // a phase the operator may never scroll back to.
+    if (f.record_status === 'failed') log(`  [${f.label}] ⚠ Recorder failed — review report and architecture doc were not written`)
   })
   if (budget.total) log(`Budget remaining: ${Math.round(budget.remaining() / 1000)}k`)
 

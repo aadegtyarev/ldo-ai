@@ -1,12 +1,14 @@
 {
   "_README": "This is a REFERENCE TEMPLATE, not a file LDO reads. A workflow has no filesystem access, so config reaches it only via args.config at invocation. Two ways to use this: (1) copy the values into your project's CLAUDE.md so Claude passes them on every run — /ldo-init writes that block for you; (2) pass them inline: Workflow({name:'ldo', args:{task:'...', config:{...}}}). Model names mean whatever your setup routes them to.",
 
-  "_models_note": "planner is 'opus' in every tier on purpose — complexity is the Planner's own output, so it structurally can't gate its own model (only the 'medium' row's planner value is ever read at runtime). reviewer is 'opus' in trivial/medium and 'fable' in complex, falling back to 'sonnet' when fable isn't on the proxy route: catching what the coder missed is the whole point of review, and complex work has the most to miss. coder is the role that scales with the tier — haiku/sonnet/opus.",
+  "_models_note": "planner is 'opus' in every tier on purpose — complexity is the Planner's own output, so it structurally can't gate its own model (only the 'medium' row's planner value is ever read at runtime). reviewer is 'opus' in trivial/medium and 'fable' in complex, falling back to 'sonnet' when fable isn't on the proxy route: catching what the coder missed is the whole point of review, and complex work has the most to miss. coder is the role that scales with the tier — haiku/sonnet/opus. reviewerFix routes review rounds 2+ and is set to the same model as reviewer in every tier, so the defaults change nothing — see _reviewerFix_note before lowering it. An override is merged per ROLE, not per tier: setting only {\"medium\": {\"coder\": \"haiku\"}} leaves the other six medium roles at their defaults. An unrecognised tier, role or non-string model name is warned about in the run log and ignored, never passed to the harness.",
+  "_reviewerFix_note": "Round 1 is an open-ended search for defects nobody has named yet and earns the strongest model. A fix pass is a different, easier job: bounded verification of a list the previous round already wrote down. That argues for a cheaper reviewerFix — but it is a real trade, not a free saving: in a measured run, round 4 found a genuine new major that rounds 1-3 had missed. So the default is deliberately identical to reviewer, and setting reviewerFix lower is how you buy cheaper fix rounds knowing what they can cost. The post-plan log line names both models, so you can check an override took effect.",
   "models": {
     "trivial": {
       "planner": "opus",
       "coder": "haiku",
       "reviewer": "opus",
+      "reviewerFix": "opus",
       "security": "opus",
       "researcher": "sonnet",
       "recorder": "haiku"
@@ -15,6 +17,7 @@
       "planner": "opus",
       "coder": "sonnet",
       "reviewer": "opus",
+      "reviewerFix": "opus",
       "security": "opus",
       "researcher": "opus",
       "recorder": "haiku"
@@ -23,6 +26,7 @@
       "planner": "opus",
       "coder": "opus",
       "reviewer": "fable",
+      "reviewerFix": "fable",
       "security": "opus",
       "researcher": "opus",
       "recorder": "haiku"

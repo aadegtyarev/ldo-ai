@@ -30,9 +30,9 @@ The protocol exists so different roles can run on different models. `planner` is
 ```json
 {
   "models": {
-    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus",  "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
-    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus",  "security": "opus", "researcher": "opus",   "recorder": "haiku" },
-    "complex": { "planner": "opus", "coder": "opus",   "reviewer": "fable", "security": "opus", "researcher": "opus",   "recorder": "haiku" }
+    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
+    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "opus",   "recorder": "haiku" },
+    "complex": { "planner": "opus", "coder": "opus",   "reviewer": "fable", "reviewerFix": "fable", "security": "opus", "researcher": "opus",   "recorder": "haiku" }
   }
 }
 ```
@@ -41,19 +41,24 @@ The protocol exists so different roles can run on different models. `planner` is
 
 **Reviewer stays strong because a cheap reviewer that trusts the Coder isn't a review.** Its entire value is not sharing the Coder's blind spot. A cheap model executes narrow instructions well but doesn't reliably know when to stop and ask instead of writing confident, made-up prose about work it didn't actually verify: a contract line for an event that isn't in the code, a test description that contradicts its own body, a report citing a tool name that doesn't exist. That failure mode is cheaper to produce than the work it claims to describe, and a cheap Reviewer is the worst-positioned agent to catch it — it's exactly the same failure mode it would be checking for. So the reviewer is `opus` on `trivial`/`medium` and `fable` on `complex`, where there's the most to miss; when `fable` isn't on the proxy route the run falls back to `sonnet` — a weaker review still catches things, and no review is what a run can't recover from.
 
+**`reviewerFix` routes rounds 2+, and defaults to the same model as `reviewer` on purpose.** A fix pass genuinely is the easier job: round 1 is an open-ended search for defects nobody has named yet, while a fix pass verifies a list the previous round already wrote down. That's a real argument for a cheaper model — but it's a trade, not a free saving, and the measurement says so: in one run, round 4 found a genuine new `major` that rounds 1-3 had missed. So the defaults change nothing, and setting `reviewerFix` yourself is how you buy cheaper fix rounds knowing what they can cost. It uses the same Fable→Sonnet fallback as `reviewer`.
+
 `coder` scales with the tier — `haiku`/`sonnet`/`opus` — because its job is executing a plan, not making priority calls, and that width (not code difficulty) is what the tier is really measuring for it. If a task looks like it wants a stronger Coder, the better first move is usually narrowing the plan's scope rather than reaching for a stronger model: a narrow task is cheaper to review and fails visibly — done or not — where a wide one gives a cheap model room to make calls it shouldn't and describe the result confidently.
+
+An override is merged per **role**, not per tier — `{models: {medium: {coder: "haiku"}}}` changes the medium Coder and leaves every other medium role at its default. A tier name, role name, or model value LDO doesn't recognise is warned about in the run log and ignored rather than forwarded: an unusable model name reaching the harness fails with your typo nowhere in the output.
 
 These apply when nothing is passed. The source of truth is `DEFAULT_MODELS` in `workflows/ldo.js` — this table and `ldo-config.example.json` both describe it; if either ever looks stale, that's the one to check against. Model names mean whatever your setup routes them to — the pipeline assumes nothing about which is stronger.
 
 ## The roles
 
-Three always run:
+Three always run — `reviewerFix` is a fourth routing key, not a fourth agent: it's the same Reviewer, dispatched on rounds 2 and later:
 
 | Role | Does | Model choice |
 |------|------|--------------|
 | **planner** | Reads the codebase, writes the plan, rates complexity and security surface | Opus at every tier — it can't be gated on the complexity it's the one rating |
 | **coder** | Sets up the environment, implements, tests, updates docs | Scales with the tier (haiku/sonnet/opus) — a plan's width, not the underlying code's difficulty, is what it's routed on |
 | **reviewer** | Reads the diff *and* drives the app to prove the criteria | **The reason for the protocol.** Opus at `trivial`/`medium`, Fable at `complex` (Sonnet fallback) — a reviewer that trusts the coder isn't reviewing |
+| **reviewerFix** | The same reviewer, on rounds 2+ (the fix passes) | Same model as `reviewer` by default. Lower it to buy cheaper fix rounds — a later round can still find a new blocker, so it's a trade |
 
 Three are conditional:
 
@@ -116,7 +121,7 @@ Workflow({name: "ldo:ldo", args: {
 Run `/ldo:ldo` on something small and read the log line after Plan:
 
 ```
-Complexity: medium  |  Security surface: none  |  Coder:sonnet  Reviewer:opus
+Complexity: medium  |  Security surface: none  |  Coder:sonnet  Reviewer:opus  Fix-review:opus
 ```
 
 That's the routing that actually applied.

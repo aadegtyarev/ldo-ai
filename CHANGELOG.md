@@ -5,6 +5,70 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.0] — 2026-08-24
+
+### Changed
+
+- **The reviewer reports a defect class, not the instances it happened to
+  notice.** A measured run went through four review rounds because round 1
+  listed three fields, the coder fixed exactly three, and four siblings of the
+  same defect survived — twice. `agents/reviewer.md` now requires a repeated
+  defect shape to be reported as a class with a command that enumerates every
+  member, and requires the durable fix to be recommended over the narrow one:
+  round 1 of that run identified a try/catch wrapper and then argued the coder
+  out of it, and that recommendation cost two rounds. `agents/coder.md` now
+  states that a fix pass closes the class within the files the issue names,
+  and that going past the literal list belongs in `deviations`.
+
+- **The fix-pass reviewer is routed per round.** A new `reviewerFix` role
+  selects the model for rounds 2+, so the open-ended first review can stay
+  strong while a bounded verification pass runs cheaper. It defaults to the
+  same model `reviewer` already uses, so nothing changes until an operator
+  opts in. The tension is real and not hidden: round 4 of the measured run
+  found a genuine new major the earlier rounds missed, so a weaker fix-pass
+  reviewer is not free.
+
+- **The previous round's verification reaches the fix-pass reviewer.** The
+  prompt already said to re-run what broke and skip what held, but the
+  Reviewer was handed no list, so it could not tell which was which — over
+  three rounds tool calls went 45 → 65 → 68 while criteria checked went
+  15 → 10 → 11. The prior round's criteria and attack outcomes are now
+  threaded into the prompt, compactly: outcome per item, no evidence text,
+  because the cost lives in `cache_read`.
+
+### Fixed
+
+- **A partial `config.models` override left most roles with no model at all.**
+  `routeModels` spread whole tier rows, so the example printed in this repo's
+  own `CLAUDE.md` — `{ medium: { coder: "haiku", reviewer: "opus" } }` — left
+  planner, security, researcher and recorder `undefined`, and only the recorder
+  had a fallback. The merge is now per role, and an invalid model value, an
+  unknown role and an unknown tier each warn instead of silently routing
+  nothing. `scripts/check-model-table.sh` gained behavioural assertions that
+  drive the real merge, and it fails against the pre-fix source naming the
+  unrouted roles.
+
+- **A malformed verification could abort a run that had already been approved.**
+  The verification log block reads the verdict through an alias
+  (`const v = verdict.verification`), which hid it from an enumeration grepping
+  for `verification?.criteria`. `?.` guards null but not type, so a `criteria`
+  that is a string reaches `.filter` and throws, and `blockers: 'none'` has a
+  truthy `.length` and throws on `.join`. A verdict whose word is `verified`
+  passes the verification gate by reference and lands here. The block now uses
+  the same `Array.isArray` guard as the gate itself, with null-safe entry
+  access, and `scripts/check-verdict-gates.sh` drives the real extracted block
+  against all three shapes.
+
+### Added
+
+- **`record_status` on the run result.** `record_misplaced: false` is satisfied
+  trivially by writing nothing, so a Recorder that died was indistinguishable
+  from one that succeeded — the run reported `approved: true` with no signal
+  that the review report and architecture doc were never written. The result
+  object now carries `record_status: 'ok' | 'failed' | 'skipped'`, and a failed
+  Record is surfaced in the multi-feature summary rather than only in the log
+  of a phase the operator may not scroll back to.
+
 ## [2.30.0] — 2026-08-24
 
 ### Fixed

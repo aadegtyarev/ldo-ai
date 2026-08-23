@@ -24,7 +24,7 @@ Budget: unlimited
 Task: add rate limiting to the API endpoints
 
 ▸ Plan
-  Complexity: medium  |  Security surface: elevated  |  Coder:sonnet  Reviewer:opus
+  Complexity: medium  |  Security surface: elevated  |  Coder:sonnet  Reviewer:opus  Fix-review:opus
     ⚠ New middleware reads a client-supplied X-Forwarded-For header — spoofable
   Plan: 3 step(s), 4 files mapped
     • Add a token-bucket limiter keyed on client IP
@@ -277,9 +277,9 @@ run ldo on "refactor the auth module", with haiku coding and opus reviewing
 ```json
 {
   "models": {
-    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus",  "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
-    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus",  "security": "opus", "researcher": "opus",   "recorder": "haiku" },
-    "complex": { "planner": "opus", "coder": "opus",   "reviewer": "fable", "security": "opus", "researcher": "opus",   "recorder": "haiku" }
+    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
+    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "opus",   "recorder": "haiku" },
+    "complex": { "planner": "opus", "coder": "opus",   "reviewer": "fable", "reviewerFix": "fable", "security": "opus", "researcher": "opus",   "recorder": "haiku" }
   },
   "maxFixLoops": 3,
   "blockingSeverities": ["critical", "major"],
@@ -306,6 +306,10 @@ Those are the defaults, in full — matching `ldo-config.example.json`, the copy
 `coder` and `reviewer` move between tiers — deliberate, not an oversight. `planner` is Opus everywhere because complexity is *its own output*: nothing can gate the Planner's model on a rating it hasn't produced yet, and its value — surfacing what the task didn't ask about, not just executing what it did — doesn't get cheaper just because the resulting plan turns out short. `reviewer` is Opus on `trivial`/`medium` and Fable on `complex` (falling back to Sonnet when Fable isn't on your route), because its entire premise is not sharing the Coder's blind spot and a cheap model doesn't reliably know when to stop and ask instead of writing confident, made-up prose about work it didn't verify — exactly the failure mode a cheap Reviewer is worst-positioned to catch. Complex work has the most surface to miss, so it gets the strongest reviewer; Sonnet is the floor, because a weaker review still catches things and no review doesn't. `coder` is where the tier does real work — haiku/sonnet/opus — because executing a plan's *width* (not the underlying code's difficulty) is what actually scales with `trivial`/`medium`/`complex`.
 
 Security is Opus at every tier. When the Planner has decided a change can be attacked, that's not where to save money.
+
+`reviewerFix` routes review rounds 2 and later — the fix passes. It ships set to the same model as `reviewer` in every tier, so out of the box nothing about today's behaviour changes. The case for lowering it is genuine: round 1 is an open-ended search for defects nobody has named, while a fix pass is bounded verification of a list the previous round already wrote down, and that is the easier job. The case against it is also genuine, and measured: in one run, round 4 found a real new `major` that rounds 1-3 had missed. So the saving is a trade rather than free, and LDO doesn't take it on your behalf — setting `reviewerFix` is how *you* buy cheaper fix rounds knowing what they can cost. It falls back the same way `reviewer` does (Fable to Sonnet), and the post-plan log line names both models so you can see an override took effect.
+
+An override is merged per **role**, not per tier: `{"models": {"medium": {"coder": "haiku"}}}` changes the medium Coder and leaves the other six medium roles at their defaults. A tier name, role name or model value LDO doesn't recognise is warned about in the run log and ignored — an unusable model name is never forwarded to the harness, where it would fail with your typo nowhere in sight.
 
 Model names mean whatever your setup routes them to; the pipeline assumes nothing about which is stronger. Agent files declare no model of their own, so this is the only thing that decides routing.
 
@@ -470,7 +474,7 @@ The protocol is deliberately small. Before proposing a new agent, apply the test
 
 Each agent's output schema is sent to the harness as a tool definition and passes a safety classifier before the agent runs. A schema past that classifier's ceiling is rejected in milliseconds with `output schema too large to classify safely` — no tokens spent, nothing logged to debug, and `node --check` still green. `PLAN_SCHEMA` crossed it once already, gradually, across three releases. After touching any schema in `workflows/ldo.js`, run `scripts/check-schema-size.sh`; when it fails, move the description prose into the agent's markdown, where the model still reads it and it costs nothing here.
 
-The model-routing table is duplicated in four places (`workflows/ldo.js`, `ldo-config.example.json`, `README.md`, `skills/ldo-config/SKILL.md`) — deliberately, but that's exactly the shape that drifts silently. After touching `DEFAULT_MODELS` or any of its copies, run `scripts/check-model-table.sh` — it parses all four against `workflows/ldo.js` as the source of truth and fails loudly on any mismatch, rather than waiting for the next `/ldo-docs-audit` to catch it after the fact.
+The model-routing table is duplicated in four places (`workflows/ldo.js`, `ldo-config.example.json`, `README.md`, `skills/ldo-config/SKILL.md`) — deliberately, but that's exactly the shape that drifts silently. After touching `DEFAULT_MODELS` or any of its copies, run `scripts/check-model-table.sh` — it parses all four against `workflows/ldo.js` as the source of truth and fails loudly on any mismatch, rather than waiting for the next `/ldo-docs-audit` to catch it after the fact. It also drives the real `mergeModelTable` out of the file and asserts what a *partial* `config.models` override actually routes, because four identical tables tell you nothing about that: a whole-row merge once left every role the operator didn't name with no model while this check still passed. Pass a second argument to point it at another copy (`git show HEAD:workflows/ldo.js > /tmp/pre.js`) and it prints that source's routing for the documented override instead of asserting against it.
 
 The review loop decides whether a run is reported as approved, and it once got that wrong while staying perfectly valid JavaScript: a blocker re-raised in different words got a different identity and was written off as unrelated, and no approval branch had ever read `verification.verdict`, so a run with every acceptance criterion failed came back approved on an empty diff. `scripts/check-verdict-gates.sh` proves both halves are closed — that a re-worded re-raise of the same blocker still blocks, and that a failed verification cannot be approved. It brace-extracts the real functions out of `workflows/ldo.js` and drives them against a committed fixture of that run's actual verdicts, including the negative controls: a genuinely unrelated finding is still downgraded, and a clean verified verdict is still approved. Run it after touching the review loop's issue identity or either approval branch. Pass a second argument to point it at another copy of the file (`git show HEAD:workflows/ldo.js > /tmp/pre.js`) to see it fail on a source that lacks the gates.
 
