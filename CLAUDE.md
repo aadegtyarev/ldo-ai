@@ -82,5 +82,7 @@ the list. Offer; don't run either unasked.
 - the verification log block guards its aliased reads; a malformed criteria no longer aborts an already-approved run
 - record_status distinguishes a Recorder that failed from one that wrote nothing by design
 - recorder routed off haiku: every haiku sub-agent died on a thinking/context_management 400, so artifacts were never written
+- test runs are scoped to touched files by default; a run that skipped the full suite says so
+- fullSuiteAt 'ship'/'never' tells the agents not to run the suite, instead of only labelling the result
 <!-- /ldo:features -->
 <!-- END ldo -->

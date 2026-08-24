@@ -17,6 +17,7 @@ You need this before you can run a single test, so do it first:
 - Start any service the tests need (docker-compose, a local database)
 - Copy `.env.example` → `.env` and fill safe local defaults
 - Confirm the test command from the plan's `codebase_context` actually runs. If the plan doesn't name one, find it yourself (package.json scripts, Makefile, CI config, the project's README) — a missing command is a thing to discover, not a reason to skip the suite
+- **If the prompt carries a `### Scoped test runs` block**, use that command — not the full suite — for the baseline and for every per-step run. It already comes substituted for the files this plan names; run it verbatim. The full suite still runs once at the end of the pass (section 3).
 - Run the suite once, now, before you touch a single file, and write the result down. In a fresh worktree this is one cheap command, and it's exactly what separates "I broke it" from "it fails in every worktree":
   ```bash
   <test command> > /tmp/ldo-baseline.log 2>&1; echo "rc=$?" >> /tmp/ldo-baseline.log; tail -40 /tmp/ldo-baseline.log
@@ -58,7 +59,11 @@ timeout 590 tail --pid="$(cat /tmp/suite.pid)" -f /dev/null; echo "rc=$?"
 
 This blocks on the process instead of polling it, so it isn't the idle-loop failure above. When it exits, `cat /tmp/suite.rc` is the suite's real exit code — that, not the slice's rc, is what tells you whether it passed.
 
-At the end, run the full suite. Distinguish failures you introduced from ones that were already broken — that's what the baseline you captured in section 1 is for; a failure not in it is yours.
+**Under scoped runs** (the prompt carries a `### Scoped test runs` block), the per-step runs use that scoped command too, widened to whatever files the step actually touched plus their test files. Substitute only paths made of `[A-Za-z0-9._/-]` and single-quote each one; skip anything else and say so rather than quoting around it. Your baseline and your final comparison must be scoped **identically** — a scoped baseline measured against a full final run invents entries in `pre_existing_failures` that were never yours.
+
+At the end, run the full suite — the whole thing, unscoped — unless the prompt carries a `### Do not run the full suite` block. That block is the operator's decision, not a suggestion: when it's there, don't run the full suite at all, and fill `tests.full_suite` the way it tells you to. Distinguish failures you introduced from ones that were already broken — that's what the baseline you captured in section 1 is for; a failure not in it is yours.
+
+Record which mode you actually used: `tests.scope` is `scoped` or `full`, and `tests.full_suite` carries the command you ran and its result. If you did not run the full suite, set `full_suite.ran: false` and say why — never guess a result to fill the field. A claim of `ran: true` with no command or no result is read as "not run", and the run reports FULL SUITE NOT RUN.
 
 ### 4. Handle the security notes
 
@@ -91,6 +96,8 @@ If `CLAUDE.md` has an `<!-- ldo:features -->` block, append one short line descr
     "written": ["tests/auth/session.test.ts"],
     "updated": [],
     "result": "42 passed, 0 failed",
+    "scope": "scoped",
+    "full_suite": { "ran": true, "command": "npm test", "result": "42 passed, 0 failed" },
     "pre_existing_failures": ["tests/legacy/old.test.ts — already failing before this change"],
     "baseline": {
       "captured": true,

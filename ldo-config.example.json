@@ -43,6 +43,12 @@
     "preferSplit": true
   },
 
+  "_tests_note": "A single run used to execute the full test suite 5-8 times: the Coder's baseline, its per-step runs and its end-of-pass run, the Reviewer's own run, and the two runs the revert-and-rerun proof needs to watch one test flip — all repeated on every fix round. scope 'scoped' (the default) narrows the intermediate runs to the files actually touched, using the test_command_scoped template the Planner supplies; scope 'full' restores the old behaviour exactly. What scoped runs cannot catch is a regression in a module this change never touched — that is what the one full run is for, and why the default pairs scoped with fullSuiteAt 'final-pass'. Scoping only happens when the Planner supplied a template that survives validation (one {paths} placeholder, no shell metacharacters, a recognised runner); anything else, and every resumed plan, falls back to the full suite unchanged. fullSuiteAt 'never' means the full suite runs NOWHERE in the pipeline and you own that gate: on 'never' and 'ship' the Coder and the Reviewer are each handed an explicit do-not-run block on every pass, so the setting removes the run rather than labelling the result afterwards. It only applies under scope 'scoped' — with scope 'full' the baseline and every per-step run are already the whole suite, so there is nothing to defer, and the setting is neutralised with a log line instead of reporting 'disabled' for a run that tested everything. Whatever the setting, the run's result carries full_suite_status (ran | not_run | disabled | deferred_to_ship), and any value but 'ran' appends a FULL SUITE NOT RUN line to the verdict summary — it annotates, it never blocks, so read it before treating approved: true as a merge signal.",
+  "tests": {
+    "scope": "scoped",
+    "fullSuiteAt": "final-pass"
+  },
+
   "_stallMs_note": "Claude Code's stall watchdog counts only tool calls as progress, so an agent composing a large structured output (a long plan, a full verdict) looks identical to a hung one until it's already aborted. Keyed by role, not tier, because output size tracks the schema the role fills, not task complexity. recorder sits at the 180000 harness default on purpose — it writes through tools, so tool_use events keep resetting its clock naturally. Values are MILLISECONDS with a floor of 1000: a seconds/ms mix-up like 480 would abort the role instantly six times in a row, so it's rejected with a warning rather than passed through.",
   "stallMs": {
     "planner": 480000,

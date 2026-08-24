@@ -92,6 +92,12 @@ So before writing a step that leaves a real choice open — which of several app
 
 Ordered steps, each concrete enough to execute. Acceptance criteria must be checkable by running something: "returns 429 after 100 requests in a minute", not "rate limiting works".
 
+**Derive `test_command_scoped` when the runner supports it.** A single run executes the test suite five to eight times — the Coder's baseline, its per-step runs, the Reviewer's own run, the revert-and-rerun proof — and on a slow suite that dominates the run. `test_command_scoped` is the same runner narrowed to a file list: exactly one `{paths}` placeholder, which the orchestrator replaces with the specific files being tested. `npx jest {paths}`, `pytest {paths}`, `go test {paths}`, `cargo test -p {paths}`.
+
+The orchestrator validates it and silently falls back to the full suite if it doesn't hold up, so write one that will pass: exactly one `{paths}`; no shell metacharacters at all — no pipes, redirects, `&&`, `;`, quotes, backticks or `$(...)`; under 200 characters; and the first word must be a common test runner (`npm`, `npx`, `yarn`, `pnpm`, `pytest`, `python`, `go`, `cargo`, `mvn`, `gradle`, `dotnet`, `rspec`, `bundle`, `phpunit`, `jest`, `vitest`, `ctest`, `make`, `tox`, `deno`, `bun`, `node`) or the same first word as your `test_command`. Scoping narrows a command the run was going to invoke; it never introduces a different one.
+
+Set it to null when the project's runner can't select a subset, or when you can't determine the exact form with confidence. A wrong template runs zero tests and reports green, which is strictly worse than running everything. A null or rejected value just means the full suite is used, exactly as before.
+
 ### 4.5. Declare any migrations
 
 If any step creates a database migration — or any other file whose name carries a globally ordered number — fill the `migrations` field: the exact count you intend to create, the real verified directory path, and the exact identifiers.
@@ -131,6 +137,7 @@ If the prompt doesn't mention a worktree, ignore this section entirely — you'r
       {"path": "src/auth/session.ts", "role": "primary | dependent | test | config", "note": "What it does / why it matters here"}
     ],
     "test_command": "How to run the tests, e.g. npm test",
+    "test_command_scoped": "Same runner, scoped to a file list, e.g. npx jest {paths} (null if the runner can't select a subset)",
     "run_command": "How to start the app, e.g. npm run dev (null if not a runnable app)"
   },
   "steps": [

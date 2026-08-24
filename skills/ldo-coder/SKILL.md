@@ -14,7 +14,7 @@ Invoke the coder to implement a plan.
 The coder will:
 1. Get the environment running — install deps, start services, fill `.env`
 2. Work through the plan step by step, writing tests alongside the code
-3. Run tests as it goes, and the full suite at the end
+3. Run tests as it goes — scoped to the files it touched when the run is configured that way — and the full suite at the end of the pass
 4. Implement any security mitigations as hard requirements
 5. Update README / CHANGELOG for user-facing changes
 6. Never swallow an error silently — the caller must be able to tell what happened

@@ -87,6 +87,8 @@ Show the PR title and body. Create on confirm.
 **Auto-merge mode:** two gates, local first.
 
 1. **Local tests.** Run the project's test command (from the plan's `codebase_context`, or detect: `npm test`, `pytest`, `go test ./...`, `cargo test`). If red: stop, show what failed, leave the PR open. This is the fast, free gate — no CI minutes, results in seconds.
+
+   **Run the FULL suite here, unscoped, whenever the run's `full_suite_status` is anything other than `ran`.** Under `tests.scope: "scoped"` the pipeline tests only the files each pass touched, so an `approved: true` from a run whose status is `not_run`, `disabled` or `deferred_to_ship` is not on its own an auto-merge signal — nothing has yet exercised a module this change didn't touch. `fullSuiteAt: "ship"` names this step specifically: it is where that deferred run happens, and skipping it makes the setting mean "never" while claiming otherwise. If the full suite can't be run here, say so and merge only on explicit operator instruction.
 2. **CI (if configured).** If `.github/workflows/` exists or the PR shows checks, wait — `gh pr checks --watch` or poll every 30s. Green: proceed. Red: stop, report which checks failed.
 
 Both gates green (or no CI configured and local tests passed): `gh pr merge --squash --delete-branch`. If no test command is detectable AND no CI: warn that there's no gate, and merge only if the operator explicitly said to. Don't merge blind on auto without at least one signal.

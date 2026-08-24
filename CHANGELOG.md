@@ -5,6 +5,70 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.32.0] — 2026-08-24
+
+### Changed
+
+- **Test runs are scoped by default, cutting a run's 5-8 full-suite executions
+  to one.** A single run used to execute the whole suite over and over: the
+  Coder's baseline, its per-step runs and its end-of-pass run, the Reviewer's
+  own run, and the two runs the revert-and-rerun proof needs to watch one test
+  flip red→green — all repeated on every fix round, up to three. On a suite that
+  takes tens of minutes, that dominated the run. The Planner now emits an
+  optional `codebase_context.test_command_scoped` — the same runner narrowed to
+  a file list via a single `{paths}` placeholder, e.g. `pytest {paths}` — and
+  the orchestrator substitutes the specific files itself, handing the Coder and
+  the Reviewer a command already built rather than asking an agent to assemble a
+  shell line. The default is `tests.scope: "scoped"`: this is a behaviour change
+  for every existing project on upgrade, and it is deliberate, because a saving
+  nobody hears about reaches nobody. Set `tests.scope: "full"` to restore the
+  previous behaviour exactly. It is only safe as a default because two things
+  hold alongside it — the full suite still runs once per Coder pass
+  (`tests.fullSuiteAt: "final-pass"`), and a run that never ran it now says so.
+  Projects whose runner cannot select a subset, and every resumed plan, fall
+  back to the full suite unchanged.
+
+### Added
+
+- **A run that never executed the full suite reports that fact instead of a bare
+  `approved: true`.** The result now carries `full_suite_status` beside
+  `approved`: `ran`, `not_run`, `disabled` or `deferred_to_ship`. An enum rather
+  than a boolean for the same reason `record_status` is one — `full_suite:
+  false` is satisfied identically by a crashed Coder, by a deliberate
+  `fullSuiteAt: "never"` and by a run deferring to ship, and those are three
+  different facts. Anything but `ran` appends a `FULL SUITE NOT RUN` line to the
+  verdict summary and prints one in the run log and the multi-feature summary.
+  It annotates and never blocks. `fullSuiteAt: "ship"` and `"never"` remove the
+  run rather than only labelling the result: on either, the Coder and the
+  Reviewer are each handed an explicit *do not run the full suite* block on
+  every pass — including fix passes, where running the whole suite costs exactly
+  what the setting exists to avoid — with the Reviewer told to mark a criterion
+  it can no longer prove as `skipped` (reported NOT PROVEN) rather than passing
+  it. Both settings apply only under `scope: "scoped"`; with `scope: "full"` the
+  baseline and every per-step run are already the whole suite, so the setting is
+  neutralised with a log line instead of reporting `disabled` for a run that in
+  fact tested everything. The status is derived, not taken on trust: a
+  Coder reporting `full_suite.ran: true` with no command and no result is
+  recorded as not run, the same way `markUnproven` derives skipped criteria from
+  the structured list rather than asking. `/ldo-ship`'s auto-merge path now runs
+  the full suite itself whenever the status isn't `ran`, so the deferral has
+  somewhere to land.
+- **`config.tests`** — `scope` (`scoped`|`full`) and `fullSuiteAt`
+  (`final-pass`|`ship`|`never`). Invalid values keep the default with a warning,
+  and an unrecognised key under `tests` is warned about rather than silently
+  dropped, matching the `planner` and `stallMs` merges.
+- **`scripts/check-scoped-tests.sh`** — the fourth gate over LDO's own source.
+  `test_command_scoped` is model-authored text that two agents put into a Bash
+  line, so it is validated once in `phasePlan` and deleted when it fails: one
+  `{paths}`, no shell metacharacter, under 200 characters, and an `argv[0]` that
+  is either a known test runner or the first token of the `test_command` this
+  run already derived — scoping may narrow a command the pipeline was going to
+  invoke, never introduce a new one. Every path substituted into a scoped
+  command is filtered in code, including the Coder-reported test filenames the
+  Reviewer's revert proof uses, rather than by a prose rule addressed to the
+  same kind of component that produced the string. The gate drives all of it
+  out of `workflows/ldo.js` and names each injection shape as its own assertion.
+
 ## [2.31.1] — 2026-08-24
 
 ### Fixed
