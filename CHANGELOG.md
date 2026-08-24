@@ -5,6 +5,26 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.31.1] — 2026-08-24
+
+### Fixed
+
+- **The Recorder is routed off Haiku, so an approved run's artifacts actually
+  get written.** Every Haiku sub-agent this project has run died on `400
+  clear_thinking_20251015 strategy requires thinking to be enabled` — 6 of 6,
+  against 0 of 47 agents on every other model — and the Recorder was the only
+  role routed to Haiku, so the review report, architecture doc and backlog were
+  silently never written. Measured before changing anything: the failure is
+  always the *second* request, the first one carrying a prior thinking block
+  back in its history, and the Recorder's input is ~25k of a 200k window, so
+  neither the prompt nor its size is the cause. This is a workaround for a
+  mismatch between the `context_management` strategy and `thinking` on a Haiku
+  sub-agent request, reported upstream as issue #4; if that is fixed, `haiku` is
+  the right value for this role again. `recorder` is now `sonnet` in all three
+  tiers, in `DEFAULT_MODELS` and all three documentation copies, and the
+  hardcoded fallback beside the `runAgent` call no longer contradicts the table
+  it backstops.
+
 ## [2.31.0] — 2026-08-24
 
 ### Changed

@@ -11,7 +11,7 @@
       "reviewerFix": "opus",
       "security": "opus",
       "researcher": "sonnet",
-      "recorder": "haiku"
+      "recorder": "sonnet"
     },
     "medium": {
       "planner": "opus",
@@ -20,7 +20,7 @@
       "reviewerFix": "opus",
       "security": "opus",
       "researcher": "opus",
-      "recorder": "haiku"
+      "recorder": "sonnet"
     },
     "complex": {
       "planner": "opus",
@@ -29,7 +29,7 @@
       "reviewerFix": "fable",
       "security": "opus",
       "researcher": "opus",
-      "recorder": "haiku"
+      "recorder": "sonnet"
     }
   },
 
@@ -43,7 +43,7 @@
     "preferSplit": true
   },
 
-  "_stallMs_note": "Claude Code's stall watchdog counts only tool calls as progress, so an agent composing a large structured output (a long plan, a full verdict) looks identical to a hung one until it's already aborted. Keyed by role, not tier, because output size tracks the schema the role fills, not task complexity. recorder sits at the 180000 harness default on purpose — it runs on haiku and writes through tools, so tool_use events keep resetting its clock naturally. Values are MILLISECONDS with a floor of 1000: a seconds/ms mix-up like 480 would abort the role instantly six times in a row, so it's rejected with a warning rather than passed through.",
+  "_stallMs_note": "Claude Code's stall watchdog counts only tool calls as progress, so an agent composing a large structured output (a long plan, a full verdict) looks identical to a hung one until it's already aborted. Keyed by role, not tier, because output size tracks the schema the role fills, not task complexity. recorder sits at the 180000 harness default on purpose — it writes through tools, so tool_use events keep resetting its clock naturally. Values are MILLISECONDS with a floor of 1000: a seconds/ms mix-up like 480 would abort the role instantly six times in a row, so it's rejected with a warning rather than passed through.",
   "stallMs": {
     "planner": 480000,
     "reviewer": 480000,

@@ -678,15 +678,24 @@ function renderSplitPaste(sizing) {
 // bounded verification of a named list — but round 4 of a measured run found a
 // genuine new major that the earlier rounds missed. It's a lever the operator
 // pulls knowing that, not a saving taken on their behalf.
+// recorder is deliberately NOT haiku, and that is a workaround rather than a
+// judgment about the role: every haiku sub-agent this project has run died on
+// `400 clear_thinking_20251015 strategy requires thinking to be enabled` — 6 of
+// 6, against 0 of 47 on every other model, always on the second request, the
+// first one carrying a prior thinking block back in its history. Nothing about
+// the Recorder's prompt causes it (its input is ~25k of a 200k window), so
+// trimming or splitting the input would not have helped. See issue #4. If that
+// mismatch is fixed upstream, this can go back to haiku — the work really is
+// formatting, not judgment.
 const DEFAULT_MODELS = {
-  trivial: { planner: 'opus', coder: 'haiku',  reviewer: 'opus',  reviewerFix: 'opus',  security: 'opus', researcher: 'sonnet', recorder: 'haiku' },
-  medium:  { planner: 'opus', coder: 'sonnet', reviewer: 'opus',  reviewerFix: 'opus',  security: 'opus', researcher: 'opus',   recorder: 'haiku' },
-  complex: { planner: 'opus', coder: 'opus',   reviewer: 'fable', reviewerFix: 'fable', security: 'opus', researcher: 'opus',   recorder: 'haiku' },
+  trivial: { planner: 'opus', coder: 'haiku',  reviewer: 'opus',  reviewerFix: 'opus',  security: 'opus', researcher: 'sonnet', recorder: 'sonnet' },
+  medium:  { planner: 'opus', coder: 'sonnet', reviewer: 'opus',  reviewerFix: 'opus',  security: 'opus', researcher: 'opus',   recorder: 'sonnet' },
+  complex: { planner: 'opus', coder: 'opus',   reviewer: 'fable', reviewerFix: 'fable', security: 'opus', researcher: 'opus',   recorder: 'sonnet' },
 }
 
 // Merges per ROLE, not per tier: an operator overriding one role must not
 // silently unset the rest of that row. A tier-level spread leaves every role
-// they didn't name undefined, and only the recorder has a `|| 'haiku'` fallback
+// they didn't name undefined, and only the recorder has a hardcoded fallback
 // to catch it — the others reach the harness with no model at all.
 // Pure on purpose: it returns warnings instead of logging them, so
 // scripts/check-model-table.sh can brace-extract it and drive the real merge
@@ -1806,7 +1815,7 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
   const recordResult = await runAgent(recordPrompt, {
     label: ctx.isMulti ? `${ctx.label}:recorder` : 'recorder',
     phase: 'Record',
-    model: models.recorder || 'haiku',
+    model: models.recorder || 'sonnet',
     agentType: 'ldo:recorder',
     schema: RECORD_SCHEMA,
     stallMs: STALL_MS.recorder,

@@ -30,9 +30,9 @@ The protocol exists so different roles can run on different models. `planner` is
 ```json
 {
   "models": {
-    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "sonnet", "recorder": "haiku" },
-    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "opus",   "recorder": "haiku" },
-    "complex": { "planner": "opus", "coder": "opus",   "reviewer": "fable", "reviewerFix": "fable", "security": "opus", "researcher": "opus",   "recorder": "haiku" }
+    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "sonnet", "recorder": "sonnet" },
+    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "opus",   "recorder": "sonnet" },
+    "complex": { "planner": "opus", "coder": "opus",   "reviewer": "fable", "reviewerFix": "fable", "security": "opus", "researcher": "opus",   "recorder": "sonnet" }
   }
 }
 ```
@@ -46,6 +46,8 @@ The protocol exists so different roles can run on different models. `planner` is
 `coder` scales with the tier — `haiku`/`sonnet`/`opus` — because its job is executing a plan, not making priority calls, and that width (not code difficulty) is what the tier is really measuring for it. If a task looks like it wants a stronger Coder, the better first move is usually narrowing the plan's scope rather than reaching for a stronger model: a narrow task is cheaper to review and fails visibly — done or not — where a wide one gives a cheap model room to make calls it shouldn't and describe the result confidently.
 
 An override is merged per **role**, not per tier — `{models: {medium: {coder: "haiku"}}}` changes the medium Coder and leaves every other medium role at its default. A tier name, role name, or model value LDO doesn't recognise is warned about in the run log and ignored rather than forwarded: an unusable model name reaching the harness fails with your typo nowhere in the output.
+
+**`recorder` is `sonnet` as a workaround, not as a judgment about the role.** Formatting and filing is exactly the shape of work Haiku is right for, and it was routed there until every Haiku sub-agent this project ran failed with `400 clear_thinking_20251015 strategy requires thinking to be enabled` — 6 of 6, against 0 of 47 agents on other models, always on the second request. Nothing about the prompt causes it; the Recorder's input is around 25k of a 200k window. If that's fixed upstream, `haiku` is the right value again — see issue #4.
 
 These apply when nothing is passed. The source of truth is `DEFAULT_MODELS` in `workflows/ldo.js` — this table and `ldo-config.example.json` both describe it; if either ever looks stale, that's the one to check against. Model names mean whatever your setup routes them to — the pipeline assumes nothing about which is stronger.
 
@@ -66,7 +68,7 @@ Three are conditional:
 |------|-----------|--------------|
 | **researcher** | `research: true`, or `researchByDefault` — task needs knowledge from outside the repo | Opus at medium/complex — cross-verifying sources is worth it |
 | **security** | The Planner rates `security_surface: "elevated"` — new input, auth, secrets, injection, dependency, or crypto surface. Force with `security: true/false` or `securityByDefault` | Opus at every tier — a missed vulnerability costs more than a strong model does |
-| **recorder** | Approved, and `complexity != "trivial"` — persists the review report, architecture doc, and backlog so they survive past the session. In a parallel or `isolate: true` run it writes backlog items to `docs/backlog/<label>.md` instead of the shared `docs/BACKLOG.md`, so sibling features never race over the same section numbers | Haiku at every tier — it formats and files, it doesn't judge |
+| **recorder** | Approved, and `complexity != "trivial"` — persists the review report, architecture doc, and backlog so they survive past the session. In a parallel or `isolate: true` run it writes backlog items to `docs/backlog/<label>.md` instead of the shared `docs/BACKLOG.md`, so sibling features never race over the same section numbers | Sonnet at every tier. The work is formatting and filing, not judgment, so Haiku is the right size — but every Haiku sub-agent this project has run died on `400 clear_thinking_20251015 strategy requires thinking to be enabled` (6 of 6, against 0 of 47 on other models), so the Recorder is routed off it as a workaround. See issue #4 |
 
 Starting a project from scratch isn't part of the pipeline — `/ldo-bootstrap` handles that as a conversation, then hands the first task to `/ldo:ldo`.
 

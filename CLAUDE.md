@@ -81,5 +81,6 @@ the list. Offer; don't run either unasked.
 - reviewer reports a repeated defect as a class with an enumeration command; coder closes the class, not the listed lines
 - the verification log block guards its aliased reads; a malformed criteria no longer aborts an already-approved run
 - record_status distinguishes a Recorder that failed from one that wrote nothing by design
+- recorder routed off haiku: every haiku sub-agent died on a thinking/context_management 400, so artifacts were never written
 <!-- /ldo:features -->
 <!-- END ldo -->
