@@ -127,6 +127,21 @@ const CODER_SCHEMA = {
   type: 'object',
   properties: {
     files_changed: { type: 'array', items: { type: 'string' } },
+    issue_outcomes: {
+      type: 'array',
+      maxItems: 30,
+      description: 'Fix passes only: one entry per issue you were sent',
+      items: {
+        type: 'object',
+        properties: {
+          file: { type: 'string' },
+          issue: { type: 'string', description: "The Reviewer's `what` text, verbatim" },
+          outcome: { type: 'string', enum: ['fixed', 'not_fixed', 'blocked'] },
+          detail: { type: 'string', description: 'Why, when it is not fixed' },
+        },
+        required: ['file', 'issue', 'outcome'],
+      },
+    },
     summary: { type: 'string' },
     tests: {
       type: 'object',
@@ -195,7 +210,7 @@ const VERDICT_SCHEMA = {
           file: { type: 'string' },
           severity: { type: 'string', enum: ['critical', 'major', 'minor', 'nit'] },
           what: { type: 'string' },
-          suggestion: { type: 'string' },
+          suggestion: { type: 'string', description: 'A hypothesis the Coder verifies against the code, not a step to apply — say what you actually checked' },
           introduced_by_fix: { type: 'boolean', description: 'True only when this defect is a consequence of the fix just made — code the Coder wrote or changed in this pass. Leave it off for anything pre-existing.' },
         },
         required: ['file', 'severity', 'what', 'suggestion'],
@@ -1081,6 +1096,57 @@ function markFullSuite(verdict, status) {
   }
 }
 
+// A fresh worktree brings nothing gitignored with it — no .venv, no
+// node_modules, no .env — so a Coder rebuilds the environment from whatever
+// install command it can find, and the most obvious command is often not the
+// project's real one (`pip install -e .` where the suite needs `.[dev,test]`).
+// The run then reports approved:false on code that was correct, with nothing in
+// the result saying the environment was the variable rather than the diff.
+//
+// Three states rather than a boolean, for the record_status reason: `false`
+// is satisfied identically by "the environment was fine" and by "we never
+// found out", and a failure indistinguishable from success in the result
+// object gets read as success.
+//
+// This is the one thing here derived from what the Coder says about itself
+// rather than from a fact the orchestrator holds — a Coder could fabricate
+// `env.unresolved` to excuse a rejection, or omit it to hide one. That is
+// precisely why it may only ever annotate: it is applied to a run that was
+// already NOT approved, and it never touches `status`.
+function deriveEnvStatus(coderResult) {
+  const unresolved = (Array.isArray(coderResult?.env?.unresolved) ? coderResult.env.unresolved : [])
+    .map(u => collapseLines(u))
+    .filter(Boolean)
+  const baseline = coderResult?.tests?.baseline
+  const captured = baseline?.captured === true
+  const failing = Array.isArray(baseline?.failing) ? baseline.failing : []
+  const preExisting = Array.isArray(coderResult?.tests?.pre_existing_failures) ? coderResult.tests.pre_existing_failures : []
+  // "Everything that was broken before is still broken" plus an unresolved
+  // environment is the signature of a suite that never had what it needed,
+  // rather than of a change that broke something.
+  const nothingImproved = captured && failing.length > 0 && preExisting.length >= failing.length
+  const status = unresolved.length && (!captured || nothingImproved)
+    ? 'unreproducible'
+    : captured ? 'ok' : 'unknown'
+
+  const why = captured
+    ? `every failure that predated the first edit still fails (${preExisting.length} of ${failing.length})`
+    : `no test baseline could be captured (${collapseLines(baseline?.note) || 'no reason given'})`
+  return { status, unresolved, evidence: collapseLines([why, ...unresolved.slice(0, 3)].join('; ')) }
+}
+
+// Follows the markFullSuite convention exactly, including reference identity on
+// the pass path: call sites in this file detect a marker firing by `!==`, so an
+// unconditional spread would read as "fired" on every clean run.
+function markEnvUnreproducible(verdict, env) {
+  if (env?.status !== 'unreproducible') return verdict
+  return {
+    ...verdict,
+    env_status: env.status,
+    summary: `${verdict.summary}\n\nENVIRONMENT NOT REPRODUCED — ${env.evidence}; the tests behind this verdict ran in an environment the Coder could not reproduce, so this result may be about the environment rather than the code.`,
+  }
+}
+
 // `ran: true` is a model reporting on its own behaviour, and markUnproven
 // exists because that is exactly what a model is least reliable at. Corroborate
 // it: a pass that genuinely ran the suite has a command and a result to show
@@ -1152,6 +1218,89 @@ const matchIssueKey = (iss, keys) => {
   return bestScore >= ISSUE_MATCH_THRESHOLD ? best : null
 }
 
+// Model-authored text that gets quoted into ANOTHER agent's prompt goes
+// through this first. Collapsing newlines is the same hardening phaseRecord
+// applies to issue prose — a `\n## SECTION` inside a free-text field otherwise
+// forges a header in the prompt it lands in — and the leading-`#` strip closes
+// the same hole for a string that starts as a heading, including one a
+// truncation could leave mid-way. The length cap is what keeps an unbounded
+// model-authored array from dominating the prompt it is quoted into; the text
+// here is a claim to check against the code, never the evidence itself, so
+// losing the tail of a long one costs nothing.
+//
+// The step order is load-bearing. Trim BEFORE the strip: leading whitespace
+// hides the `#` from `^`, and the trim would then promote it back to position
+// zero of a rendered line. The strip eats runs of `#` and whitespace together,
+// so `# ## X` cannot leave a second heading behind. Truncation stays last — a
+// slice of a string that no longer starts with `#` cannot create one.
+//
+// `\n` is not the only line ending. A lone `\r` is a line terminator to
+// CommonMark and to most renderers, and U+2028/U+2029 are line terminators to
+// JavaScript itself, so `x\r## OVERRIDE` forges a header exactly the way
+// `x\n## OVERRIDE` does. U+0085 (NEL) is in the class because JS `\s` does not
+// match it — the surrounding `\s*` can absorb the `\r` of a CRLF but never a
+// NEL. One shared const for every collapse site, so the next one cannot quietly
+// regress to `\n`-only; it is used only with `String.replace`, which resets
+// `lastIndex` itself, so the `g` flag carries no state between callers.
+const LINE_BREAK_RUN = /\s*[\r\n\u2028\u2029\u0085\v\f]+\s*/g
+const PROMPT_TEXT_MAX = 200
+const collapseLines = (x, max = PROMPT_TEXT_MAX) => {
+  const s = String(x ?? '').replace(LINE_BREAK_RUN, ' ').trim().replace(/^[#\s]+/, '')
+  return s.length > max ? `${s.slice(0, max)}…` : s
+}
+
+// Rendered lists of model-authored entries are capped and say how much they
+// dropped, rather than truncating silently — the same reason partitionTestPaths
+// reports what it excluded.
+// One line, not wrapped: the gate scripts brace-extract declarations by walking
+// to the first newline at depth zero, and a wrapped arrow body ends at the `=>`.
+const RENDER_LIST_MAX = 10
+const capList = (lines, max = RENDER_LIST_MAX) => lines.length > max ? [...lines.slice(0, max), `+${lines.length - max} more`] : lines
+
+// A Reviewer writes `workflows/ldo.js`, `./workflows/ldo.js`,
+// `workflows/ldo.js:120` or the linter/compiler form `workflows/ldo.js:120:5`;
+// a Coder inside a worktree reports the absolute path for the same file.
+// The trailing-line-reference strip is `(:\d+(-\d+)?)+$`, repeating, not a
+// single group: a once-only strip takes `:5` off `file.js:120:5` and leaves
+// `file.js:120`, which is exactly the silent non-match this comment warns about. Every one of those has to reduce to the same string, or
+// the attribution test below silently never matches and reinstates the exact
+// behaviour it exists to replace. `.` and `..` segments are resolved textually
+// (no fs access — the file may not exist on the reviewing machine, and a
+// realpath call would follow symlinks out of the worktree), repeated slashes
+// collapse, and a whitespace-only or purely relative value reduces to the
+// empty string so sameFilePath can reject it outright.
+const normalizeIssuePath = p => {
+  const raw = String(p ?? '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/(:\d+(-\d+)?)+$/, '')
+  const parts = []
+  for (const seg of raw.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') { parts.pop(); continue }
+    parts.push(seg)
+  }
+  return parts.join('/')
+}
+
+// Exact or path-suffix, never `includes()` — same reasoning as
+// verifyAgentLocation: a bare `ldo.js` must not match `workflows/ldo.js` by
+// shared text, and `src/a.js` must not match `vendor/src/a.js`. Both suffix
+// directions are tested because either side can be the longer form (an
+// absolute Coder path against a relative Reviewer one, or the reverse).
+// A degenerate operand is rejected rather than compared: `''`, `.`, `..`, `/`
+// and whitespace all normalize to the empty string, and `endsWith('/' + '')`
+// is true for every path — which would silently keep every finding blocking
+// on one side and match nothing on the other. This control fails OPEN by
+// construction (a non-match downgrades a live blocker), so the degenerate case
+// is the one that must not be guessed at.
+const sameFilePath = (a, b) => {
+  const x = normalizeIssuePath(a)
+  const y = normalizeIssuePath(b)
+  if (!x || !y) return false
+  return x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`)
+}
+
 // The first review is the full-scrutiny gate; a fix pass is narrow by
 // construction — it only asked the Coder to touch specific files, so a fresh
 // `major` the Reviewer didn't attribute to that work is a pre-existing defect,
@@ -1179,8 +1328,33 @@ const matchIssueKey = (iss, keys) => {
 // in the safe direction: an over-eager match keeps a finding blocking, the same
 // fail-safe this comment already commits to, while a missed match is what lets
 // a live blocker be reclassified as unrelated.
-function downgradeUnrelatedFindings(verdict, sentIssues, iteration) {
+//
+// Two escapes above and beyond `introduced_by_fix`, because that flag is the
+// model-authored one this comment already says cannot be relied on:
+//
+// `changedFiles` is the fix pass's own `files_changed` — a fact the Coder
+// reports about the edits it just made, attributable by construction rather
+// than by a judgement call about causation. A blocking finding in a file this
+// pass had its hands in stays blocking whether or not the Reviewer thought to
+// attribute it. Matching is fail-safe in the same direction as everything else
+// here: an over-eager path match keeps a finding blocking and costs a fix pass,
+// a missed one downgrades a live blocker.
+//
+// A `critical` is never downgradeable at all. The termination rationale above
+// is worth a `major` riding along as advisory in the report — it is not worth a
+// `critical` written off, which is precisely the wf_2b451aee false-approval
+// class: a live critical reclassified as unrelated and the run reported
+// approved on a zero-line diff. enforceMigrationGate and enforceVerificationGate
+// inject their findings AS `critical` for the same reason — that severity is
+// the one thing in this pipeline that must not be bypassable. The cost is a run
+// that can spend all three loops on a pre-existing critical the fix pass walked
+// past; MAX_FIX_LOOPS still terminates it, and the exhausted-run path already
+// reports closed-versus-still-open separately.
+function downgradeUnrelatedFindings(verdict, sentIssues, iteration, changedFiles = []) {
   const sentKeys = new Set(sentIssues.map(issueKey))
+  // Defaulted, not required: the existing three-argument call shape is what the
+  // gate script drives, and a first pass has no fix to attribute anything to.
+  const touched = (Array.isArray(changedFiles) ? changedFiles : []).map(normalizeIssuePath).filter(Boolean)
   const names = []
   const downgraded = new Map()
 
@@ -1189,14 +1363,15 @@ function downgradeUnrelatedFindings(verdict, sentIssues, iteration) {
     const isBlockingSeverity = BLOCKING_SEVERITIES.includes(iss.severity)
     const key = issueKey(iss)
     const wasSent = matchIssueKey(iss, sentKeys) !== null
+    const inTouchedFile = touched.some(f => sameFilePath(iss.file, f))
     // Strict === true, not truthy — a Reviewer that marks everything true
     // keeps the loop blocking (fail-safe), never bypasses it; a stray string
     // must not widen the check.
-    if (!isBlockingSeverity || wasSent || iss.introduced_by_fix === true) return iss
+    if (!isBlockingSeverity || wasSent || iss.introduced_by_fix === true || iss.severity === 'critical' || inTouchedFile) return iss
 
     names.push(`[${iss.severity}] ${iss.file}: ${iss.what}`)
     downgraded.set(key, iteration)
-    return { ...iss, advisory: true, downgrade_reason: `new in fix pass ${iteration}, not marked introduced_by_fix` }
+    return { ...iss, advisory: true, downgrade_reason: `new in fix pass ${iteration}, not marked introduced_by_fix, not critical, and not in a file this pass changed` }
   })
 
   if (!names.length) return { verdict: { ...verdict, issues }, downgraded }
@@ -1205,10 +1380,79 @@ function downgradeUnrelatedFindings(verdict, sentIssues, iteration) {
     verdict: {
       ...verdict,
       issues,
-      summary: `${verdict.summary}\n\nDOWNGRADED TO ADVISORY — ${names.length} issue(s) new in this fix pass, not on the verification list and not marked introduced_by_fix: ${names.join('; ')}`,
+      summary: `${verdict.summary}\n\nDOWNGRADED TO ADVISORY — ${names.length} issue(s) new in this fix pass, not on the verification list, not marked introduced_by_fix, not critical, and not in any file this fix pass changed: ${names.join('; ')}`,
     },
     downgraded,
   }
+}
+
+// A fix pass that fixed one of three issues and one that fixed all three used
+// to produce the identical result object: `files_changed` plus a summary, with
+// nothing tying an edit to the issue it answers. So every issue sent to a fix
+// pass now owes an entry, and the check lives here rather than in the
+// Reviewer's judgement for the same reason markUnproven does — the
+// orchestrator holds both sides (what it sent, what came back), and an
+// omission is what a model is least reliable at volunteering about itself.
+//
+// The 50-entry slice and the collapseLines cap are not cosmetic: `issue_outcomes`
+// is model-authored and matchIssueKey is a bigram similarity run for every sent
+// issue against every entry, so both the CPU cost and the size of the prompt
+// block built from it would otherwise scale with whatever the Coder emits.
+//
+// matchIssueKey runs INVERTED here relative to every other use of it. Elsewhere
+// a false match keeps a finding blocking (fail-safe); here a false match marks
+// an issue accounted for. That inversion is exactly why the result may only
+// ever produce a warning — see the call site in phaseCodeReview for why this
+// never gates a verdict.
+const MAX_ISSUE_OUTCOMES = 50
+
+function accountIssueOutcomes(sentIssues, coderResult) {
+  const raw = Array.isArray(coderResult?.issue_outcomes) ? coderResult.issue_outcomes : []
+  const entries = raw
+    .filter(e => e && typeof e === 'object')
+    .slice(0, MAX_ISSUE_OUTCOMES)
+    .map(e => ({
+      file: collapseLines(e.file),
+      issue: collapseLines(e.issue),
+      outcome: collapseLines(e.outcome, 20),
+      detail: collapseLines(e.detail),
+    }))
+  const keys = new Set(entries.map(e => issueKey({ file: e.file, what: e.issue })))
+  const sent = Array.isArray(sentIssues) ? sentIssues : []
+  return {
+    entries,
+    unaccounted: sent.filter(iss => matchIssueKey(iss, keys) === null),
+    notFixed: entries.filter(e => e.outcome !== 'fixed'),
+  }
+}
+
+// The header names what the block is. `fixed` is the Coder reporting on its own
+// work — the work the Reviewer is being asked to judge — so a Reviewer reading
+// it as "closed" would close a finding on the word of the agent under review.
+function renderAccounting(entries, unaccounted) {
+  if (!entries.length && !unaccounted.length) return ''
+  const section = (title, lines) => `${title}\n${lines.length ? capList(lines).join('\n') : 'none'}`
+  const fixed = entries.filter(e => e.outcome === 'fixed').map(e => `${e.file}: ${e.issue}`)
+  const open = entries.filter(e => e.outcome !== 'fixed').map(e => `[${e.outcome}] ${e.file}: ${e.issue}${e.detail ? ` — ${e.detail}` : ''}`)
+  const missing = unaccounted.map(iss => `${collapseLines(iss.file)}: ${collapseLines(iss.what)}`)
+  return `\n\n## THE CODER'S OWN ACCOUNTING (unverified claims by the Coder — verify each against the code; nothing here closes an issue)
+${section('Reported fixed:', fixed)}
+
+${section('Reported not fixed or blocked:', open)}
+
+${section('Sent to the fix pass but not accounted for at all:', missing)}`
+}
+
+// A fix pass sees only the issues it was sent, so it has no way of knowing that
+// the thing it is about to "simplify" is a defect an earlier pass in this same
+// run already closed — which is how a three-round loop can spend rounds two and
+// three undoing round one. resolvedIssues is the orchestrator's own record of
+// what stopped being re-raised, so the list is derived, not asked for.
+function renderResolved(resolvedIssues) {
+  const list = Array.isArray(resolvedIssues) ? resolvedIssues : []
+  if (!list.length) return ''
+  const lines = list.map(iss => `[${collapseLines(iss.severity, 20)}] ${collapseLines(iss.file)}: ${collapseLines(iss.what)} (closed in pass ${collapseLines(iss.resolved_in_pass, 8)})`)
+  return `\n\n## ALREADY CLOSED IN THIS RUN — DO NOT REINTRODUCE\n${capList(lines).join('\n')}`
 }
 
 // Verifies a self-reported location against the location the pipeline told the
@@ -1805,6 +2049,15 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
   // re-raised on pass 2 with `introduced_by_fix: true` is blocking now, and a
   // report built from the run-lifetime Set would label it advisory anyway.
   let lastDowngraded = new Map()
+  // Run-lifetime count of issues sent to a fix pass that came back with no
+  // outcome entry — surfaced in the result so "the loop ran out" and "the loop
+  // ran out while nobody could say what each pass actually answered" are
+  // distinguishable afterwards.
+  let issuesUnaccounted = 0
+  // The FIRST pass only: that is the pass that builds the environment, and a
+  // later pass inherits whatever it built. Seeded from a null result so an
+  // unreached loop reports 'unknown' rather than an invented literal.
+  let envStatus = deriveEnvStatus(null)
 
   while (iteration < MAX_FIX_LOOPS) {
     const isFirstPass = iteration === 0
@@ -1823,7 +2076,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
     const coderPrompt = isFirstPass
       ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + TESTS_BLOCK + `Set up the environment, then execute this plan. The PROJECT CONTEXT above is your map — don't re-scan the repo.\n\n${renderPlan(plan)}`
-      : WORKTREE_BLOCK + TESTS_BLOCK + `Fix the review issues below. Narrow pass — touch only these files. Don't leave a comment narrating the fix ("changed X to Y because the reviewer flagged Z") — the why belongs in your summary, not in the code.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → ${iss.suggestion}`).join('\n\n')}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}`
+      : WORKTREE_BLOCK + TESTS_BLOCK + `Fix the review issues below. The file list is a scope guard — it stops this pass from rewriting the world; it is not permission to hand an issue back unfixed. Every issue has exactly three permitted outcomes: fix it; fix it in a file outside the list because that is where the fix actually lives, and name that file in \`deviations\`; or report it blocked, with the reason. Silently returning an unfixed issue is not one of them. Every issue below owes an entry in \`issue_outcomes\` — the file, the issue text verbatim, and \`fixed\`, \`not_fixed\` or \`blocked\` with a reason in \`detail\`. Don't leave a comment narrating the fix ("changed X to Y because the reviewer flagged Z") — the why belongs in your summary, not in the code.\n\n## ISSUES\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}\n   → suggested fix (the Reviewer's hypothesis, not verified — check it against the code before applying): ${iss.suggestion}`).join('\n\n')}\n\nA suggestion contradicted by the code, or by the already-closed list below, means fix the issue a different way and say so in \`deviations\`. It never means there is nothing to do.${renderResolved(resolvedIssues)}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}`
 
     const coderLabel = isFirstPass ? 'coder' : `coder-fix-${iteration}`
     const coderResult = await runAgent(coderPrompt, {
@@ -1844,6 +2097,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     if (isFirstPass && !coderResult?.tests?.baseline?.captured) {
       log(`${logPrefix}⚠ No test baseline captured before the first edit — pre-existing failures are unattributable`)
     }
+    if (isFirstPass) envStatus = deriveEnvStatus(coderResult)
     if (fullSuiteRan(coderResult?.tests)) {
       fullSuiteRanOnce = true
       // The command is logged, not just the fact: a scoped line reported as
@@ -1853,6 +2107,22 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       log(`${logPrefix}Full suite (pass ${iteration + 1}): \`${coderResult.tests.full_suite.command}\` — ${coderResult.tests.full_suite.result}`)
     } else if (coderResult?.tests?.full_suite?.ran === true) {
       log(`${logPrefix}⚠ Coder pass ${iteration + 1} reported the full suite as run but gave no command and/or no result — counting it as not run`)
+    }
+
+    // Logged loudly and handed to the Reviewer, but deliberately NOT a gate. A
+    // Coder that fixed all three issues and forgot the JSON field would fail a
+    // run whose code was correct — the same failure direction deriveEnvStatus
+    // exists to stop — and an issue genuinely left unfixed keeps blocking on
+    // the next review's own merits, which is a stronger test than a self-report
+    // anyway. See accountIssueOutcomes for why its inverted fuzzy match makes
+    // "warning only" the only safe use of this.
+    let accountingBlock = ''
+    if (!isFirstPass) {
+      const { entries, unaccounted, notFixed } = accountIssueOutcomes(reviewIssues, coderResult)
+      issuesUnaccounted += unaccounted.length
+      unaccounted.forEach(iss => log(`${logPrefix}  ⚠ UNACCOUNTED [${iss.severity}] ${iss.file}: ${iss.what} — the fix pass returned no issue_outcomes entry for it`))
+      notFixed.forEach(e => log(`${logPrefix}  ⚠ REPORTED ${e.outcome || 'no outcome'} ${e.file}: ${e.issue}${e.detail ? ` — ${e.detail}` : ''}`))
+      accountingBlock = renderAccounting(entries, unaccounted)
     }
 
     logStage('Review')
@@ -1866,7 +2136,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
     const reviewerPrompt = isFirstPass
       ? WORKTREE_BLOCK + CTX + SECURITY_BLOCK + REVIEW_TESTS_BLOCK + `Review this implementation against the plan, drive the app to prove the acceptance criteria, then try to break it.\n\n${renderPlan(plan)}\n\n## CODER'S SUMMARY\n${renderCoderSummary(coderResult)}${scopedRevert.block}`
-      : WORKTREE_BLOCK + REVIEW_TESTS_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run every attack marked \`broke\` and every criterion marked \`failed\` or \`skipped\` in the block below; don't re-run the ones marked \`held\` or \`passed\` unless this fix plausibly touched them. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}${scopedRevert.block}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}${renderMigrations(plan)}${renderPriorVerification(lastVerdict, iteration)}`
+      : WORKTREE_BLOCK + REVIEW_TESTS_BLOCK + `Verify these fixes landed, and scan for new problems introduced by them. Re-run every attack marked \`broke\` and every criterion marked \`failed\` or \`skipped\` in the block below; don't re-run the ones marked \`held\` or \`passed\` unless this fix plausibly touched them. Check the new code for archaeology comments too — a line explaining what the fix changed and why is history, not a constraint; flag it the same as dead code.\n\n## ISSUES TO VERIFY\n${reviewIssues.map((iss, i) => `${i + 1}. [${iss.severity}] ${iss.file}: ${iss.what}`).join('\n')}\n\n## CODER'S FIX SUMMARY\n${renderCoderSummary(coderResult)}${scopedRevert.block}\n\n## PLAN (context)\n${renderPlanCompact(plan)}${renderConstraints(plan)}${renderMigrations(plan)}${renderPriorVerification(lastVerdict, iteration)}${accountingBlock}`
 
     const reviewerLabel = isFirstPass ? 'reviewer' : `reviewer-${iteration}`
     // `|| models.reviewer` is defensive, not load-bearing: mergeModelTable
@@ -1909,7 +2179,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     // would silently disable that gate.
     const { verdict: downgradedVerdict, downgraded: newlyDowngraded } = isFirstPass
       ? { verdict: rawVerdict, downgraded: new Map() }
-      : downgradeUnrelatedFindings(rawVerdict, reviewIssues, iteration)
+      : downgradeUnrelatedFindings(rawVerdict, reviewIssues, iteration, Array.isArray(coderResult?.files_changed) ? coderResult.files_changed : [])
     lastDowngraded = newlyDowngraded
     if (newlyDowngraded.size) {
       (downgradedVerdict.issues || [])
@@ -2060,7 +2330,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     logUnproven(finalVerdict, logPrefix)
   }
 
-  return { finalVerdict, iteration, downgraded: lastDowngraded, fullSuiteRan: fullSuiteRanOnce }
+  return { finalVerdict, iteration, downgraded: lastDowngraded, fullSuiteRan: fullSuiteRanOnce, issuesUnaccounted, envStatus }
 }
 
 // ── phaseRecord ────────────────────────────
@@ -2105,9 +2375,20 @@ async function phaseRecord(approved, plan, finalVerdict, securityReport, task, c
     ? `Persist this run's results to the repo. The fix loop was exhausted before the work was approved. Write the review report with full evidence, marked NOT APPROVED, and create backlog items for the issues still open. Skip the architecture-map step entirely — the change is not final and that map must not describe something that may never land.`
     : `Persist this run's results to the repo. Write the review report with full evidence, update the architecture doc, and create backlog items for anything unfixed.`
 
+  // One issue is always one line: model-authored text is newline-collapsed so
+  // it cannot forge a `## SECTION` header in the prompt below. No truncation —
+  // this is the evidence the report is built from, unlike the capped claims
+  // quoted into a fix-pass prompt (see collapseLines). Same LINE_BREAK_RUN
+  // class, because a `\r` forges a header here exactly as a `\n` does.
+  const oneLine = x => String(x ?? '').replace(LINE_BREAK_RUN, ' ')
+
+  // The summary is collapsed for the same reason the issue lines below it are.
+  // It reads as orchestrator-composed, but markUnproven, markFullSuite and
+  // markEnvUnreproducible all append model-authored criterion and environment
+  // text to it, so it carries free text into this prompt by the same route.
   const verdictLine = notApproved
-    ? `${finalVerdict.status.toUpperCase()} — NOT APPROVED — max fix iterations reached — ${finalVerdict.summary}`
-    : `${finalVerdict.status.toUpperCase()} — ${finalVerdict.summary}`
+    ? `${finalVerdict.status.toUpperCase()} — NOT APPROVED — max fix iterations reached — ${oneLine(finalVerdict.summary)}`
+    : `${finalVerdict.status.toUpperCase()} — ${oneLine(finalVerdict.summary)}`
 
   // A downgraded issue keeps its original severity so the rating survives into
   // the report, but the report must say so — otherwise a downgraded `critical`
@@ -2120,9 +2401,6 @@ async function phaseRecord(approved, plan, finalVerdict, securityReport, task, c
   // the last pass's, not the run's, because `finalVerdict.issues` is the last
   // pass's issues — a key downgraded on pass 1 and re-raised as blocking on
   // pass 2 must not read as advisory here.
-  // One issue is always one line: model-authored text is newline-collapsed so
-  // it cannot forge a `## SECTION` header in the prompt below.
-  const oneLine = x => String(x ?? '').replace(/\s*\n\s*/g, ' ')
   const renderIssue = iss => {
     // issueKey canonicalizes on insert and on lookup alike, so a newline or a
     // casing difference in the Reviewer's prose can no longer split one entry
@@ -2196,7 +2474,7 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
 
 // approved leads the object — a caller checking the run's outcome shouldn't
 // have to dig past everything else to find it.
-function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, testScope) {
+function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, testScope, envStatus, issuesUnaccounted) {
   return {
     approved,
     // Sits beside approved, not in stats, because it qualifies approved: under
@@ -2204,6 +2482,15 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
     // this run touched. 'ran' | 'not_run' | 'disabled' | 'deferred_to_ship' —
     // see markFullSuite for why this is an enum and not a boolean.
     full_suite_status: fullSuiteStatus || 'not_run',
+    // 'ok' | 'unknown' | 'unreproducible' — beside full_suite_status because it
+    // qualifies the same thing: a rejection can be about an environment the
+    // Coder could never build rather than about the diff. An enum for the
+    // record_status reason — a boolean cannot separate "the environment was
+    // fine" from "we never found out", and a failure indistinguishable from
+    // success here is read as success. It annotates, it never blocks: see
+    // markEnvUnreproducible and its call site.
+    env_status: envStatus?.status || 'unknown',
+    env_unresolved: envStatus?.unresolved || [],
     test_scope: testScope || 'full',
     // `record_misplaced: false` cannot express "the Recorder died and wrote
     // nothing" — the failure path satisfies it trivially, so a crashed Record
@@ -2228,6 +2515,10 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
       // past the last pass, so `iteration + 1` would report one Code call more
       // than actually ran.
       coder_passes: Math.min(iteration + 1, MAX_FIX_LOOPS),
+      // Issues sent to a fix pass that came back with no outcome entry — see
+      // accountIssueOutcomes. A count, not a gate: it separates "the loop ran
+      // out" from "the loop ran out and no pass would say what it answered".
+      issues_unaccounted: issuesUnaccounted || 0,
       researched: !!researchReport,
       files_mapped: plan.codebase_context?.relevant_files?.length || 0,
       // null, not true, when the Planner returned no sizing block — "unrated"
@@ -2334,18 +2625,29 @@ async function runOneFeature(task, ctx) {
       : 'not_run'
     // Applied BEFORE phaseRecord so the review report the Recorder writes
     // carries the sentence too, rather than only the returned object.
-    const finalVerdict = markFullSuite(rawFinalVerdict, fullSuiteStatus)
+    const suiteMarked = markFullSuite(rawFinalVerdict, fullSuiteStatus)
     if (fullSuiteStatus !== 'ran') {
       log(`${logPrefix}⚠ FULL SUITE NOT RUN (${fullSuiteStatus}) — ${FULL_SUITE_REASONS[fullSuiteStatus]}; only the files this run touched were tested.`)
     }
 
-    const approved = finalVerdict.status === 'approved'
+    // Read before the environment annotation and never recomputed after it: an
+    // env_status derived from Coder-reported fields must be able to explain a
+    // rejection, never to turn one into an approval.
+    const approved = suiteMarked.status === 'approved'
+
+    const envStatus = reviewResult.envStatus || { status: 'unknown', evidence: 'the review phase reported no environment status' }
+    if (envStatus.status === 'unreproducible') {
+      log(`${logPrefix}⚠ ENVIRONMENT NOT REPRODUCED (${envStatus.status}) — ${envStatus.evidence}`)
+    } else if (envStatus.status !== 'ok') {
+      log(`${logPrefix}⚠ ENVIRONMENT UNVERIFIED (${envStatus.status}) — ${envStatus.evidence}`)
+    }
+    const finalVerdict = approved ? suiteMarked : markEnvUnreproducible(suiteMarked, envStatus)
 
     // Phase 5: Record
     const { recordMisplaced, recordStatus } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded)
 
     // Phase 6: Shape result
-    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, scopedTests?.mode || 'full')
+    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, scopedTests?.mode || 'full', envStatus, reviewResult.issuesUnaccounted)
   } catch (err) {
     // A thrown error inside one feature must not abort siblings running under
     // parallel() — return a failure shape instead of letting it propagate.
@@ -2434,6 +2736,10 @@ if (tasksList) {
     // runOneFeature went to a per-feature log the operator may never scroll
     // back to, and this one qualifies the ✓ printed two lines up.
     if (f.full_suite_status && f.full_suite_status !== 'ran') log(`  [${f.label}] ⚠ FULL SUITE NOT RUN (${f.full_suite_status}) — only the files this run touched were tested`)
+    // Same reasoning again, and it matters most on a ✗: this line is what says
+    // the rejection may be about an environment that was never built, not the
+    // code, before the operator starts reading the diff for a defect.
+    if (f.env_status === 'unreproducible') log(`  [${f.label}] ⚠ ENVIRONMENT NOT REPRODUCED — this result may be about the environment rather than the code`)
   })
   if (budget.total) log(`Budget remaining: ${Math.round(budget.remaining() / 1000)}k`)
 

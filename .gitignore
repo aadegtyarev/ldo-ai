@@ -6,3 +6,4 @@ incoming/
 tags
 .claude/ldo-runs.json
 .claude/ldo-args/
+.claude/ldo-feedback-*
