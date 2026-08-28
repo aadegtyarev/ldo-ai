@@ -76,6 +76,40 @@ If a review report file exists at `docs/reviews/`, read it and use its content. 
 
 Show the PR title and body. Create on confirm.
 
+**Write the body to a file inside the repo and pass `--body-file`; never inline it, and never pipe it in.** A review report is multi-KB markdown full of backticks, `$`, quotes, pipe tables and fenced blocks — exactly the shape that gets mangled or lost as an inline shell argument. `.git/ldo-pr-body.md` is a good home: inside the repo so tooling can read it, inside `.git` so it is never committed and never needs a `.gitignore` entry.
+
+```
+gh pr create --repo <owner/repo> --base <default> --head <branch> \
+  --title "$(cat .git/ldo-pr-title.txt)" --body-file .git/ldo-pr-body.md
+```
+
+**Then read the body back and diff it, before telling the operator the PR is open.**
+
+```
+gh pr view <n> --repo <owner/repo> --json body --jq .body > .git/ldo-pr-readback.md
+diff .git/ldo-pr-readback.md .git/ldo-pr-body.md
+```
+
+A difference confined to a trailing newline is fine; anything else — and a zero-length body especially — is a failure. This is the same check `/ldo-feedback` runs after `gh issue create`, and for the same reason: **`gh` returns a URL and exit 0 whether the body arrived or not**, so the failure is indistinguishable from success at the call site. Issues #5–#8 were filed empty that way and their contents are gone.
+
+Measured while shipping 2.33.0, in one session, against one repo — three ways of handing `gh` the same 4195-byte body, all reporting success:
+
+| How | Result |
+|-----|--------|
+| `--body-file <path outside the repo>` | `no such file or directory` — refused to read it |
+| `cat body \| gh pr create --body-file -` | PR created, **body zero-length**, exit 0 |
+| `gh pr edit <n> --body-file <path>` | failed on an unrelated `projectCards` GraphQL deprecation |
+| `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> --input <json>` | body set correctly |
+
+Some of that is environment-specific and none of it was root-caused, which is the point: the delivery path is not reliably knowable in advance, so verify the result rather than trusting the mechanism. When the read-back shows an empty or wrong body, repair it with the API form — the body file is still on disk, so nothing has to be recomposed:
+
+```
+python3 -c "import json;json.dump({'body':open('.git/ldo-pr-body.md').read()},open('.git/ldo-pr-patch.json','w'))"
+gh api -X PATCH repos/<owner>/<repo>/pulls/<n> --input .git/ldo-pr-patch.json --jq '.body | length'
+```
+
+then read back again. Delete the scratch files (`.git/ldo-pr-*`) on the way out. **Reporting the PR URL to the operator without having run the read-back is not opening a PR** — it is opening one and hoping.
+
 ### 5. Squash-merge
 
 **Interactive mode:** after the PR is open and CI (if any) is green, offer:
