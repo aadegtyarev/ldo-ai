@@ -27,21 +27,53 @@ Fill every field. "Not applicable" is a valid answer; silently omitting the fiel
 
 ## Redact, then show, then file
 
-**Never post without the operator seeing the redacted text.** `gh issue create` publishes to a public repo; a redaction miss is a token in a public issue. The order is:
+**Never post without the operator seeing the redacted text.** `gh issue create` publishes to a public repo; a redaction miss is a token in a public issue.
 
-1. Confirm the gate works: `scripts/redact.sh --self-test` — every line must be `ok`. If any fail, do not proceed; the redaction itself is broken and needs fixing first.
-2. Compose the title and body from the form above.
-3. Redact both: pipe each through `scripts/redact.sh` (stdin → stdout).
-4. **Show the redacted title and body to the operator and wait for confirmation.** The operator is the last gate — if the script over-redacted something harmless (a commit hash, an IP that wasn't sensitive) or under-redacted, they see it here. Over-redaction is deliberate and safe; under-redaction is the failure to catch.
-5. On confirmation, file it:
+First resolve the gate. This skill runs with the cwd set to the operator's project, not the plugin root, so a bare `scripts/redact.sh` resolves against whatever repo happens to be open — which is somebody else's script. Use `${CLAUDE_PLUGIN_ROOT}/scripts/redact.sh`, or the path recorded in `.claude/LDO_VENDORED.md` for a vendored install. **A `redact.sh` found relative to the operator's cwd must not be used.** If neither path exists, that is the "the redaction gate is broken, do not file" branch below.
+
+Then, before writing anything: `echo '.claude/ldo-feedback-*' >> .git/info/exclude` in the current project. `info/exclude` is never committed and never conflicts, and the `.gitignore` entry in the LDO repo does not protect the project you are actually working in.
+
+The order is:
+
+1. Confirm the gate works: `"$REDACT" --self-test` — every line must be `ok`. If any fail, do not proceed; the redaction itself is broken and needs fixing first.
+2. Compose the title and body from the form above into a **private temp file outside any repo**, named so it cannot be confused with the postable one:
    ```
-   gh issue create --repo aadegtyarev/ldo-ai --title "<redacted title>" --body "<redacted body>"
+   umask 077
+   RAW=$(mktemp -t ldo-feedback-UNREDACTED.XXXXXX)
+   STAMP=$(date +%s)-$$
+   BODY=.claude/ldo-feedback-body-$STAMP.md
+   TITLE=.claude/ldo-feedback-title-$STAMP.txt
    ```
+   The raw file holds exactly the tokens, home paths and hostnames the gate exists to strip. It never goes under `.claude/` and never inside a git working tree.
+3. Redact into files, and **fail closed**:
+   ```
+   "$REDACT" < "$RAW" > "$BODY" || { echo "redaction failed"; rm -f "$RAW" "$BODY"; exit 1; }
+   [ -s "$BODY" ] || { echo "redaction produced an empty body"; rm -f "$RAW" "$BODY"; exit 1; }
+   ```
+   and the same for the title. A failed or partial redaction still creates the output file through the redirection, so the exit status and a non-zero length are both checked. Reject a title containing a newline — a multi-line title means the composition step went wrong.
+4. **Show the redacted title and body to the operator and wait for confirmation.** The operator is the last gate — if the script over-redacted something harmless (a commit hash, an IP that wasn't sensitive) or under-redacted, they see it here. Over-redaction is deliberate and safe; under-redaction is the failure to catch. Record `sha256sum "$BODY" "$TITLE"` at the moment you show them.
+5. On confirmation, re-check that hash — nothing may have rewritten the files between the operator approving the bytes and `gh` reading them — and prove the file about to be published has been through the gate:
+   ```
+   "$REDACT" < "$BODY" | diff - "$BODY" || { echo "body was not produced by redact.sh — refusing to post"; exit 1; }
+   ```
+   Redaction is idempotent, so re-running it over an already-redacted file is a no-op; any difference means the file is not the gate's output. **The only file that may ever be passed to `--body-file` is the output of redact.sh.**
+6. Then file it:
+   ```
+   gh issue create --repo aadegtyarev/ldo-ai --title "$(cat "$TITLE")" --body-file "$BODY"
+   ```
+   Two reasons for this exact shape. `--body-file`: a multi-KB markdown body with backticks, `$`, quotes and fenced blocks passed as an inline shell argument is how issues #5–#8 were filed with a zero-length body, and `gh issue create` returns a URL and exit 0 either way. `"$(cat …)"` for the title: the title is model-composed from run material, and redact.sh neutralizes secret *shapes*, not shell metacharacters — `$`, backticks and `$(…)` pass through it untouched and a double-quoted argument still performs command substitution. The result of a command substitution is not re-evaluated, so metacharacters inside the file are inert. Do not undo either of these.
+7. **Verify it landed.** Read the issue back and diff it against the file you posted:
+   ```
+   gh issue view <n> --repo aadegtyarev/ldo-ai --json body --jq .body > /tmp/ldo-feedback-posted.md
+   diff /tmp/ldo-feedback-posted.md "$BODY"
+   ```
+   A difference confined to a trailing newline is fine; anything else is a failure. On failure the body file is still on disk, so reattach it rather than retyping: `gh issue edit <n> --repo aadegtyarev/ldo-ai --body-file "$BODY"`, then read back again. **Reporting the URL to the operator without having run this check is not filing it.**
+8. Last, on the success path and on every failure path alike: `rm -f "$RAW" "$BODY" "$TITLE" /tmp/ldo-feedback-posted.md`. The raw file is the one that matters — it is unredacted by definition.
 
 ## If you can't file
 
-- **No `gh` or not authenticated**: write the redacted title+body to a file (e.g. `.claude/ldo-feedback-issue.md`) and tell the operator to post it manually. Never skip the redaction because `gh` isn't there — the redaction is the point, the issue is the destination.
-- **Redaction self-test fails**: report that the gate is broken and do not file; the script needs fixing before anything leaves the machine.
+- **No `gh` or not authenticated**: the redacted body file from step 3 already exists; tell the operator its path and to post it manually, and skip only the deletion of that one file. Never skip the redaction because `gh` isn't there — the redaction is the point, the issue is the destination. Delete the raw temp file regardless.
+- **Redaction self-test fails, or the gate cannot be resolved from the plugin root**: report that the gate is broken and do not file; nothing leaves the machine, and the raw temp file is deleted.
 
 ## Keep it minimal
 

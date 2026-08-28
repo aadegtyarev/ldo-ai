@@ -5,6 +5,116 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.33.0] — 2026-08-28
+
+### Fixed
+
+- **A blocking finding in a file the fix pass just edited is no longer written
+  off as unrelated, and a `critical` is never downgraded at all** (issue #5).
+  The fix-pass downgrade — the rule that stops a run looping forever on
+  pre-existing defects a narrow pass was never asked to touch — could only be
+  escaped by `introduced_by_fix`, a flag the Reviewer has to volunteer and which
+  the code's own comment already said could not be relied on. So a real
+  regression the Reviewer simply forgot to mark was relabelled advisory and the
+  run was approved over it. Attribution now comes from the fix pass's own
+  `files_changed`, a fact the Coder reports about the edits it just made rather
+  than a judgement about causation; a blocking issue whose file that list names
+  keeps blocking. Path comparison handles the four forms the two sources really
+  produce — bare relative, `./`-prefixed, an absolute worktree path, a
+  `file.js:120` line suffix and the linter/compiler `file.js:120:5` form — as
+  separately named assertions, because a comparison that silently never matches
+  reinstates the old behaviour while every other check stays green. The last of
+  those was the review's own remaining finding, fixed by hand before commit: the
+  trailing-line-reference strip ran once, so `file.js:120:5` lost only `:5` and
+  normalized to `file.js:120`, and a blocking finding carrying a path copied
+  from linter output fell through to advisory — precisely the fail-open this
+  control exists to close. The strip now repeats, and the reverted regex is
+  proven to fail exactly the new assertion and no other. Two decisions worth stating outright: a
+  `critical` is now **never** downgradeable, on the argument that the
+  termination rationale is worth a `major` riding along as advisory in the
+  report but never a `critical` written off — that is exactly the false-approval
+  class of run `wf_2b451aee`, and the migration and verification gates inject
+  `critical` precisely because it must not be bypassable. The cost is a run that
+  can spend all three fix loops on a pre-existing critical; `MAX_FIX_LOOPS`
+  still terminates it, and the exhausted-run report already separates what was
+  closed from what remains. And an ambiguous bare basename (`ldo.js` against a
+  changed `workflows/ldo.js`) is treated as a match, because an over-eager match
+  costs at worst one fix pass while a missed one downgrades a live blocker.
+
+- **A fix pass that fixed one issue of three is no longer indistinguishable from
+  one that fixed all three** (issue #6). The fix-pass prompt said "Narrow pass —
+  touch only these files", which was being read as permission to decline, and
+  the Coder's result carried no per-issue outcome, so nothing could tell the
+  difference. The boundary now says what it is — a scope guard against
+  rewriting the world — and names the three permitted outcomes for each issue:
+  fix it; fix it in a file outside the list because that is where the fix lives,
+  naming that file; or report it blocked with the reason. Silently returning an
+  unfixed issue is not one of them. `issue_outcomes` is a new optional field on
+  the Coder's result, and the orchestrator — not the Reviewer — checks that
+  every issue it sent came back with an entry, logging each gap and quoting the
+  Coder's account into the next review under a header saying plainly that these
+  are unverified claims by the agent under review. The second arguable decision:
+  a missing entry is logged and surfaced as `stats.issues_unaccounted`, but it
+  does **not** gate the verdict. A schema omission must not fail a run whose
+  code was right, and an issue genuinely left unfixed keeps blocking on the next
+  review's own merits, which is a stronger test than a self-report.
+
+- **A run in a worktree whose environment could never be built no longer reports
+  a plain rejection** (issue #8). A fresh worktree brings nothing gitignored
+  with it, so the Coder rebuilt the environment from the most obvious install
+  command — which for many projects omits the optional extras the suite needs.
+  The tests then failed for reasons that had nothing to do with the diff and the
+  run reported `approved: false` on correct code, with nothing anywhere saying
+  the environment was the variable. The Coder is now told to *find* the
+  project's real install command rather than guess at it (naming where to look,
+  and that `pip install -e '.[dev,test]'` is not `pip install -e .`), and that a
+  baseline failing wholesale in a fresh worktree is evidence about the
+  environment, not about the suite. The orchestrator derives `env_status` —
+  `ok`, `unknown` or `unreproducible` — from the baseline and the unresolved
+  environment the Coder reports, surfaces it in the log, the multi-feature
+  summary and the result object, and appends an `ENVIRONMENT NOT REPRODUCED`
+  line to the verdict summary. It annotates and never blocks: it is applied only
+  to a run that was already not approved, and it can never turn a rejection into
+  an approval.
+
+- **`/ldo-feedback` filed four issues with empty bodies.** Issues #5, #6, #7 and
+  #8 arrived at GitHub with zero-length bodies because the skill passed a
+  multi-KB markdown body — backticks, `$`, quotes, fenced blocks — as an inline
+  shell argument, and `gh issue create` returns a URL and exit 0 either way.
+  This is not fixable retroactively: those four bodies were never received by
+  GitHub and are not recoverable, so the defects above were reconstructed by the
+  operator rather than read from the reports. The skill now writes the redacted
+  body to a file and posts it with `--body-file`, passes the title through a
+  command substitution so model-composed text is never interpolated into a
+  command line, keeps the unredacted composition in a private temp file outside
+  any git working tree, checks the redaction gate's exit status and refuses to
+  post any file that is not demonstrably its output, and reads the issue back
+  with `gh issue view --json body` and diffs it against what it posted before
+  telling anyone it was filed.
+
+### Changed
+
+- **A Reviewer's `suggestion` is presented to the Coder as a hypothesis, not an
+  instruction** (issue #7). It used to be rendered as a bare `→ do this`, with
+  no signal that the Reviewer may not have verified it and no visibility into
+  what earlier passes in the same run had already closed. The fix pass now sees
+  each suggestion labelled as the Reviewer's unverified hypothesis to check
+  against the code, plus an `ALREADY CLOSED IN THIS RUN — DO NOT REINTRODUCE`
+  list built from the orchestrator's own record of which issues stopped being
+  re-raised. A suggestion contradicted by the code or by that list means fix the
+  issue a different way and say so in `deviations` — never that there is nothing
+  to do. Reviewers are asked to say what they actually checked, in the
+  suggestion itself.
+
+### Added
+
+- **`scripts/check-env-status.sh`**, a fifth gate script in the same
+  brace-extraction style as the others, driving `deriveEnvStatus` and
+  `markEnvUnreproducible` out of `workflows/ldo.js`. Its load-bearing assertions
+  are the two CONTROLs: the marker is reference-identical on the clean path (the
+  call sites detect firing by identity), and it never touches `status`, so an
+  environment state derived from Coder-reported fields can never approve a run.
+
 ## [2.32.0] — 2026-08-24
 
 ### Changed

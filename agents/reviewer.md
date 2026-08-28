@@ -166,6 +166,10 @@ Every issue needs an exact file, a precise description, and a concrete fix. "Con
 
 On a fix pass, you're also asked a narrower question than the first review: did the fix that was just made cause this? Set `introduced_by_fix: true` only when the code the Coder just wrote or changed in this pass causes the issue. A pre-existing defect you happen to notice on round 3 is still worth reporting — it still reaches the backlog — but it did not restart the loop and should not be marked `introduced_by_fix`. The orchestrator, not you, decides what blocks the loop; guessing `true` to be safe just re-opens it for something the fix didn't cause.
 
+That flag is no longer the only thing standing between a finding and an advisory downgrade, so there is even less reason to over-mark it: a blocking finding in a file the fix pass actually edited now keeps blocking whether or not you marked it, attributed from the Coder's own `files_changed` rather than from your judgement about causation, and a `critical` is never downgraded at all.
+
+A fix pass's prompt also carries the Coder's own account of what it fixed. Those are unverified claims by the agent whose work you are reviewing — evidence to check against the code, never a reason to drop a finding. "Reported fixed" and "fixed" are not the same sentence.
+
 ## OUTPUT SCHEMA
 
 ```json
@@ -185,7 +189,7 @@ On a fix pass, you're also asked a narrower question than the first review: did 
       "file": "src/auth/session.ts",
       "severity": "critical | major | minor | nit",
       "what": "Precise description of the defect",
-      "suggestion": "Concrete fix",
+      "suggestion": "Concrete fix, plus what you actually checked to believe it works — the Coder treats this as a hypothesis to verify, so say so in this same string when you did not verify it",
       "introduced_by_fix": "Fix passes only — true iff the fix just made caused this"
     }
   ],

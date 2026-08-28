@@ -84,5 +84,10 @@ the list. Offer; don't run either unasked.
 - recorder routed off haiku: every haiku sub-agent died on a thinking/context_management 400, so artifacts were never written
 - test runs are scoped to touched files by default; a run that skipped the full suite says so
 - fullSuiteAt 'ship'/'never' tells the agents not to run the suite, instead of only labelling the result
+- a fix-pass finding in a file the pass edited blocks by attribution; a critical is never downgraded
+- every issue sent to a fix pass owes an issue_outcomes entry; unaccounted ones are logged, not gated
+- a reviewer suggestion reaches the coder as an unverified hypothesis, beside a do-not-reintroduce list
+- env_status ok|unknown|unreproducible says when a rejection may be about the environment, not the code
+- /ldo-feedback posts the body from a file and reads the issue back — #5-#8 were filed empty
 <!-- /ldo:features -->
 <!-- END ldo -->
