@@ -107,7 +107,7 @@ The Planner rates the task, and that rating decides what runs. A refactor with n
 /ldo:ldo research:true security:true "switch auth from sessions to JWT"
 ```
 
-**After the pipeline**, ship it with `/ldo-ship` — branch, commit, push, PR, optional squash-merge, each step confirmed. The PR body carries the review report: what was proven, what was attacked, what held. Or get a second opinion first from the built-ins — `/code-review high`, `/security-review`, `/deep-research`.
+**After the pipeline**, ship it with `/ldo-ship` — branch, commit, push, PR, optional squash-merge, each step confirmed. The PR body carries the review report: what was proven, what was attacked, what held — posted from a file and read back afterwards, because `gh` returns a URL and exit 0 whether the body arrived or not. Or get a second opinion first from the built-ins — `/code-review high`, `/security-review`, `/deep-research`.
 
 ## Pipeline
 

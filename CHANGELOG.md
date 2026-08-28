@@ -5,6 +5,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.33.1] — 2026-08-28
+
+### Fixed
+
+- **`/ldo-ship` now posts the PR body from a file and reads it back**, the same
+  check 2.33.0 added to `/ldo-feedback` after issues #5–#8 were filed with
+  zero-length bodies. The defect was never specific to issues: `gh` returns a URL
+  and exit 0 whether the body arrived or not, so at the call site a lost body is
+  indistinguishable from a delivered one, and a review report is exactly the
+  multi-KB markdown — backticks, `$`, pipe tables, fenced blocks — that gets lost.
+  Found by hitting it: while shipping 2.33.0, `gh pr create --body-file -` fed
+  from a pipe created the PR with a zero-length body and reported success, and
+  only reading the PR back caught it. Three other delivery paths for the same
+  4195-byte body behaved three different ways in that one session — a path
+  outside the repo was refused outright, `gh pr edit --body-file` failed on an
+  unrelated `projectCards` GraphQL deprecation, and `gh api -X PATCH` worked —
+  which is the argument for verifying the result rather than trusting the
+  mechanism. The skill now writes the body to `.git/ldo-pr-body.md`, posts it
+  with `--body-file`, diffs the read-back before reporting the URL, and repairs
+  through the API form when the read-back is wrong. `/ldo-feedback` gains the
+  same API fallback for the same reason, and the two skills now cross-reference
+  each other so the check is one rule rather than two coincidences. None of this
+  was root-caused, and the text says so.
+
 ## [2.33.0] — 2026-08-28
 
 ### Fixed

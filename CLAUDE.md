@@ -89,5 +89,6 @@ the list. Offer; don't run either unasked.
 - a reviewer suggestion reaches the coder as an unverified hypothesis, beside a do-not-reintroduce list
 - env_status ok|unknown|unreproducible says when a rejection may be about the environment, not the code
 - /ldo-feedback posts the body from a file and reads the issue back — #5-#8 were filed empty
+- /ldo-ship posts the PR body from a file and reads it back; gh reports success on a lost body
 <!-- /ldo:features -->
 <!-- END ldo -->

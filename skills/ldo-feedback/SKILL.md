@@ -67,8 +67,13 @@ The order is:
    gh issue view <n> --repo aadegtyarev/ldo-ai --json body --jq .body > /tmp/ldo-feedback-posted.md
    diff /tmp/ldo-feedback-posted.md "$BODY"
    ```
-   A difference confined to a trailing newline is fine; anything else is a failure. On failure the body file is still on disk, so reattach it rather than retyping: `gh issue edit <n> --repo aadegtyarev/ldo-ai --body-file "$BODY"`, then read back again. **Reporting the URL to the operator without having run this check is not filing it.**
-8. Last, on the success path and on every failure path alike: `rm -f "$RAW" "$BODY" "$TITLE" /tmp/ldo-feedback-posted.md`. The raw file is the one that matters — it is unredacted by definition.
+   A difference confined to a trailing newline is fine; anything else is a failure. On failure the body file is still on disk, so reattach it rather than retyping: `gh issue edit <n> --repo aadegtyarev/ldo-ai --body-file "$BODY"`, then read back again. If that edit itself fails — it was measured failing on an unrelated `projectCards` GraphQL deprecation while shipping 2.33.0 — go through the API instead, which sets the body from a JSON field and never touches a command line:
+   ```
+   python3 -c "import json,sys;json.dump({'body':open(sys.argv[1]).read()},open(sys.argv[2],'w'))" "$BODY" "$BODY.json"
+   gh api -X PATCH repos/aadegtyarev/ldo-ai/issues/<n> --input "$BODY.json" --jq '.body | length'
+   ```
+   then read back again. **Reporting the URL to the operator without having run this check is not filing it.** `/ldo-ship` runs the same read-back after `gh pr create`, against the same failure: `gh` returns a URL and exit 0 whether the body arrived or not.
+8. Last, on the success path and on every failure path alike: `rm -f "$RAW" "$BODY" "$BODY.json" "$TITLE" /tmp/ldo-feedback-posted.md`. The raw file is the one that matters — it is unredacted by definition.
 
 ## If you can't file
 
