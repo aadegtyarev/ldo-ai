@@ -1,0 +1,11 @@
+{
+  "worktree_path": ".worktrees/demo",
+  "branch": "ldo/demo",
+  "main_root": "/srv/repo",
+  "base_head": "8b731b1ef8fc9c3728a875bedb6d2a1745d7638d",
+  "toplevel": "/srv/repo/.worktrees/demo",
+  "git_dir": "/srv/repo/.git/worktrees/demo",
+  "head_branch": "ldo/demo",
+  "head_sha": "8b731b1ef8fc9c3728a875bedb6d2a1745d7638d",
+  "worktree_list": "worktree /srv/repo\nHEAD 8b731b1ef8fc9c3728a875bedb6d2a1745d7638d\nbranch refs/heads/main\n\nworktree /srv/repo/.worktrees/demo\nHEAD 8b731b1ef8fc9c3728a875bedb6d2a1745d7638d\nbranch refs/heads/ldo/demo\n"
+}

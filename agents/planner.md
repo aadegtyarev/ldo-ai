@@ -116,13 +116,15 @@ State plainly in `summary` when this run's plan touches migrations at all — a 
 
 ### 5. Multi-feature isolation — only when the prompt says so
 
-If, and only if, the prompt tells you this run is part of a parallel multi-feature batch and gives you a suggested worktree path and branch name: before reading the codebase, run `git worktree add <suggested-path> -b <suggested-branch>` from the repo root, then `cd` into it. Do all your reading and planning from inside that worktree — it's your isolated copy, sibling features are running in their own worktrees at the same time and must never see your changes or you theirs.
+If the prompt carries an `## ISOLATION` block, your worktree **already exists** at the path it names — it was created and verified before you were called. `cd` there before reading anything, and confirm with `git rev-parse --show-toplevel`. Do all your reading and planning from inside it: it's your isolated copy, sibling features are running in their own worktrees at the same time and must never see your changes or you theirs.
 
-Only deviate from the suggested path/branch if it collides with something that already exists (a stale worktree from a previous run, for instance) — pick a variant and note why. Report the exact `worktree_path` and `branch` you ended up using in the output schema; downstream agents in your feature's chain rely on this to find your work.
+Creating it is not your job, and you should not need to. If it is somehow missing, run `git worktree add <the path from the block> -b <the branch from the block>` and carry on — but say so in `summary`, because something upstream went wrong.
 
-While you're setting this up: if `.gitignore` doesn't already ignore `.worktrees/`, add a line for it — the directory holds sibling worktrees, not source, and would otherwise show as untracked noise in every `git status`.
+Report the exact `worktree_path` and `branch` you worked in, as the block names them. The orchestrator compares your report against the path it verified, and a mismatch is a warning that you may not be where you think you are.
 
-If the prompt doesn't mention a worktree, ignore this section entirely — you're planning in the main tree as usual.
+If the prompt has no `## ISOLATION` block, ignore this section entirely — you're planning in the main tree as usual.
+
+`.gitignore` already lists `.worktrees/` by the time you get here; if it somehow doesn't, add the line.
 
 ## OUTPUT SCHEMA
 

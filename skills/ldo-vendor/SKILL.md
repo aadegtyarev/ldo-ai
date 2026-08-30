@@ -9,9 +9,9 @@ Claude Code has a project-native equivalent that needs no install step at all: f
 
 ## Why this can't be a plain file copy
 
-`workflows/ldo.js` calls every pipeline agent through a **plugin-scoped** reference — `agentType: 'ldo:planner'`, `'ldo:coder'`, `'ldo:reviewer'`, `'ldo:security'`, `'ldo:researcher'`, `'ldo:recorder'`. That syntax means "the agent named X, inside the plugin named ldo" — it only resolves when LDO is actually installed as a plugin. Copy the files verbatim without a plugin and every one of those six calls fails to resolve; the pipeline dies on its first agent.
+`workflows/ldo.js` calls every pipeline agent through a **plugin-scoped** reference — `agentType: 'ldo:isolator'`, `'ldo:planner'`, `'ldo:coder'`, `'ldo:reviewer'`, `'ldo:security'`, `'ldo:researcher'`, `'ldo:recorder'`. That syntax means "the agent named X, inside the plugin named ldo" — it only resolves when LDO is actually installed as a plugin. Copy the files verbatim without a plugin and every one of those seven calls fails to resolve; the pipeline dies on its first agent.
 
-Vendored agents live at `.claude/agents/*.md` instead, referenced by their bare name (`planner`, `coder`, ...). What has to change is the six `agentType` strings in the workflow script, stripped of their `ldo:` prefix, plus every `/ldo:ldo` slash-command and `Workflow({ name: "ldo:ldo" })` programmatic mention in the skill files' own prose — vendored, the workflow runs as bare `ldo`/`/ldo` (project-level workflows use `meta.name` directly, no plugin prefix), not `ldo:ldo`.
+Vendored agents live at `.claude/agents/*.md` instead, referenced by their bare name (`planner`, `coder`, ...). What has to change is the seven `agentType` strings in the workflow script, stripped of their `ldo:` prefix, plus every `/ldo:ldo` slash-command and `Workflow({ name: "ldo:ldo" })` programmatic mention in the skill files' own prose — vendored, the workflow runs as bare `ldo`/`/ldo` (project-level workflows use `meta.name` directly, no plugin prefix), not `ldo:ldo`.
 
 ## Run the script — this is the actual mechanism, not just documentation of one
 

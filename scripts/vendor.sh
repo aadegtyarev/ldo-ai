@@ -56,14 +56,27 @@ fi
 
 # ── 2. Workflow script, transformed — strip the plugin-scope prefix ───────
 
-sed -E "s/agentType: '?ldo:([a-z]+)'?/agentType: '\1'/g" "$SRC/workflows/ldo.js" > "$TARGET/.claude/workflows/ldo.js"
+# Two transforms, not one. The agentType prefix is the load-bearing one — a
+# vendored run resolves `ldo:planner` to nothing. The second is the workflow
+# NAME in the log lines that tell an operator how to launch or resume a run:
+# a vendored install runs bare `ldo`, so a message saying
+# `Workflow({name:"ldo:ldo", ...})` hands the operator a name that does not
+# resolve, at exactly the moment they are trying to recover a dead run. The
+# skills get the same treatment in step 3.
+sed -E -e "s/agentType: '?ldo:([a-z]+)'?/agentType: '\1'/g" -e 's/name:"ldo:ldo"/name:"ldo"/g' "$SRC/workflows/ldo.js" > "$TARGET/.claude/workflows/ldo.js"
 
+# Deliberately still a bare `ldo:` search rather than one narrowed to
+# `agentType: 'ldo:`. Narrowing it would have silenced this check instead of
+# fixing what it caught: it tripped on those three log lines for three
+# versions, every vendoring run exited 1 while having actually worked, and a
+# tool that reports failure every time trains its operator to stop reading the
+# exit code. The broad search is the one that noticed; keep it broad.
 if grep -q "ldo:" "$TARGET/.claude/workflows/ldo.js"; then
   echo "error: transform incomplete — 'ldo:' still present in the vendored workflow script. The source shape changed since this script was written; fix the sed pattern above before vendoring." >&2
   grep -n "ldo:" "$TARGET/.claude/workflows/ldo.js" >&2
   exit 1
 fi
-echo "  workflows/ldo.js -> .claude/workflows/ldo.js (agentType prefix stripped, verified clean)"
+echo "  workflows/ldo.js -> .claude/workflows/ldo.js (agentType prefix and ldo:ldo workflow name stripped, verified clean)"
 
 # ── 3. Skills, with slash-command references updated ──────────────────────
 

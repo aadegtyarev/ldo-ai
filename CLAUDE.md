@@ -97,5 +97,8 @@ the list. Offer; don't run either unasked.
 - planner/reviewer/security enumerate docs/contracts/ instead of three hardcoded names
 - /ldo-docs-audit splits readable claims from behavioural ones and proposes tests for what it must not run
 - check-redact.sh pipes real text through the real redact.sh — a green self-test is not the gate working
+- an Isolate phase creates and proves the worktree before planning; an unproven one fails the run instead of falling back to the working tree
+- the result carries work_location beside a worktree_path verified by the orchestrator, not claimed by the Planner
+- vendor.sh rewrites the ldo:ldo workflow name too, so a vendored run's own advice resolves
 <!-- /ldo:features -->
 <!-- END ldo -->

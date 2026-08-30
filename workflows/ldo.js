@@ -1,8 +1,9 @@
 export const meta = {
   name: 'ldo',
   description: 'Lightweight Dev Orchestrator: [Research→]Plan→[Security→]Code⇄Review, with a different model per role',
-  whenToUse: 'args.task runs one feature in the current directory. args.tasks (an array) runs N independent features in parallel, each isolated in its own git worktree created by that feature\'s Planner; each ships separately afterward via /ldo-ship run from its own worktree. Add planOnly: true to either form to stop after Plan (and Security, when the surface is elevated) and get the plan plus its sizing block back without implementing it. args.resumePlan accepts a previously produced plan object and skips the Planner in a plain single-task run (not isolate: true, not args.tasks); an invalid object logs why and the Planner runs normally.',
+  whenToUse: 'args.task runs one feature in the current directory. args.tasks (an array) runs N independent features in parallel, each isolated in its own git worktree, created and verified in a dedicated Isolate phase before anything else runs; each ships separately afterward via /ldo-ship run from its own worktree. Add planOnly: true to either form to stop after Plan (and Security, when the surface is elevated) and get the plan plus its sizing block back without implementing it. args.resumePlan accepts a previously produced plan object and skips the Planner in a plain single-task run (not isolate: true, not args.tasks); an invalid object logs why and the Planner runs normally.',
   phases: [
+    { title: 'Isolate', detail: 'Create and verify this feature\'s git worktree (isolated/multi-feature runs only)' },
     { title: 'Research', detail: 'Multi-source web research (opt-in)' },
     { title: 'Plan', detail: 'Read the codebase, plan the change, rate complexity + security surface' },
     { title: 'Security', detail: 'Threat-model the plan before code exists (elevated surface only)' },
@@ -80,8 +81,8 @@ const PLAN_SCHEMA = {
     },
     risks: { type: 'array', items: { type: 'string' } },
     rollback_plan: { type: 'string' },
-    worktree_path: { type: 'string', description: 'Multi-feature mode only: the path the Planner cd\'d into' },
-    branch: { type: 'string', description: 'Multi-feature mode only: the branch the Planner created' },
+    worktree_path: { type: 'string', description: 'Multi-feature mode only: the worktree path you worked in' },
+    branch: { type: 'string', description: 'Multi-feature mode only: the branch you worked on' },
     migrations: {
       type: 'object',
       description: 'Only when this plan creates globally-numbered files',
@@ -319,6 +320,30 @@ const RESEARCH_SCHEMA = {
     gaps: { type: 'array', items: { type: 'string' } },
   },
   required: ['question', 'summary', 'findings'],
+}
+
+// The Isolate phase asks for four independent git outputs rather than a
+// "yes I created it" flag, because the failure this phase exists to catch is an
+// agent that never ran `git worktree add` and reported the commands from where
+// it already stood — a claim field would have been true-shaped in exactly that
+// run. base_head is read in the main checkout BEFORE the add, head_sha inside
+// the new tree after it; the pair is what distinguishes a branch created fresh
+// with -b from one that was adopted.
+const ISOLATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    worktree_path: { type: 'string', description: 'Relative path created, under .worktrees/' },
+    branch: { type: 'string', description: 'Branch created with -b' },
+    main_root: { type: 'string', description: 'git rev-parse --show-toplevel, from the main checkout' },
+    base_head: { type: 'string', description: 'git rev-parse HEAD in the main checkout, before the add' },
+    toplevel: { type: 'string', description: 'git rev-parse --show-toplevel, from INSIDE the worktree' },
+    git_dir: { type: 'string', description: 'git rev-parse --absolute-git-dir, from INSIDE' },
+    head_branch: { type: 'string', description: 'git symbolic-ref --short HEAD, from INSIDE' },
+    head_sha: { type: 'string', description: 'git rev-parse HEAD, from INSIDE' },
+    worktree_list: { type: 'string', description: 'git worktree list --porcelain, verbatim' },
+    notes: { type: 'string', description: 'Collisions hit, suffix used' },
+  },
+  required: ['worktree_path', 'branch', 'main_root', 'base_head', 'toplevel', 'git_dir', 'head_branch', 'head_sha', 'worktree_list'],
 }
 
 // ═══════════════════════════════════════════
@@ -687,8 +712,130 @@ function safeMigrationsDir(dir) {
   const normalized = d.replace(/\/+$/, '')
   const segments = normalized.split('/')
   if (segments.includes('..')) return null
-  if (segments.some(seg => seg.startsWith('.') || seg.startsWith('-'))) return null
+  // An empty segment — `a//b` — is rejected for the same reason `.` and `-`
+  // are: the rule here is per-segment, and `''.startsWith('.')` is false, so
+  // without this the two checks below wave it through. Reachable only by a
+  // fabricated value (no real `git rev-parse --show-toplevel` emits `//`),
+  // which is exactly the input this validator exists for.
+  if (segments.some(seg => !seg || seg.startsWith('.') || seg.startsWith('-'))) return null
   return normalized
+}
+
+// ── Isolation proof ────────────────────────
+//
+// Everything the isolator reports is untrusted model text. Exactly two values
+// survive validation and reach a later prompt (path and branch); the rest is
+// evidence consumed once, here, and never stored or forwarded — worktree_list
+// alone is the absolute path and branch of every worktree on the operator's
+// machine, including unrelated projects.
+//
+// Bound before scanning, the same order safeScopedTemplate uses: path and
+// branch are interpolated into the ISOLATION block that is prepended to every
+// Planner, Security, Coder, Reviewer and Recorder prompt for the rest of the
+// run, and worktree_list is porcelain of unknown length that parseWorktreeList
+// walks block by block.
+const ISOLATION_FIELD_MAX = 200
+const ISOLATION_LIST_MAX = 65536
+const ISOLATION_ENTRY_MAX = 200
+const ISOLATION_REQUIRED = ['worktree_path', 'branch', 'main_root', 'base_head', 'toplevel', 'git_dir', 'head_branch', 'head_sha', 'worktree_list']
+const ISOLATION_PREFIX = '.worktrees/'
+// A linked worktree's --absolute-git-dir is `<root>/.git/worktrees/<name>`; a
+// main checkout returns `<root>/.git`. The prefix is deliberately unanchored to
+// main_root: running LDO from inside an existing worktree points the new one's
+// git dir at the ORIGINAL repository, and requiring the prefix to match would
+// reject a perfectly correct nested run.
+const ISOLATION_GIT_DIR = /^\/.*\/\.git\/worktrees\/[^/]+$/
+const SAFE_ISOLATION_BRANCH = /^ldo\/[A-Za-z0-9][A-Za-z0-9._-]*$/
+const SAFE_ISOLATION_SHA = /^[0-9a-f]{7,64}$/
+
+// The only segment allowed to start with a dot is the fixed literal prefix, so
+// the remainder is handed to safeMigrationsDir rather than re-checked by a
+// second copy of the same rules — two validators for one class of value drift
+// apart, and the divergence is itself the defect. A character class alone would
+// call `.worktrees/-rf` and `.worktrees/..` well-formed.
+function safeWorktreePath(p) {
+  const s = String(p || '').trim().replace(/\/+$/, '')
+  if (!s.startsWith(ISOLATION_PREFIX)) return null
+  const rest = safeMigrationsDir(s.slice(ISOLATION_PREFIX.length))
+  return rest ? ISOLATION_PREFIX + rest : null
+}
+
+// `git worktree list --porcelain` emits blank-line-separated blocks whose lines
+// are `worktree <path>`, `HEAD <sha>`, `branch refs/heads/<name>`, plus any of
+// `bare`, `detached`, `locked`, `prunable`. Never split on space — a worktree
+// path may contain one, the same reasoning agents/reviewer.md documents for the
+// same class of value — and never assume line position: a block whose first
+// line is `bare` would otherwise yield a mangled path that still gets compared
+// against the reported toplevel. A bare repository has no working tree, so it
+// can never be the entry being proven, and is dropped.
+function parseWorktreeList(text) {
+  const s = String(text || '')
+  if (!s || s.length > ISOLATION_LIST_MAX) return []
+  const entries = []
+  for (const block of s.split(/\n\s*\n/)) {
+    if (entries.length >= ISOLATION_ENTRY_MAX) break
+    let path = null
+    let branch = null
+    let bare = false
+    for (const raw of block.split('\n')) {
+      const line = raw.trim()
+      if (line === 'bare') bare = true
+      else if (line.startsWith('worktree ')) path = line.slice('worktree '.length).trim()
+      else if (line.startsWith('branch ')) branch = line.slice('branch '.length).trim()
+    }
+    if (path && !bare) entries.push({ path, branch })
+  }
+  return entries
+}
+
+// Pure, so the gate can drive every rejection shape without a filesystem. Each
+// check carries its own fixed reason string — fixed, because the reason is
+// logged and a model-authored value interpolated into it forges journal lines
+// (see quoteRejected); and distinct, because "isolation failed" tells an
+// operator nothing about whether the agent skipped the step, adopted an old
+// branch, or hit an exhausted suffix range.
+//
+// The checks are orthogonal consistency checks, not cryptographic proof: four
+// deliberately fabricated, mutually consistent git outputs still pass. That is
+// a different failure mode from the one observed in issue #12, which was
+// omission — and omission cannot produce a git_dir of the linked-worktree shape
+// from a run that never left the main checkout.
+function verifyWorktreeProof(proof) {
+  if (!proof || typeof proof !== 'object' || Array.isArray(proof)) return { ok: false, reason: 'no isolation report was returned' }
+  const f = {}
+  for (const key of ISOLATION_REQUIRED) {
+    const v = String(proof[key] ?? '').trim()
+    if (!v) return { ok: false, reason: `a required field is missing or blank: ${key}` }
+    f[key] = v
+  }
+  if (f.worktree_path.length > ISOLATION_FIELD_MAX) return { ok: false, reason: 'worktree_path is over the length limit' }
+  if (f.branch.length > ISOLATION_FIELD_MAX) return { ok: false, reason: 'branch is over the length limit' }
+  const wp = safeWorktreePath(f.worktree_path)
+  if (!wp) return { ok: false, reason: 'worktree_path is not a safe relative path under .worktrees/' }
+  if (!SAFE_ISOLATION_BRANCH.test(f.branch)) return { ok: false, reason: 'branch is not of the form ldo/<name>' }
+  // Catches an agent that created the worktree and then checked something else
+  // out in it, and an agent reporting HEAD from the main checkout.
+  if (f.head_branch !== f.branch) return { ok: false, reason: 'HEAD inside the worktree is not on the reported branch' }
+  if (!f.toplevel.startsWith('/')) return { ok: false, reason: 'toplevel is not an absolute path' }
+  // The exact shape of issue #12: the agent never created anything and ran the
+  // four commands where it stood, so every output describes the main checkout.
+  if (f.toplevel === f.main_root) return { ok: false, reason: 'toplevel is the main checkout — no worktree was entered' }
+  if (!f.toplevel.endsWith('/' + wp)) return { ok: false, reason: 'toplevel does not end with the reported worktree_path' }
+  if (!ISOLATION_GIT_DIR.test(f.git_dir)) return { ok: false, reason: 'git_dir is not a linked worktree git dir — a main checkout returns <root>/.git' }
+  if (!SAFE_ISOLATION_SHA.test(f.base_head) || !SAFE_ISOLATION_SHA.test(f.head_sha)) return { ok: false, reason: 'base_head or head_sha is not a commit sha' }
+  // A branch created fresh with -b is by construction at the commit the main
+  // checkout was on. `-B`, a bare branch argument, or git's DWIM checkout of an
+  // existing remote-tracking ldo/<slug> all satisfy every other check here
+  // while putting the run on somebody else's history.
+  if (f.head_sha !== f.base_head) return { ok: false, reason: 'the worktree is not at the base commit — the branch was adopted, not created with -b' }
+  if (f.worktree_list.length > ISOLATION_LIST_MAX) return { ok: false, reason: 'worktree_list is over the byte limit' }
+  const entries = parseWorktreeList(f.worktree_list)
+  // git always lists the main checkout, so a genuine add produces at least two.
+  if (entries.length < 2) return { ok: false, reason: 'git worktree list shows fewer than two worktrees' }
+  const entry = entries.find(e => e.path === f.toplevel)
+  if (!entry) return { ok: false, reason: 'git worktree list has no entry for the reported toplevel' }
+  if (entry.branch !== 'refs/heads/' + f.branch) return { ok: false, reason: 'the listed entry for the worktree is on a different branch' }
+  return { ok: true, path: wp, branch: f.branch, root: f.toplevel }
 }
 
 // codebase_context.test_command_scoped is Planner-authored text that the Coder
@@ -1901,6 +2048,60 @@ const prePlanModels = routeModels('medium')
 // PHASE FUNCTIONS
 // ═══════════════════════════════════════════
 
+// ── phaseIsolate ───────────────────────────
+
+// Creating the worktree is a whole agent's only job because a side task
+// competing with a real one is exactly what a model drops silently. Issue #12
+// measured it with a control pair: two runs in one session, same isolate:true
+// flag — the one whose task prose happened to carry the worktree command got a
+// worktree, the one without it edited the operator's tree, 27 files and 1678
+// insertions, nothing logged. Nothing here rests on the agent saying it worked;
+// the orchestrator cross-checks four independent git outputs instead.
+async function phaseIsolate(task, ctx, logStage, logPrefix) {
+  if (!ctx.isMulti) return { isolation: null }
+
+  logStage('Isolate')
+
+  const proof = await agentWithRetry(
+    `Create this feature's isolated git worktree. That is your ONLY job — do not read the codebase, do not plan, do not edit any file except the one .gitignore line below.\n\n` +
+    `## THE FEATURE\n${task}\n\n` +
+    `## WHAT TO DO\n` +
+    `1. From the repository root, before creating anything: if \`.gitignore\` does not already ignore \`.worktrees/\`, append that one line. The directory holds sibling worktrees, not source, and an unignored full checkout shows as untracked noise in every later \`git status\`.\n` +
+    `2. Capture \`git rev-parse --show-toplevel\` as \`main_root\` and \`git rev-parse HEAD\` as \`base_head\`, both from the main checkout, BEFORE the next step.\n` +
+    `3. Run \`git worktree add ${ctx.worktreeHint.suggestedPath} -b ${ctx.worktreeHint.suggestedBranch}\`. The \`-b\` is mandatory: never \`-B\`, never a bare branch argument, never an existing branch. Creating the branch fresh from the current HEAD is part of what is verified.\n` +
+    `4. If that fails because the path or the branch already exists, another run owns it — retry with a \`-2\`, \`-3\`, \`-4\`, then \`-5\` suffix on BOTH the path and the branch, staying under \`.worktrees/\`. If all five are taken, stop and report the failure in \`notes\`; do not free one up.\n` +
+    `5. \`cd\` INSIDE the new directory, then run and report verbatim: \`git rev-parse --show-toplevel\` (toplevel), \`git rev-parse --absolute-git-dir\` (git_dir), \`git symbolic-ref --short HEAD\` (head_branch), \`git rev-parse HEAD\` (head_sha).\n` +
+    `6. From anywhere in the repo, report \`git worktree list --porcelain\` verbatim as \`worktree_list\` — every line, unedited.\n\n` +
+    `## NEVER\n` +
+    `Only additive creation is allowed. NEVER run \`git worktree remove\`, \`git worktree prune\`, \`git worktree add -B\`, \`git branch -D\`, \`git branch -f\`, \`rm -rf\`, or anything with \`--force\`. NEVER run \`git push\`, \`git fetch\`, or any other remote or credential operation. A worktree you obtained by destroying another run's produces a perfectly valid report and silently costs that run its work.\n\n` +
+    `## HOW THIS IS CHECKED\n` +
+    `The orchestrator cross-checks those outputs against each other and aborts the whole run if they do not agree. A value you did not get by actually running the command will not match, so there is nothing to gain by filling a field in from memory — reporting the failure is strictly better than reporting a plausible path.`,
+    // Hardcoded, not routed: no entry is added to DEFAULT_MODELS because that
+    // table is duplicated across four files under scripts/check-model-table.sh
+    // and this role has nothing an operator would want to tune. Not haiku —
+    // every haiku sub-agent in this pipeline died on a thinking/context_management
+    // 400, which is how the Record phase silently wrote nothing for four releases.
+    // No stallMs for the same reason the Recorder has none: it works through tool
+    // calls, so the watchdog's clock keeps resetting on its own.
+    { label: `${ctx.label}:isolator`, phase: 'Isolate', model: 'sonnet', agentType: 'ldo:isolator', schema: ISOLATION_SCHEMA }
+  )
+
+  const verified = verifyWorktreeProof(proof)
+  if (!verified.ok) {
+    // Loud, and terminal. Falling through to a working-tree run is exactly the
+    // silent failure this phase exists to remove: the operator asked for
+    // isolation, and a run that quietly writes 27 files into their tree instead
+    // costs more than a run that stops.
+    log(`${logPrefix}ERROR: Isolation could not be verified — ${verified.reason}. No Planner, Coder or Reviewer will run; nothing was written to the working tree.`)
+    if (proof?.notes) log(`${logPrefix}  Isolator notes: ${quoteRejected(proof.notes)}`)
+    log(`${logPrefix}  If a previous run left stale worktrees behind, prune them with \`git worktree remove .worktrees/<name>\` and \`git branch -D ldo/<name>\`, then re-run.`)
+    return { error: `Isolation could not be verified: ${verified.reason}`, label: ctx.label, task, approved: false }
+  }
+
+  log(`${logPrefix}Worktree verified: ${verified.path} (${verified.branch})`)
+  return { isolation: { path: verified.path, branch: verified.branch, root: verified.root } }
+}
+
 // ── phaseResearch ──────────────────────────
 
 async function phaseResearch(task, ctx, logStage, logPrefix) {
@@ -1927,11 +2128,16 @@ async function phaseResearch(task, ctx, logStage, logPrefix) {
 
 // ── phasePlan ──────────────────────────────
 
-async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
+async function phasePlan(task, ctx, researchReport, isolation, logStage, logPrefix) {
   logStage('Plan')
 
-  const worktreeTrigger = ctx.isMulti
-    ? `This run is part of a parallel multi-feature batch. Before reading the codebase, create your own isolated worktree:\n\n\`git worktree add ${ctx.worktreeHint.suggestedPath} -b ${ctx.worktreeHint.suggestedBranch}\`\n\nThen \`cd\` into it and do all your work there. Only deviate from this path/branch if it collides with something that already exists. Report the exact worktree_path and branch you used.\n\n`
+  // The worktree exists and has been verified before this phase runs, so this
+  // block only says where it is. The reinforcement sentence is belt-and-braces
+  // for a Planner that somehow lands in the main tree anyway — creating it is
+  // deliberately not the Planner's job; see phaseIsolate for why.
+  const worktreeTrigger = isolation
+    ? renderWorktree(isolation.path, isolation.branch, ctx.label) +
+      `That worktree already exists and was created for you — \`cd\` there before reading anything. If it is somehow missing, run \`git worktree add ${isolation.path} -b ${isolation.branch}\` and report that same path and branch.\n\n`
     : ''
 
   // Identical in plan-only and full runs on purpose: varying it on PLAN_ONLY
@@ -1981,9 +2187,27 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
     return { error: 'Planner failed', label: ctx.label, task }
   }
 
-  if (ctx.isMulti && (!plan.worktree_path || !plan.branch)) {
-    log(`${logPrefix}ERROR: Planner didn't report a worktree — refusing to continue agents into an undefined directory.`)
-    return { error: 'Planner did not create/report a worktree in multi-feature mode', label: ctx.label, task, plan }
+  // Asserts the orchestrator holds a verified worktree, not that the Planner
+  // claimed one — a non-empty model-authored string is satisfied by a Planner
+  // that skipped the step entirely, which is how every later agent ended up
+  // cd-ing into a directory that did not exist. Calling phasePlan without the
+  // proof would restore that hole, so it fails here rather than downstream.
+  if (ctx.isMulti && !isolation) {
+    log(`${logPrefix}ERROR: no verified worktree for this feature — refusing to continue agents into an undefined directory.`)
+    return { error: 'No verified worktree — the Isolate phase did not run before Plan', label: ctx.label, task, plan }
+  }
+
+  if (isolation) {
+    // A mismatch warns rather than fails: the Planner only reads, and the
+    // orchestrator's verified value is what every later prompt carries anyway.
+    // Suffix comparison, the same rule verifyAgentLocation uses — an absolute
+    // report of the same directory is not a disagreement.
+    const claimed = String(plan.worktree_path || '').trim().replace(/\/+$/, '')
+    if (claimed && claimed !== isolation.path && !claimed.endsWith('/' + isolation.path)) {
+      log(`${logPrefix}⚠ Planner reported a different worktree than the verified one: ${quoteRejected(plan.worktree_path)} — using the verified path ${isolation.path}.`)
+    }
+    plan.worktree_path = isolation.path
+    plan.branch = isolation.branch
   }
 
   // Validate once, here, so renderPlan/enforceMigrationGate/the Reviewer's prompt
@@ -2059,7 +2283,7 @@ async function phasePlan(task, ctx, researchReport, logStage, logPrefix) {
   const WORKTREE_BLOCK = ctx.isMulti ? renderWorktree(plan.worktree_path, plan.branch, ctx.label) : ''
 
   log(`${logPrefix}Complexity: ${plan.complexity}  |  Security surface: ${surface}${planFromResume ? ' (recovered, not re-rated)' : ''}  |  Coder:${models.coder}  Reviewer:${models.reviewer}  Fix-review:${models.reviewerFix || models.reviewer}`)
-  if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch})`)
+  if (ctx.isMulti) log(`${logPrefix}Worktree: ${plan.worktree_path} (${plan.branch}) — verified by the Isolate phase`)
   if (surface !== 'none' && plan.security_notes?.length) {
     plan.security_notes.forEach(n => log(`${logPrefix}  ⚠ ${n}`))
   }
@@ -2587,7 +2811,7 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
 
 // approved leads the object — a caller checking the run's outcome shouldn't
 // have to dig past everything else to find it.
-function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, testScope, envStatus, issuesUnaccounted) {
+function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, testScope, envStatus, issuesUnaccounted, isolation) {
   return {
     approved,
     // Sits beside approved, not in stats, because it qualifies approved: under
@@ -2613,6 +2837,13 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
     record_status: recordStatus || 'skipped',
     record_misplaced: !!recordMisplaced,
     label: ctx.label,
+    // Derived from the VERIFIED isolation object, never from the input flag:
+    // a consumer reads this as "the operator's own tree was not written to",
+    // and a flag says only what was asked for. It cannot read 'worktree'
+    // unless verifyWorktreeProof returned ok. It describes where the pipeline
+    // told the agents to work — where they actually wrote is still only
+    // detected, by verifyAgentLocation, not contained.
+    work_location: isolation ? 'worktree' : 'working_tree',
     worktree_path: plan.worktree_path || null,
     branch: plan.branch || null,
     verdict: finalVerdict,
@@ -2653,10 +2884,13 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
 // at all: `if (r.approved)` is falsy, and `r.approved === false` — the
 // rejected-run test — correctly does not match. `mode` leads as the
 // discriminator.
-function shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx) {
+function shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx, isolation) {
   return {
     mode: 'plan-only',
     label: ctx.label,
+    // Same derivation and the same caveat as shapeResult's — from the verified
+    // object, never from the flag.
+    work_location: isolation ? 'worktree' : 'working_tree',
     worktree_path: plan.worktree_path || null,
     branch: plan.branch || null,
     stats: {
@@ -2701,25 +2935,30 @@ async function runOneFeature(task, ctx) {
       else phase(title)
     }
 
-    // Phase 1: Research (opt-in)
+    // Phase 1: Isolate (isolated/multi-feature runs only)
+    const isolateResult = await phaseIsolate(task, ctx, logStage, logPrefix)
+    if (isolateResult.error) return isolateResult
+    const { isolation } = isolateResult
+
+    // Phase 2: Research (opt-in)
     const { researchReport } = await phaseResearch(task, ctx, logStage, logPrefix)
 
-    // Phase 2: Plan
-    const planResult = await phasePlan(task, ctx, researchReport, logStage, logPrefix)
+    // Phase 3: Plan
+    const planResult = await phasePlan(task, ctx, researchReport, isolation, logStage, logPrefix)
     if (planResult.error) return planResult
     const { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK, scopedTests } = planResult
 
-    // Phase 3: Security
+    // Phase 4: Security
     const { securityReport, SECURITY_BLOCK } = await phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY, logStage, logPrefix)
 
     if (PLAN_ONLY) {
       log(`${logPrefix}⏹ Plan-only run — stopped after Plan${securityReport ? ' + Security' : ''} on purpose. No code was written, no review ran, nothing was recorded.`)
       renderSplitPaste(plan.sizing).forEach(line => log(`${logPrefix}${line}`))
       if (plan.sizing?.fits_one_run !== false) log(`${logPrefix}The Planner rated this as one run — re-issue the same task without planOnly to implement it.`)
-      return shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx)
+      return shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx, isolation)
     }
 
-    // Phase 4: Code + Review
+    // Phase 5: Code + Review
     const reviewResult = await phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix, scopedTests)
     if (reviewResult.error) return reviewResult
     const { finalVerdict: rawFinalVerdict, iteration, downgraded } = reviewResult
@@ -2756,7 +2995,7 @@ async function runOneFeature(task, ctx) {
     }
     const finalVerdict = approved ? suiteMarked : markEnvUnreproducible(suiteMarked, envStatus)
 
-    // Phase 5: Record
+    // Phase 6: Record
     const { recordMisplaced, recordStatus } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded)
 
     // Unlike markFullSuite, this cannot be applied before Record — the fact it
@@ -2764,8 +3003,8 @@ async function runOneFeature(task, ctx) {
     // recomputed from the result.
     const recordMarked = markRecordFailed(finalVerdict, recordStatus)
 
-    // Phase 6: Shape result
-    return shapeResult(approved, plan, researchReport, securityReport, recordMarked, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, scopedTests?.mode || 'full', envStatus, reviewResult.issuesUnaccounted)
+    // Phase 7: Shape result
+    return shapeResult(approved, plan, researchReport, securityReport, recordMarked, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, scopedTests?.mode || 'full', envStatus, reviewResult.issuesUnaccounted, isolation)
   } catch (err) {
     // A thrown error inside one feature must not abort siblings running under
     // parallel() — return a failure shape instead of letting it propagate.
@@ -2787,7 +3026,9 @@ try {
 
 if (tasksList) {
   // Parallel multi-feature mode. Each feature gets its own git worktree, created
-  // by that feature's Planner (the workflow script has no filesystem access).
+  // by its own Isolate phase (the workflow script has no filesystem access, so
+  // an agent still runs the command — but the orchestrator verifies the result
+  // instead of believing the report).
   // Cost and merge-conflict handling are accepted trade-offs, not solved here —
   // this is comparable to N developers on N branches; conflicts are routine at
   // merge time, not something the orchestrator resolves.
@@ -2795,7 +3036,7 @@ if (tasksList) {
     log(`⚠ ${tasksList.length} features requested, exceeds maxParallelFeatures (${MAX_PARALLEL_FEATURES}) — likely unintentional, but proceeding.`)
   }
 
-  log(`Multi-feature run: ${tasksList.length} feature(s), each isolated in its own git worktree.`)
+  log(`Multi-feature run: ${tasksList.length} feature(s), each isolated in its own git worktree — created and verified before planning starts.`)
   tasksList.forEach((t, i) => log(`  [${t.label}] ${t.task.slice(0, 100)}${t.task.length > 100 ? '...' : ''}`))
 
   const results = await parallel(tasksList.map((t, i) => () => runOneFeature(t.task, {
@@ -2893,7 +3134,7 @@ if (!singleTask) {
 // operator may also be editing, and nothing but memory prevents a collision.
 if (args?.isolate) {
   const label = slugify(singleTask, 'task')
-  log(`Isolated run: the pipeline will work in its own git worktree, not this working tree.`)
+  log(`Isolated run: the pipeline will work in its own git worktree, not this working tree. The worktree is created and verified first — the run fails rather than falling back to this tree.`)
   return await runOneFeature(singleTask, {
     index: 0,
     total: 1,
