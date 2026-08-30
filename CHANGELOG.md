@@ -5,6 +5,137 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.35.0] — 2026-08-30
+
+### Added
+
+- **An Isolate phase that creates the worktree and proves it exists, before any
+  other agent runs.** `isolate: true` and `args.tasks` both promise the
+  operator's own working tree will not be written to, and until now the only
+  thing behind that promise was prose asking the *Planner* to run
+  `git worktree add` as a side task while it planned, plus a gate that checked
+  two model-authored strings were non-empty. Issue #12 measured what that is
+  worth with a control pair: two runs in the same session, the same
+  `isolate: true` flag — run A, whose task prose did not happen to mention a
+  worktree, edited the main tree directly (27 files, 1678 insertions, mtimes
+  advancing live); run B, whose task prose had the `git worktree add` command
+  hand-written into it, got a worktree. A Planner that skipped the step and
+  reported a plausible path passed the gate; every later agent then received an
+  `## ISOLATION` block naming a directory that did not exist, the `cd` failed,
+  and they worked in the operator's tree with nothing logged. This is the third
+  time a prompt-level instruction has lost to an omission in this pipeline (the
+  Recorder's worktree writes, the Reviewer's location report, now this), so the
+  fix is the same one that worked there: move the job out of a bigger prompt
+  into one agent whose only job it is, and have the orchestrator check the
+  result instead of reading a claim.
+
+  The new `agents/isolator.md` holds Bash and nothing else, and reports four
+  independent git outputs: `git rev-parse --show-toplevel`,
+  `--absolute-git-dir`, `git symbolic-ref --short HEAD` and `git rev-parse HEAD`
+  run from **inside** the new directory, plus verbatim
+  `git worktree list --porcelain` and the main checkout's HEAD captured before
+  the add. `verifyWorktreeProof()` cross-checks them in the orchestrator, pure
+  and with a distinct reason string per check. The decisive one is structural: a
+  linked worktree's `--absolute-git-dir` is `<root>/.git/worktrees/<name>` while
+  a main checkout returns `<root>/.git`, so the observed failure — an agent that
+  created nothing and ran the commands where it stood — cannot produce a passing
+  proof no matter how it words its report. `head_sha === base_head` separates a
+  branch created fresh with `-b` from one adopted via `-B`, a bare branch
+  argument, or git's DWIM checkout of an existing remote-tracking `ldo/<slug>`;
+  all of those pass every other check with entirely honest outputs.
+
+  **What this does not claim.** These are orthogonal consistency checks, not
+  cryptographic proof: a model that deliberately fabricates four mutually
+  consistent git outputs still passes. That is a different failure mode from the
+  one issue #12 observed, which was omission — and omission cannot fake the
+  git-dir shape. Agent *location* likewise remains detected, not contained:
+  `verifyAgentLocation` still compares self-reports, and the Planner and Reviewer
+  both hold Bash, so the worktree can be moved after the proof. What changed is
+  what those self-reports are compared *against* — an orchestrator-verified path
+  rather than the Planner's own claim.
+
+  A failed proof aborts the feature before the Planner runs and returns an
+  explicit error, rather than falling through to a working-tree run: isolation
+  that cannot be obtained costs one run, never a dirty tree.
+
+- **`work_location` on the result object** — `'worktree'` or `'working_tree'`,
+  derived from the verified isolation object and not from the input flag, so it
+  cannot read `'worktree'` unless `verifyWorktreeProof` returned ok. `worktree_path`
+  and `branch` now carry the verified values too. A consumer can tell an isolated
+  run from a working-tree one without reading the log.
+
+- **`scripts/check-isolation.sh`, a ninth gate.** Drives the real
+  `verifyWorktreeProof` and `parseWorktreeList`, brace-extracted from
+  `workflows/ldo.js`, against `scripts/fixtures/worktree-proof.json` — genuine
+  `git worktree add` output with only the repository root rewritten to a
+  synthetic `/srv/repo`. A CONTROL asserts a real proof still verifies (a checker
+  that rejects everything aborts every isolated run and is not a fix), then one
+  separately named assertion per defect shape, each checked for its own reason
+  string. Two source-level assertions cover the failure the behavioural ones
+  structurally cannot see: `phaseIsolate` must reference `verifyWorktreeProof`,
+  and `runOneFeature` must call `phaseIsolate` before `phasePlan` — a mechanism
+  that exists but is never invoked is exactly the defect being fixed. Revert-proof:
+  `git show HEAD:workflows/ldo.js > /tmp/pre.js && bash scripts/check-isolation.sh . /tmp/pre.js`
+  exits non-zero naming `verifyWorktreeProof: not found` and
+  `phaseIsolate at -1, phasePlan at 579`.
+
+### Fixed
+
+- **The isolator cannot recover from a collision destructively.** An agent with
+  unrestricted Bash whose single job is "make the worktree exist" reaches for
+  `git worktree remove --force`, `prune`, `add -B` or `git branch -D` when `add`
+  fails — and a worktree obtained by destroying a sibling run's produces a proof
+  that passes every check while costing that run all of its work. Both the
+  isolator's prompt and `agents/isolator.md` carry an explicit deny-list covering
+  those, `rm -rf`, anything with `--force`, and every remote or credential
+  operation. Only additive creation with a fresh `-2`..`-5` suffix is allowed; if
+  all five are taken the run aborts and the log names the prune commands.
+
+- **The worktree path and branch are validated by path segment, not by character
+  class.** Both are interpolated into the `## ISOLATION` block that is prepended
+  to every Planner, Security, Coder, Reviewer and Recorder prompt for the rest of
+  the run, so they get the same treatment `migrations.directory` already gets:
+  `safeWorktreePath` strips the fixed `.worktrees/` prefix and hands the
+  remainder to `safeMigrationsDir` itself, rather than growing a second, weaker
+  copy of the same rules — a character class alone calls `.worktrees/-rf` and
+  `.worktrees/..` well-formed, and two validators for one class of value drift
+  apart. Both fields are length-bounded before any regex runs, the porcelain
+  listing is capped at 64KB and 200 entries, and the listing is evidence consumed
+  once inside `verifyWorktreeProof` — never stored on the result, never forwarded
+  to another agent, never logged, because it is the absolute path and branch of
+  every worktree on the operator's machine including unrelated projects.
+
+- **`parseWorktreeList` never splits porcelain on whitespace and never assumes
+  line order.** A worktree path may contain a space; a block's `worktree` line is
+  not guaranteed first, and real blocks also carry `HEAD`, `bare`, `detached`,
+  `locked` and `prunable` lines. Every line of a block is scanned with an explicit
+  `startsWith` guard, a block with no `worktree` line is skipped rather than
+  sliced blindly into a mangled path, and a `bare` entry — which has no working
+  tree and so can never be the one being proven — is dropped.
+
+### Fixed (by hand, after the review)
+
+- **`safeMigrationsDir` rejects an empty path segment.** `a//b` passed: the
+  per-segment rules test `..`, a leading `.` and a leading `-`, and
+  `''.startsWith('.')` is false, so an empty segment fell between them. Shared
+  with `safeWorktreePath`, so the isolation proof accepted a fully consistent
+  `.worktrees/a//b`. Reachable only by fabrication — no real `git rev-parse
+  --show-toplevel` emits `//` — which is precisely the input class these
+  validators exist for. One line, both consumers.
+
+- **`scripts/vendor.sh` no longer exits 1 on every successful run.** Its
+  post-transform guard greps the vendored `ldo.js` for any remaining `ldo:`,
+  and tripped on three log lines containing the workflow NAME `ldo:ldo` — for
+  three versions, while the vendoring itself worked. The review proposed
+  narrowing the guard to `agentType: 'ldo:`. Rejected: that silences the check
+  instead of fixing what it found. Those three lines tell an operator how to
+  launch or resume a run, and a vendored install runs bare `ldo`, so each one
+  handed the operator a workflow name that does not resolve — at exactly the
+  moment they are recovering a dead run. The transform now rewrites
+  `name:"ldo:ldo"` too, the way step 3 already did for skills, and the guard
+  stays broad: it is the check that noticed, and a tool reporting failure on
+  every successful run teaches its operator to stop reading exit codes.
+
 ## [2.34.1] — 2026-08-30
 
 ### Added
