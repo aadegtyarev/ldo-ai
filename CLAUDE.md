@@ -96,5 +96,6 @@ the list. Offer; don't run either unasked.
 - contract text in plan.risks is capped per line and per block before every fix pass
 - planner/reviewer/security enumerate docs/contracts/ instead of three hardcoded names
 - /ldo-docs-audit splits readable claims from behavioural ones and proposes tests for what it must not run
+- check-redact.sh pipes real text through the real redact.sh — a green self-test is not the gate working
 <!-- /ldo:features -->
 <!-- END ldo -->

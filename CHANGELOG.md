@@ -5,6 +5,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.34.1] — 2026-08-30
+
+### Added
+
+- **`scripts/check-redact.sh` — an eighth gate that pipes real text through the
+  real `scripts/redact.sh`** and asserts on what comes out. The redaction gate
+  has now failed twice the same way, and both times a green `--self-test`
+  licensed it: issue #2 (the wrapper embedded the program in a `python3 - <<'PY'`
+  heredoc, so python read its source from stdin and `sys.stdin.read()` returned
+  `''` — pipe mode emitted nothing while the self-test, which never touches
+  stdin, reported every case `ok`) and issue #13, which re-raised it. The
+  self-test already drives `redact_stdin` with a fake stdin, which is necessary
+  and not sufficient: an in-process test of the Python program cannot see the
+  wrapper, so re-adding a heredoc to `redact.sh` would break the documented
+  `redact.sh < input.txt` and leave that self-test green. Five assertions, three
+  of them controls: a secret piped in comes back redacted and **non-empty**;
+  benign prose passes through unchanged; a three-line body stays three lines;
+  redaction is idempotent, which is what makes `/ldo-feedback`'s pre-publish
+  proof meaningful — and that one rejects two empty strings rather than letting
+  them satisfy equality; and the self-test still passes, checked last so it can
+  never be the only thing that ran. Revert-proven against the real 2.22.0 copy
+  still in the plugin cache: four assertions fail and the self-test goes green
+  beside them, which is the shape the issue was reporting.
+
+  On issue #13 itself, measured rather than assumed: its premise does not hold
+  here. The 2.32.0 plugin cache **does** ship `scripts/`, and its `redact.sh`
+  redacts correctly through a pipe — the wrapper defect was fixed for #2 and
+  stayed fixed. What was real is the resolution: the skill named a bare relative
+  `scripts/redact.sh`, which is how a three-versions-old copy came to be the one
+  that ran. That is already fixed in 2.33.0, which requires
+  `${CLAUDE_PLUGIN_ROOT}/scripts/redact.sh` and refuses to file at all when the
+  gate cannot be resolved from the plugin root.
+
 ## [2.34.0] — 2026-08-30
 
 Everything here comes from operator field report #4 — a heavy user running
