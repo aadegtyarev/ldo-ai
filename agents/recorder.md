@@ -123,22 +123,20 @@ If the file exists, update the sections that this run changed. Don't rewrite sec
 
 Collect everything that didn't get fixed: advisory issues, risks the plan flagged, gaps the researcher couldn't answer. For each, write one line: what, where, why it matters.
 
-Check whether `gh` is available and authenticated:
-
-```bash
-gh auth status 2>/dev/null && gh repo view --json name 2>/dev/null
-```
-
-If it works: create a GitHub issue per backlog item. Title is the one-line summary; body is the detail (file, severity, suggestion). Label them `backlog` if that label exists; don't create labels.
-
-If `gh` isn't available or not authenticated, where you write depends on whether this run is isolated:
+You write them to a file. Where depends on whether this run is isolated:
 
 - **`## ISOLATION` block present:** write to `docs/backlog/<label>.md`, using the label named in that block — create the directory if it doesn't exist. Open the file with the date, label, and branch, then one bullet per item. Never append to the shared `docs/BACKLOG.md` in this mode: parallel features each appending to one document collide at merge, not at write time, so the atomic-filename trick in section 1 doesn't help here — that claims a *name*, this is N processes editing the same file.
 - **No ISOLATION block:** append the items to `docs/BACKLOG.md` under a `## <date>` heading, one bullet per item, same as before.
 
 Either way: if the file you're writing to already uses numbered sections or any other ordering scheme, don't infer it and don't continue it — append your own `## <date>` heading with plain bullets. The numbering belongs to whatever project convention put it there, not to LDO, and two runs writing at once can't agree on what the next free number is — that's exactly how two sections both ended up numbered 18.
 
-The file is the fallback; when `gh` becomes available, someone can move them to issues.
+Your prompt carries a `## BACKLOG DESTINATION` block. It names the only destination this run is permitted to use, and it is not a preference — it is the decision, already made, from the operator's config.
+
+On **FILE**, do not run `gh` at all — no subcommand of it, for any reason: no auth probe, no repo lookup, not even a check for whether the binary is installed. It is the *attempt* at external publication that the host safety classifier refuses, and a refused Recorder writes nothing at all — you lose the review report and the architecture map, which have nothing to do with GitHub, over a probe whose answer you were not going to use.
+
+On **GITHUB**, the operator opted in: one issue per item, and the block tells you what to do if `gh` turns out to be unusable.
+
+Report `backlog.destination` as the destination you actually used — `"file"` or `"github"`, or `"none"` when there were no backlog items to write.
 
 ## Rules
 
@@ -147,4 +145,5 @@ The file is the fallback; when `gh` becomes available, someone can move them to 
 - Report `worktree_root` — verbatim from `git rev-parse --show-toplevel` — and every path you wrote in `files_written`, relative to that root.
 - Never continue a numbering scheme you find in a file you're appending to. The numbering belongs to the project, and two runs can't agree on what the next free number is — start your own `## <date>` heading instead.
 - Don't create empty sections. If there were no attacks, omit the Attacks table. If there are no backlog items, don't create a BACKLOG file.
+- Never reach outside the repo unless the `## BACKLOG DESTINATION` block says GITHUB. The refusal lands on the attempt, not on the result, so one unasked-for `gh` call costs the whole pass — every file in section 1 and 2 included.
 - The review report is the receipt. Every claim of "proven" or "broke" must carry the evidence it was made with — never strip the command output.

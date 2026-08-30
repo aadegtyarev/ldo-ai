@@ -43,24 +43,37 @@ For the one case this project has actually hit repeatedly — the model-routing 
 
 ## How to verify
 
-Don't report from reading alone. For every claim that can be checked, check it:
+**Reading cannot falsify a behavioural claim.** Reading tells you what the code intends; a claim about what a command *does* is only settled by the command doing it. So split the claims in two before you start, and be honest about which pile each one lands in — an audit that reports "verified" from reading alone is asserting exactly the thing it was asked to check.
+
+**Readable — settle these by reading, and they are genuinely settled:**
 
 - A documented command — does it exist, spelled that way?
 - A stated default — does it match the code?
 - A file path — does it exist and do what's claimed?
 - An anchor link — does the heading exist?
-- A described behaviour — does the code do that?
+- A function signature — is it that shape?
 
-A finding backed by "README says X, the code does Y at file:line" is actionable. "This section feels outdated" is not.
+**Behavioural — reading answers these only in intent:**
+
+- What a documented command actually does to the host when it runs — what it writes, what it starts, how long it takes.
+- What a script's stated assumptions about where state lives are worth: the doc says it reads `~/.claude`, but the environment sets `CLAUDE_CONFIG_DIR` and the path resolves elsewhere.
+- Whether a log line's or an error's assertion about the result is true — "wrote N files", "nothing to do" — as opposed to merely present in the source.
+
+**The safety boundary.** Execute only what is cheap, reproducible and side-effect-free: `--help`, `--version`, `--dry-run`, a read-only query, a pure function driven over a fixture, a gate script that only reads. Do **not** run anything that writes files, deletes anything, restarts a service, spawns workers or subprocesses at scale, makes a network call, or takes real time. A documented test command that spawns one worker per core is precisely the claim an audit must not check by running it — the audit is supposed to cost less than the thing it audits.
+
+For anything on that list, don't run it and don't report it as verified either. Say what executing it *would* prove, and propose the test instead: name the assertion, where it would live (which gate script, or a new one), and what it would compare against what. A proposed test is a finding; a guess dressed as a check is not.
+
+A finding backed by "README says X, the code does Y at file:line" is actionable. "This section feels outdated" is not. And "README says X; proving it needs a run that starts a database, so here is the assertion that would prove it" is honest — report it under the behavioural line in the output below rather than quietly counting it as checked.
 
 ## Output
 
 Order by what would hurt a reader most:
 
 1. **Silent-failure traps** — following the docs produces no error and no effect
-2. **Contradictions and stale claims** — the docs are wrong about the code
-3. **Unanswerable questions** — what a newcomer needs and can't find
-4. **Structure and clarity** — ordering, jargon, over-explanation
+2. **Behavioural claims that could not be executed** — what the doc asserts, why running it was off limits, and the test that would settle it. Ranked here because it is the same species as the line above: an unverified behavioural claim is a silent-failure trap nobody has walked into yet, and the only difference is that this one is still unfalsified rather than already false
+3. **Contradictions and stale claims** — the docs are wrong about the code
+4. **Unanswerable questions** — what a newcomer needs and can't find
+5. **Structure and clarity** — ordering, jargon, over-explanation
 
 For each: quote the exact line, say what's wrong, and give the correction. Where a fix is a rewrite, write the replacement text.
 

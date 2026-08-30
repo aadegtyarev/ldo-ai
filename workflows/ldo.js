@@ -261,7 +261,7 @@ const RECORD_SCHEMA = {
     backlog: {
       type: 'object',
       properties: {
-        destination: { type: 'string', enum: ['github', 'file'] },
+        destination: { type: 'string', enum: ['file', 'github', 'none'], description: 'Where items actually went — must match the BACKLOG DESTINATION block in the prompt; "none" means there were no backlog items' },
         file: { type: 'string' },
         count: { type: 'number' },
       },
@@ -476,6 +476,28 @@ function renderMigrations(plan) {
 // violation the Coder cannot see the rule for. Separate from renderPlan for
 // the same reason renderMigrations is: the fix passes must not pay for the
 // full plan.
+//
+// The risks block is the one place in the pipeline where a host project's own
+// file text is re-sent on a schedule: the Planner copies contract entries into
+// `risks` verbatim, and this block is quoted into BOTH the Coder fix prompt and
+// the Reviewer fix prompt, on every pass, up to MAX_FIX_LOOPS. Field report #4
+// measured a host contracts directory at 94 KB across five files, one of them
+// 59 KB, against a documented per-entry limit of 200 characters (see
+// /ldo-contract) that nothing measures — so a single non-compliant entry is
+// paid for six times over.
+// Capped per line AND per block because those are different shapes and either
+// cap alone leaves the other open: one 59 KB line survives any list cap, and
+// forty compliant lines survive any length cap. A compliant entry is at or
+// under PROMPT_TEXT_MAX and passes through byte-identical, so the cap is only
+// ever visible on an entry that already broke the documented rule — and it is
+// visible, by marker and by log line, rather than silently shortened.
+// collapseLines is doing a second job here beyond length: `risks` is
+// model-authored text that came out of a file in someone else's repo, so an
+// entry beginning `## ISSUES` or carrying a `\r` would otherwise forge a
+// section header in two agents' prompts.
+// The acceptance block above is deliberately NOT capped: a dropped criterion
+// silently weakens the gate that block exists to hold, and steps are already
+// soft-capped upstream.
 function renderConstraints(plan) {
   const lines = []
   const withAcceptance = (plan.steps || []).filter(s => s.acceptance)
@@ -483,9 +505,17 @@ function renderConstraints(plan) {
     lines.push('', '### Acceptance criteria (from the plan — unchanged by a fix pass)')
     withAcceptance.forEach((s, i) => lines.push(`${i + 1}. ${s.what} — ${s.acceptance}`))
   }
-  if (plan.risks?.length) {
+  const risks = plan.risks?.length ? plan.risks : []
+  if (risks.length) {
+    const truncated = risks.filter(r => String(r ?? '').length > PROMPT_TEXT_MAX).length
+    const dropped = Math.max(0, risks.length - RENDER_LIST_MAX)
+    // The host-side signal. scripts/check-contracts.sh measures this repo's own
+    // contracts, but the workflow has no filesystem access and cannot audit the
+    // host project's — this line is the only place an operator learns that
+    // their contract entries are over the limit they were told to write to.
+    if (truncated || dropped) log(`⚠ Plan risks trimmed for the fix-pass prompts: ${truncated} entry(ies) over ${PROMPT_TEXT_MAX} chars truncated, ${dropped} beyond the first ${RENDER_LIST_MAX} dropped. Contract entries are meant to fit ${PROMPT_TEXT_MAX} chars — see /ldo-contract.`)
     lines.push('', '### Risks and project contracts (verbatim from the plan)')
-    plan.risks.forEach(r => lines.push(`- ${r}`))
+    capList(risks.map(r => `- ${collapseLines(r)}`)).forEach(l => lines.push(l))
   }
   return lines.join('\n')
 }
@@ -1096,6 +1126,24 @@ function markFullSuite(verdict, status) {
   }
 }
 
+// Same contract as markFullSuite — annotates, never blocks, reference-identical
+// on the no-op path so a call site can't read it as having fired — but applied
+// at the opposite end of the run, and that asymmetry is the point. markFullSuite
+// runs BEFORE phaseRecord so its sentence reaches the persisted review report;
+// this one can only run after, and there is nothing to persist it into: the
+// whole reason it fires is that no report was written. So the returned object
+// is the only place an operator can learn it, which is why the sentence spells
+// out which three artifacts are missing rather than just naming the status.
+// `approved` is computed upstream from the suite-marked verdict and must not be
+// recomputed from this one — a failed Recorder says nothing about the code.
+function markRecordFailed(verdict, recordStatus) {
+  if (recordStatus !== 'failed') return verdict
+  return {
+    ...verdict,
+    summary: `${verdict.summary}\n\nRECORD NOT PERSISTED — the Recorder returned nothing; the review report, architecture doc and backlog for this run were not written. The verdict above is unchanged.`,
+  }
+}
+
 // A fresh worktree brings nothing gitignored with it — no .venv, no
 // node_modules, no .env — so a Coder rebuilds the environment from whatever
 // install command it can find, and the most obvious command is often not the
@@ -1695,6 +1743,57 @@ if (TESTS_CONFIG.fullSuiteAt !== undefined) {
 for (const key of Object.keys(TESTS_CONFIG)) {
   if (!['scope', 'fullSuiteAt'].includes(key)) log(`⚠ config.tests.${key} is not a known key — ignored. Keys: scope, fullSuiteAt`)
 }
+
+// Where backlog items go. The default is the file, and GitHub is opt-in,
+// because publishing to an external service is a capability the host safety
+// classifier refuses on the operator's behalf — and it refuses the ATTEMPT,
+// not the publication. A Recorder told to probe `gh auth status` and fall back
+// is therefore not a Recorder with a fallback: field report #4 measured three
+// runs in one session where that first command ended the agent, so the review
+// report and architecture doc — the artifacts the phase exists for, neither of
+// which has anything to do with GitHub — were never written either. Hence a
+// resolved directive rendered into the prompt rather than a choice left to the
+// agent: on 'file' it must not run `gh` at all, not even to see whether it
+// could.
+// Resolved once at module scope, validated against an allowlist, and never
+// rendered raw — same shape and same reasons as TESTS_CONFIG above.
+const BACKLOG_DESTINATIONS = ['file', 'github']
+const DEFAULT_BACKLOG_DESTINATION = 'file'
+const BACKLOG_KEYS = ['destination']
+function resolveBacklogDestination(cfg) {
+  const c = cfg || {}
+  const warnings = []
+  let destination = DEFAULT_BACKLOG_DESTINATION
+  if (c.destination !== undefined) {
+    if (BACKLOG_DESTINATIONS.includes(c.destination)) destination = c.destination
+    else warnings.push(`config.backlog.destination is invalid (${JSON.stringify(c.destination)}) — expected ${BACKLOG_DESTINATIONS.join('|')}. Keeping default ${DEFAULT_BACKLOG_DESTINATION}`)
+  }
+  for (const key of Object.keys(c)) {
+    if (!BACKLOG_KEYS.includes(key)) warnings.push(`config.backlog.${key} is not a known key — ignored. Keys: ${BACKLOG_KEYS.join(', ')}`)
+  }
+  return { destination, warnings }
+}
+const { destination: BACKLOG_DESTINATION, warnings: BACKLOG_WARNINGS } = resolveBacklogDestination(CONFIG.backlog)
+BACKLOG_WARNINGS.forEach(w => log(`⚠ ${w}`))
+
+// The directive is a prompt block rather than a flag the agent interprets, for
+// the same reason renderFullSuiteDirective is one: agents/recorder.md has to
+// hold for both settings at once, so the run-specific half — which of the two
+// destinations is permitted THIS run — can only come from here. The 'file'
+// text forbids the probe explicitly; "prefer the file" would leave a Recorder
+// free to check first, which is the exact command that ends it.
+const BACKLOG_DIRECTIVES = {
+  file: `## BACKLOG DESTINATION — FILE\nBacklog items go to the file convention in your agent definition. Do NOT run \`gh\`. Do not run \`gh auth status\`, do not check whether \`gh\` exists, and do not create a GitHub issue: publishing to GitHub is opt-in and is not enabled for this project, and the attempt itself — not the publication — is what gets a Recorder refused, which loses the review report and architecture doc too. Report \`backlog.destination: "file"\`.\n\n`,
+  github: `## BACKLOG DESTINATION — GITHUB\nThe operator opted in via \`config.backlog.destination: "github"\`. Create one GitHub issue per backlog item. Apply the label \`backlog\` only if that label already exists in the repo — do not create it. Check first with \`gh issue list --repo <this repo> --limit 1\` — a listing that returns, even an empty one, proves \`gh\` runs, is authorized for this repo, AND that issues are enabled on it. Do not probe with \`gh auth status\`: it has been measured failing on a machine where \`gh\` was alive and authorized, and it cannot see whether issues are enabled at all. If that listing fails, fall back to the file convention in your agent definition, report \`backlog.destination: "file"\`, and say in \`notes\` what the listing reported.\n\n`,
+}
+// `Object.hasOwn`, not `[destination] || default`: a plain object literal
+// inherits `constructor`, `toString` and friends, so a bare lookup on one of
+// those names returns an inherited FUNCTION and the fallback never fires —
+// the prompt would then carry a stringified function where the destination
+// rule belongs. Unreachable from the only call site today, which passes the
+// already-validated BACKLOG_DESTINATION; the fallback exists for the caller
+// that doesn't validate, which is exactly the one that would hit this.
+const renderBacklogDirective = destination => Object.hasOwn(BACKLOG_DIRECTIVES, destination) ? BACKLOG_DIRECTIVES[destination] : BACKLOG_DIRECTIVES[DEFAULT_BACKLOG_DESTINATION]
 
 // Merged once at module scope, not per routeModels() call: routeModels runs
 // twice per feature and N times in a multi-feature run, so warning inside it
@@ -2422,7 +2521,7 @@ ${(finalVerdict.resolved_issues || []).map(iss => `[${oneLine(iss.severity)}] ${
     : `## ISSUES
 All: ${(finalVerdict.issues || []).map(renderIssue).join('; ') || 'none'}`
 
-  const recordPrompt = WORKTREE_BLOCK + `${opening}
+  const recordPrompt = WORKTREE_BLOCK + renderBacklogDirective(BACKLOG_DESTINATION) + `${opening}
 
 ## TASK
 ${task}
@@ -2454,12 +2553,26 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
   })
 
   if (!recordResult) {
-    log(`${logPrefix}⚠ Recorder returned nothing — artifacts not persisted.`)
+    // Named per artifact, not as "artifacts": the review report and the
+    // architecture doc are the expensive losses and neither is about the
+    // backlog, so an operator reading only "Record failed" has no way to know
+    // the run's evidence went with it. The verdict line is here because the
+    // two are unrelated — a dead Recorder is not a rejection.
+    log(`${logPrefix}⚠ Recorder returned nothing — the review report, architecture doc and backlog were NOT written. The run's verdict above stands; only the persisted artifacts are missing.`)
     return { recordMisplaced: false, recordStatus: 'failed' }
   }
 
   const files = recordResult.files_written || []
   log(`${logPrefix}Record: wrote ${files.join(', ') || '(nothing reported)'}${recordResult.backlog?.destination ? ` — backlog → ${recordResult.backlog.destination}` : ''}`)
+
+  // The directive above permits exactly one destination, so a Recorder
+  // reporting the other one either ignored it or reached a service the
+  // operator did not opt into. Non-blocking — the artifacts exist and the
+  // verdict is unaffected — but it is the only signal that something was
+  // published, and an issue cannot be un-filed.
+  if (BACKLOG_DESTINATION === 'file' && recordResult.backlog?.destination === 'github') {
+    log(`${logPrefix}⚠ Recorder reported backlog → github, which config.backlog.destination 'file' does not permit — check what it published`)
+  }
 
   const misplaced = verifyRecordLocation(recordResult, plan, ctx)
   if (misplaced) {
@@ -2646,8 +2759,13 @@ async function runOneFeature(task, ctx) {
     // Phase 5: Record
     const { recordMisplaced, recordStatus } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded)
 
+    // Unlike markFullSuite, this cannot be applied before Record — the fact it
+    // reports is Record's outcome. `approved` above is deliberately not
+    // recomputed from the result.
+    const recordMarked = markRecordFailed(finalVerdict, recordStatus)
+
     // Phase 6: Shape result
-    return shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, scopedTests?.mode || 'full', envStatus, reviewResult.issuesUnaccounted)
+    return shapeResult(approved, plan, researchReport, securityReport, recordMarked, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, scopedTests?.mode || 'full', envStatus, reviewResult.issuesUnaccounted)
   } catch (err) {
     // A thrown error inside one feature must not abort siblings running under
     // parallel() — return a failure shape instead of letting it propagate.
@@ -2755,7 +2873,18 @@ const singleTask = args?.task || (typeof args === 'string' ? args : null)
 
 if (!singleTask) {
   log('ERROR: No task provided. Workflow({name:"ldo:ldo", args:{task:"..."}}) or {tasks:[...]} for parallel features.')
-  return { error: 'No task provided' }
+  // A resume lands here far more often than a genuine typo does, and it lands
+  // here silently: a running workflow receives `args` and nothing else — it is
+  // never told its own runId — so it structurally cannot read
+  // .claude/ldo-args/<runId>.json on the operator's behalf and reconstruct
+  // what it was asked to do. Some harness builds print a completion line
+  // suggesting `Workflow({scriptPath, resumeFromRunId})` with no args at all;
+  // followed literally, that returns in milliseconds having spawned zero
+  // agents, which reads as a resume that found nothing to do rather than as a
+  // call that was never given a task. Naming it here is the only place the
+  // operator can learn it, so the error teaches the fix.
+  log('ERROR: If you meant to RESUME a run, resumeFromRunId alone is a no-op — a running workflow only ever sees `args` and never learns its own runId, so it cannot look your arguments up for you. Pass the ORIGINAL args alongside it: Workflow({name:"ldo:ldo", args:<the object from .claude/ldo-args/<runId>.json>, resumeFromRunId:"<runId>"}). A run recorded per /ldo-resume already has that file on disk.')
+  return { error: 'No task provided. If this was a resume, resumeFromRunId alone is a no-op — pass the original args from .claude/ldo-args/<runId>.json alongside it, because the workflow never learns its own runId and cannot look them up.' }
 }
 
 // isolate: true runs the single task through the same worktree machinery the

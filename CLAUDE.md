@@ -90,5 +90,11 @@ the list. Offer; don't run either unasked.
 - env_status ok|unknown|unreproducible says when a rejection may be about the environment, not the code
 - /ldo-feedback posts the body from a file and reads the issue back — #5-#8 were filed empty
 - /ldo-ship posts the PR body from a file and reads it back; gh reports success on a lost body
+- backlog goes to a file by default; config.backlog.destination "github" is the opt-in
+- a failed Record appends RECORD NOT PERSISTED to the verdict summary
+- the no-task error names the resume case: resumeFromRunId without args is a no-op
+- contract text in plan.risks is capped per line and per block before every fix pass
+- planner/reviewer/security enumerate docs/contracts/ instead of three hardcoded names
+- /ldo-docs-audit splits readable claims from behavioural ones and proposes tests for what it must not run
 <!-- /ldo:features -->
 <!-- END ldo -->
