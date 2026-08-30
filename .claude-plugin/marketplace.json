@@ -7,7 +7,7 @@
   },
   "metadata": {
     "description": "LDO — Lightweight Dev Orchestrator. Single-plugin marketplace.",
-    "version": "2.33.1"
+    "version": "2.34.0"
   },
   "plugins": [
     {
@@ -21,7 +21,7 @@
       "author": {
         "name": "Alexander Degtyarev"
       },
-      "version": "2.33.1",
+      "version": "2.34.0",
       "category": "orchestration",
       "keywords": [
         "orchestration",
@@ -32,5 +32,5 @@
       ]
     }
   ],
-  "version": "2.33.1"
+  "version": "2.34.0"
 }

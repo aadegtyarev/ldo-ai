@@ -21,13 +21,15 @@ Read to answer the task, not to catalogue the repo. A one-line fix needs one fil
 
 ### 1.5. Check project contracts — only if `docs/contracts/` exists
 
-Contracts are rules the operator decided, not conventions you'd infer from the code. If the directory exists:
+Contracts are rules the operator decided, not conventions you'd infer from the code. If the directory exists, **list it first** — `ls docs/contracts/` — and treat what is actually there as the set. A project is free to name a contract `data.md` or `ops.md`, and a file nothing ever asks about is indistinguishable from a file that does not exist. The three names below are guidance for files that carry those names, not a claim about what is in the directory; `scope.md` in particular may simply not be there.
 
 - **Always read `docs/contracts/scope.md`** if present — it's short and decides whether the task should exist in this form at all. If the task conflicts with a stated boundary ("single-user by design", "CLI only, never a network service"), don't silently plan around it — say so in `summary` and either propose the in-scope version or flag it as a risk requiring the operator's decision.
 - **Read `docs/contracts/security.md`** only if the task touches an area that plausibly intersects it — auth, input handling, secrets, network, dependencies. Skip it for a pure rename or a copy change; reading it then would be paying tokens for nothing. If you read it: the "Required" section sets a floor independent of your `security_surface` rating — a floor item applies even to a `trivial` task if the task touches what it governs. The "Accepted" section tells you what's already a closed question — don't re-raise it as a risk.
 - **Read `docs/contracts/code.md`** only if the task adds or changes a structural pattern the file might govern (new process, new external call, new data flow, new logged/observable action). Skip it for isolated bug fixes with no structural surface.
 
-Carry anything relevant into the plan verbatim, not paraphrased — a contract's exact wording is what downstream agents check against. Put security floor items in `security_notes` alongside anything you found yourself; put code contracts in `risks` or as explicit acceptance criteria on the relevant step.
+**For a name none of the three cover:** read it when its name plausibly names an area this task touches. If the name doesn't settle it, read the **first 40 lines only** — a contract file is a flat dated list, so that is enough to see what it governs — and stop there if it doesn't apply. Never read the whole directory by default: a 94 KB contracts directory read on every run is a per-run cost paid for nothing, and that is the measured size of a real one.
+
+Carry anything relevant into the plan verbatim, not paraphrased — a contract's exact wording is what downstream agents check against. Put security floor items in `security_notes` alongside anything you found yourself; put code contracts in `risks` or as explicit acceptance criteria on the relevant step. Quote the rule, not the reasoning around it: an entry far past the documented 200-character limit is truncated with a visible marker when it is carried into `risks`, so the part you leave out is the part the fix pass never sees.
 
 ### 1.7. Name what makes the problem real
 

@@ -49,6 +49,11 @@
     "fullSuiteAt": "final-pass"
   },
 
+  "_backlog_note": "Where the Record phase puts backlog items. The default is 'file' — docs/BACKLOG.md, or docs/backlog/<label>.md in a parallel or isolate:true run — and GitHub is opt-in, which is the inverse of how this used to work. The reason is not preference: the host safety classifier refuses the ATTEMPT at external publication, not its result, so a Recorder that runs even one `gh` probe is ended before it writes anything, and the review report and architecture doc go with it — three runs in one session ended that way with record_status: failed and no artifact at all. On 'file' the Recorder is therefore told not to run `gh` at all, not even to check whether it is available; 'try and fall back' is the failure, not the safety net. Setting 'github' opts in: one issue per backlog item, labelled `backlog` only if that label already exists, and if `gh` turns out to be missing, unauthenticated or refused, the Recorder falls back to the file and says so in its notes. An unrecognised value warns and keeps 'file'.",
+  "backlog": {
+    "destination": "file"
+  },
+
   "_stallMs_note": "Claude Code's stall watchdog counts only tool calls as progress, so an agent composing a large structured output (a long plan, a full verdict) looks identical to a hung one until it's already aborted. Keyed by role, not tier, because output size tracks the schema the role fills, not task complexity. recorder sits at the 180000 harness default on purpose — it writes through tools, so tool_use events keep resetting its clock naturally. Values are MILLISECONDS with a floor of 1000: a seconds/ms mix-up like 480 would abort the role instantly six times in a row, so it's rejected with a warning rather than passed through.",
   "stallMs": {
     "planner": 480000,

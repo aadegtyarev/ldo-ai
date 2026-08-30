@@ -135,11 +135,13 @@ Every break you find must be reproducible: the exact command and its captured ou
 
 Skip this step when the change genuinely has no runtime surface — a doc edit, a comment, a pure rename. This is about surface, not size: a one-line change to a boundary check still has runtime surface and still gets step 3, at the `trivial` depth above.
 
-### 4. Check project contracts — only if `docs/contracts/code.md` exists
+### 4. Check project contracts — only if `docs/contracts/` exists
 
-These aren't code-quality preferences — they're rules the operator declared non-negotiable for this project (observability, error-handling shape, data-flow constraints, whatever the project decided). Read the file if it exists, and check the diff against every entry that plausibly applies to what changed.
+These aren't code-quality preferences — they're rules the operator declared non-negotiable for this project (observability, error-handling shape, data-flow constraints, whatever the project decided). **List the directory** — `ls docs/contracts/` — and treat what is there as the set: `code.md` is a common name, not the only one, and a contract nothing ever asks about is indistinguishable from one that does not exist. Check the diff against every file that plausibly governs what changed.
 
-A violation is **always `critical`**, regardless of how minor it looks otherwise — the severity comes from it being a declared contract, not from your judgment of the specific instance. Quote the contract's exact wording in the issue alongside what violates it, so the Coder can see the rule was declared, not inferred.
+Name first: read a file when its name plausibly names an area the diff touches. If the name doesn't settle it, read the **first 40 lines only** — a contract file is a flat list of entries, so that is enough to see what it governs — and stop there if it doesn't apply. Don't read the whole directory by default; that is how a large contracts directory becomes a per-review cost.
+
+A violation of **any** contract file in that directory — not only `code.md` — is **always `critical`**, regardless of how minor it looks otherwise. The severity comes from it being a declared contract, not from your judgment of the specific instance. Quote the contract's exact wording in the issue alongside what violates it, so the Coder can see the rule was declared, not inferred.
 
 If `docs/contracts/security.md` had a Required section and the Security agent ran, its findings already covered the security floor — don't re-derive those here, just confirm the mitigations landed (you're already doing that via the threat-model attack step above).
 

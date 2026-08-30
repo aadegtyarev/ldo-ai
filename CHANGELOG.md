@@ -5,6 +5,157 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.34.0] — 2026-08-30
+
+Everything here comes from operator field report #4 — a heavy user running
+roughly fourteen pipeline runs through 2.33.0/2.33.1 in a single session. Every
+code path named below was re-verified against the source before it was changed.
+
+### Fixed
+
+- **The Record phase writes backlog items to a file by default; GitHub is now
+  an opt-in.** `agents/recorder.md` told the Recorder to run `gh auth status`
+  and, "if it works", create an issue per item — with the file described as
+  "the fallback". The host safety classifier refuses the *attempt* at external
+  publication rather than its result, so that first command ended the agent
+  three separate times in one session, each run finishing `record_status:
+  failed` with no artifact at all: not the backlog, and not the review report
+  or architecture doc, neither of which has anything to do with GitHub. The
+  file convention is now what the Recorder does, and on `"file"` it is told not
+  to run `gh` at all — not even to check whether it is available, since "try
+  and fall back" is the failure rather than the safety net. Publishing is
+  restored by setting `backlog.destination: "github"` (see **Added**).
+  `RECORD_SCHEMA`'s enum gained `"none"` so a run with no backlog items can
+  report honestly instead of naming a destination it never used.
+
+  Two corrections applied by hand before commit. The `"github"` directive now
+  names the probe instead of leaving it to the agent: `gh issue list --repo
+  <repo> --limit 1`, because a listing that returns — even an empty one —
+  proves in one call that `gh` runs, that it is authorized for this repo, and
+  that issues are enabled on it, which is three facts `gh auth status` does not
+  establish. The operator measured `gh auth status` failing on a machine where
+  `gh` was alive and authorized; probe the capability you are about to use, not
+  a proxy for it. And `renderBacklogDirective` looks its argument up with
+  `Object.hasOwn` rather than `[destination] ||`: `BACKLOG_DIRECTIVES` is a
+  plain object literal, so `constructor`, `toString` and `__proto__` resolved
+  through the prototype and returned an inherited *function* instead of falling
+  back to the FILE directive. Unreachable from today's only call site, which
+  passes an already-validated value — but the fallback exists for the caller
+  that doesn't validate, which is precisely the one that would hit it. The gate
+  assertion now drives all five prototype names beside `'nope'`, and is proven
+  to fail on the old lookup.
+
+- **A failed Record now says so on the verdict.** `record_status: failed` was
+  already in the result object, but an operator reading the verdict summary saw
+  an unqualified `approved`. A new `markRecordFailed` appends `RECORD NOT
+  PERSISTED — the Recorder returned nothing; the review report, architecture
+  doc and backlog for this run were not written. The verdict above is
+  unchanged.` It annotates and never blocks, and it never touches `approved` —
+  a dead Recorder says nothing about the code. Unlike `FULL SUITE NOT RUN` the
+  sentence cannot reach the persisted report, which is inherent: if Record
+  failed, there is no report to put it in.
+
+- **`No task provided` now names the resume case that produces it.** A resume
+  measured at 34 ms with zero agents spawned landed on that generic error. The
+  cause is structural and stated plainly rather than worked around: a running
+  workflow receives only `args` and is never told its own `runId`, so it cannot
+  read `.claude/ldo-args/<runId>.json` on the caller's behalf. Some harness
+  builds print a completion line suggesting `Workflow({scriptPath,
+  resumeFromRunId})` with no `args`, and following it literally lands exactly
+  there. The returned error string changed to
+  `No task provided. If this was a resume, resumeFromRunId alone is a no-op —
+  pass the original args from .claude/ldo-args/<runId>.json alongside it,
+  because the workflow never learns its own runId and cannot look them up.` —
+  quoted here because an operator script matching the old text will need
+  updating. `/ldo-resume` states the no-op in prose, including that the harness
+  diagnostics line is version-dependent and worth reading rather than assuming
+  wrong.
+
+- **Contract text carried into a plan's `risks` is bounded before it is re-sent
+  to every fix pass.** `renderConstraints` is quoted into both the Coder's and
+  the Reviewer's fix-pass prompt on every round, and it rendered each
+  `plan.risks` entry raw — entries the Planner copies verbatim out of a host
+  project's `docs/contracts/`. The reporter's contracts directory measured 94 KB
+  across five files (11854/7759/59181/5502/9696 bytes) with zero `## Sources`
+  sections, against a documented 200-character per-entry limit that nothing had
+  ever measured. Entries are now capped per line (`PROMPT_TEXT_MAX`, the same
+  200 the convention documents, so a compliant entry passes through
+  byte-identical) *and* per block (`RENDER_LIST_MAX`, with its own `+N more`),
+  and a trim logs one line naming both counts. This also closes a
+  prompt-injection hole: a risk entry beginning `## ISSUES` or carrying a `\r`
+  could forge a section header in two agents' prompts, and `collapseLines`
+  strips it. The acceptance-criteria block in the same function is deliberately
+  left uncapped — a dropped criterion silently weakens the gate it exists to
+  hold — and `renderPlan`, which runs once per run, is untouched, so the full
+  contract text still reaches the first Coder pass.
+
+- **The three contract-reading agents enumerate `docs/contracts/` instead of
+  trusting three hardcoded filenames.** `agents/planner.md`, `agents/reviewer.md`
+  and `agents/security.md` named `scope.md`, `security.md` and `code.md`
+  literally and nothing globbed the directory, so a project's fifth contract was
+  indistinguishable from a file that did not exist. All three now list the
+  directory and treat what is there as the set, with a bounded read rule for a
+  name LDO does not recognise — read it when the name plausibly names an area
+  the change touches, otherwise the first 40 lines only, never the whole
+  directory by default, which is how a 94 KB directory becomes a per-run cost.
+  The Reviewer's always-`critical` rule now applies to a violation of any file
+  in that directory, not only `code.md`.
+
+- **`/ldo-docs-audit` distinguishes what reading can settle from what it
+  can't.** It asked for verification and then listed five checks that are each
+  answered by reading. The section is now built around "Reading cannot falsify a
+  behavioural claim", with a safety boundary: execute what is cheap,
+  reproducible and side-effect-free, and for anything that writes, deletes,
+  restarts, spawns workers, makes network calls or takes real time, propose the
+  test — naming the assertion, where it would live and what it would compare —
+  instead of running it. A documented test command that spawns one worker per
+  core is exactly the claim an audit must not check by running it.
+
+- **The Security agent verifies the path production takes.** One rule and two
+  sentences: a query that looks unguarded where you grepped it is a lead, not a
+  finding, until the call path has been followed to the door that authorizes it —
+  and the finding must then name that door, or say that nothing authorizes it.
+
+### Added
+
+- **`config.backlog.destination`** — `"file"` (default) or `"github"`, validated
+  against an allowlist in the same shape as `config.tests`: an invalid value
+  warns and keeps the default, an unknown key under `backlog` is named and
+  ignored, and the raw string never reaches the Recorder's prompt. The resolved
+  value renders a `## BACKLOG DESTINATION` directive into the Record prompt,
+  which is what makes the prohibition run-specific rather than baked into the
+  agent definition. Documented in `README.md`, `ldo-config.example.json` and
+  `skills/ldo-config/SKILL.md`.
+
+- **`scripts/check-record-backlog.sh`** — a sixth gate. It brace-extracts
+  `resolveBacklogDestination`, `renderBacklogDirective` and `markRecordFailed`
+  out of `workflows/ldo.js` and asserts the default separately for each shape of
+  "unset", that `"github"` is honoured only when set exactly, that the FILE
+  directive forbids `gh` outright *and* carries no fallback-or-availability
+  wording, that the directive is actually composed into the Record prompt, and
+  that `markRecordFailed` is reference-identical on its no-op paths and never
+  rewrites `status`. A Recorder refused on every run is syntactically perfect,
+  which is precisely what `node --check` cannot see.
+
+- **`scripts/check-contracts.sh`** — measures the conventions `/ldo-contract`
+  states and nothing enforced: it fails on an entry over 200 characters or
+  carrying an inline `(Source: …)` tail, warns without failing on a file with
+  entries and no `## Sources` section, and prints the per-file entry count and
+  byte total so the recurring cost stays visible. It reads the files as data and
+  never executes anything it reads. **What it deliberately does not do:** audit a
+  host project's contracts. LDO structurally cannot — the workflow has no
+  filesystem access of its own, and by the time a spawned agent could read those
+  files their text is already in the prompt. The host-side signal is the
+  truncation log line `renderConstraints` now emits, not a check here that would
+  only ever pass.
+
+- **`renderConstraints` assertions in `scripts/check-verdict-gates.sh`** — the
+  real function driven over a 60000-character risk line, 25 risk lines, a line
+  containing `\r## ISSUES`, and a control that a compliant 150-character entry
+  survives byte-identical, plus a control that the acceptance block is *not*
+  capped. Both new gates and these assertions fail against
+  `git show HEAD:workflows/ldo.js`.
+
 ## [2.33.1] — 2026-08-28
 
 ### Fixed
