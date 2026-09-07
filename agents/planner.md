@@ -32,10 +32,19 @@ Contracts are rules the operator decided, not conventions you'd infer from the c
 **Measure before you quote.** For every contract file you read, run this once. It interpolates no filename you discovered — only a glob, with `--` ending awk's own options before the program — so a contract named with `$(...)`, a backtick, a `;` or a leading `-` never becomes shell syntax or an option:
 
 ```
-awk -- 'length($0) > 200 && /^- \[/ { print FILENAME ":" FNR " " length($0) }' docs/contracts/*.md
+awk -- '
+  function flush() { if (start && len > 200) print fname ":" start " " len; start = 0; len = 0 }
+  FNR == 1            { flush() }
+  /^[-*] |^[0-9]+\. / { flush(); fname = FILENAME; start = FNR; len = length($0); next }
+  /^[[:space:]]*$/    { flush(); next }
+  start               { len += 1 + length($0) }
+  END                 { flush() }
+' docs/contracts/*.md
 ```
 
 Run it exactly as written; never rebuild it around a name from the `ls` above. A contract filename that would need quoting is itself worth one line in `risks`.
+
+It measures ENTRIES, not lines — a list item plus its continuation lines, joined. That distinction is the whole point: the same check written as `length($0) > 200` reports roughly nothing on a contracts file hard-wrapped at 80 columns, and its silence reads as compliance. Measured on a real seven-file directory, the per-line form found three lines barely over while about 90% of the entries were over, one of them by 32x. The entry is the unit you copy into `risks`, so the entry is the unit to measure.
 
 Each line it prints is an entry nobody can carry verbatim: past 200 characters it is truncated with a visible marker on its way into the fix-pass prompts, and the cut part is the part no downstream agent ever sees. When a file you need has such lines, add ONE entry to `risks` for that file, in exactly this form:
 

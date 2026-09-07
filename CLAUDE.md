@@ -140,5 +140,6 @@ the list. Offer; don't run either unasked.
 - models: opus plans and codes, sonnet reviews, at every tier — no haiku, no fable in the defaults
 - vendor.sh stages and verifies before it writes; a rejected source leaves the target untouched
 - check-config-defaults.sh holds every documented default to the source, not just the model table
+- CONTRACT OVER LIMIT measures entries, not lines — a wrapped contract no longer hides
 <!-- /ldo:features -->
 <!-- END ldo -->

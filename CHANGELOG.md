@@ -5,6 +5,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.40.2] — 2026-09-08
+
+### Fixed
+
+- **`CONTRACT OVER LIMIT` measured lines, so a hard-wrapped contract never
+  tripped it** (issue #26). The Planner's prescribed command was
+  `length($0) > 200 && /^- \[/`, which is right for a file written one long
+  line per entry and reports approximately nothing for one wrapped at 80
+  columns. Measured on a real seven-file contracts directory: three lines
+  reported, all barely over, in one file — while roughly 90% of the *entries*
+  were over the limit, one of them by 32×. Six files reported nothing at all.
+  The entry is the unit the Planner copies verbatim into `risks` and the unit
+  the truncation applies to, so the entry is the unit to measure; the silence
+  of the old form read as compliance.
+
+  It now accumulates a list item with its continuation lines and flushes on the
+  next item, a blank line, or a file boundary. Verified in both directions on
+  fixtures: the same 206-character rule reported once when written on one line
+  and once when wrapped — invisible to the old form — and silent against this
+  repository's own contracts, agreeing with `scripts/check-contracts.sh`, which
+  measures entries and always did. The program was extracted back out of
+  `agents/planner.md` and run, so the file is known to carry something that
+  works rather than something that reads correctly.
+
 ## [2.40.1] — 2026-09-08
 
 The tail of the two audits: findings that are real but mechanical, plus the one
