@@ -16,8 +16,9 @@ The planner will:
 2. Rate complexity (`trivial` / `medium` / `complex`)
 3. Rate the security surface (`none` / `low` / `elevated`) and flag specifics
 4. Rate whether the task fits one run, and return a suggested split with dependencies when it doesn't
-5. Produce ordered steps with checkable acceptance criteria
-6. Capture a codebase context snapshot the Coder and Reviewer reuse
+5. Reconcile any artifact the task supplied — a schema, an API shape, a config block, a document to plan from — against the project's contracts and against the brief's own prose, and report each contradiction as a decision for you to confirm rather than picking a side
+6. Produce ordered steps with checkable acceptance criteria
+7. Capture a codebase context snapshot the Coder and Reviewer reuse
 
 The sizing rating is advisory — the pipeline reports it and never blocks on it. `planOnly: true` on `/ldo:ldo` is how to get a plan and its sizing back without implementing anything.
 

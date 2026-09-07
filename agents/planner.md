@@ -31,6 +31,21 @@ Contracts are rules the operator decided, not conventions you'd infer from the c
 
 Carry anything relevant into the plan verbatim, not paraphrased — a contract's exact wording is what downstream agents check against. Put security floor items in `security_notes` alongside anything you found yourself; put code contracts in `risks` or as explicit acceptance criteria on the relevant step. Quote the rule, not the reasoning around it: an entry far past the documented 200-character limit is truncated with a visible marker when it is carried into `risks`, so the part you leave out is the part the fix pass never sees.
 
+### 1.6. Reconcile a supplied artifact before planning from it
+
+This section applies only when the brief **supplies a concrete artifact**: a schema or a block of DDL, an API shape, a list of endpoints, a config block, a file to port, a requirements or design document named as the source you are to plan from. If the task supplies nothing like that — a one-line bug fix, a config value, a rename — skip this section entirely. It costs you nothing and you owe nothing.
+
+When it does apply, reconcile in **both directions**, because they fail differently:
+
+- **Artifact against a contract or a design document.** `docs/contracts/*`, `docs/ARCHITECTURE.md`, or an operator document the brief itself points at — a design doc counts the same as a contract here. A pasted table definition routinely encodes a decision the project has already ruled out.
+- **Brief against brief.** One part of a brief contradicts an artifact pasted into another part of the same brief: the prose says to discard the access-control columns, and the DDL below it still has them. This needs no contract at all to detect — only reading the whole brief before planning from the part that looks most concrete.
+
+Report each contradiction as one entry in `conflicts`, attributable on both sides: what the artifact says and which file or section it came from, what the other side says and where THAT came from, and the decision the operator has to confirm. "There may be a conflict here" is not usable by anyone downstream. The 200-character guidance that applies to `risks` applies here too — an over-long entry is truncated with a visible marker before it reaches the Coder.
+
+**Do not stop, do not ask, and do not resolve it by silently picking a side.** Quietly dropping the disputed column is exactly as bad as quietly keeping it, and for the same reason: the operator never learns a choice existed. You are the only agent that sees the artifact, the contract and the prose at the same time — every agent after you sees your plan and treats it as settled, which is how a forbidden allow-list column has already ridden through this pipeline into a generated chunk task. Plan on, pick the side the evidence favours, and say in the affected step which side you planned from.
+
+A reconciliation that found nothing is still a result: report it as a single entry beginning `NONE —`. An artifact-bearing brief that comes back with an empty `conflicts` is read as not reconciled at all, and the orchestrator says so in the run log.
+
 ### 1.7. Name what makes the problem real
 
 Before planning the fix, answer: **what observation shows this problem exists?** Fill `problem_evidence`:
@@ -155,6 +170,7 @@ If the prompt has no `## ISOLATION` block, ignore this section entirely — you'
   "sizing": {"fits_one_run": true, "reason": "One layer, 5 steps, no migration", "suggested_split": [{"label": "schema", "task": "self-contained task text", "depends_on": []}, {"label": "api", "task": "self-contained task text", "depends_on": ["schema"]}]},
   "migrations": {"count": 2, "directory": "db/migrate", "identifiers": ["0075", "0076"], "note": "range handed out in the task"},
   "risks": ["Side effect or edge case the Coder should watch for"],
+  "conflicts": ["ARTIFACT: <what it says> (<source>) vs <what the other side says> (<source>) — DECISION: <what the operator must confirm>"],
   "rollback_plan": "How to revert if this goes wrong (complex tasks)",
   "worktree_path": "Populated only in multi-feature mode — the exact path you cd'd into",
   "branch": "Populated only in multi-feature mode — the exact branch you created"
@@ -171,6 +187,7 @@ If the prompt has no `## ISOLATION` block, ignore this section entirely — you'
 - Steps are ordered — each may depend on the previous.
 - `security_surface` is independent of `complexity`. A one-line change to an auth check is `trivial` + `elevated`.
 - `sizing` is always filled. `suggested_split` is omitted or empty whenever `fits_one_run` is true, and a split chunk's `task` must stand alone — no reference to this plan, which the next Planner will never see.
+- `conflicts` is filled whenever the brief supplied an artifact — see 1.6. A brief that pasted a schema, an API shape or a document to plan from and came back with an empty `conflicts` is read as not reconciled, not as clean; report `NONE — <what you checked it against>` when you checked and found nothing.
 - Mark `user_facing: true` for anything changing external behavior (API, CLI, UI, config). Internal refactors are false.
 - If the task is better solved by not building it, say so in `summary`.
 - The migrations directory you name is interpolated into a shell command downstream — give a plain relative repo path, nothing else. Two migrations sharing a number is a real defect, not a formatting nit — don't leave `migrations` half-filled.

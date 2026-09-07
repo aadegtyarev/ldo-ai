@@ -86,7 +86,7 @@ const WANTED = [
   'LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'MAX_ISSUE_OUTCOMES',
   'normalizeWhat', 'issueKey', 'matchIssueKey',
   'normalizeIssuePath', 'sameFilePath', 'downgradeUnrelatedFindings', 'accountIssueOutcomes',
-  'renderResolved', 'renderAccounting', 'renderConstraints', 'enforceVerificationGate',
+  'renderResolved', 'renderAccounting', 'renderConstraints', 'renderConflicts', 'enforceVerificationGate',
 ]
 const problems = []
 const sources = {}
