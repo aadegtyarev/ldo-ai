@@ -1298,8 +1298,16 @@ function isStallError(err) {
 // runOneFeature's catch still prints instead of a wrapper throwing on an
 // unrecognised shape.
 async function runAgent(prompt, opts) {
+  // Bracketed here rather than at each call site because this is the single
+  // funnel: agentWithRetry and agentWithModelFallback both re-enter through it,
+  // so a retry gets its own ledger entry instead of overwriting the first
+  // attempt's. `ledger` is orchestrator-side bookkeeping, not an agent option —
+  // it is destructured out so a closure-bearing object never reaches the
+  // harness call, which serialises what it is handed.
+  const { ledger, ...agentOpts } = opts || {}
+  const closeCost = ledger ? ledger.open(opts.phase, opts.label) : null
   try {
-    return await agent(prompt, opts)
+    return await agent(prompt, agentOpts)
   } catch (err) {
     if (!isStallError(err)) throw err
     // Line 1: what actually happened — the agent was generating, not hung.
@@ -1313,6 +1321,11 @@ async function runAgent(prompt, opts) {
       log(`  ✗ ${opts.label}: a smaller brief produces a smaller plan, which fits inside the window — that lever is the operator's, not this pipeline's.`)
     }
     throw err
+  } finally {
+    // In `finally`, not after the await: an agent that stalled or threw still
+    // burned the output tokens it produced before dying, and that is the run an
+    // operator most wants the figure for.
+    if (closeCost) closeCost()
   }
 }
 
@@ -1987,6 +2000,231 @@ async function agentWithModelFallback(prompt, opts, fallbackModel) {
   return runAgent(prompt, { ...opts, model: fallbackModel })
 }
 
+// ── cost accounting ─────────────────────────
+//
+// PLACEMENT, settled once here because it is arguable both ways and the next
+// editor will re-open it otherwise. The obvious home is `stats`, where a
+// consumer already looks for a number about the run — complexity, coder_passes
+// and files_mapped all live there. Top-level `cost` wins on two counts. `stats`
+// is a flat bag of scalars, while this is a nested structure carrying a
+// per-entry array and its own availability enum; flattening it would mean
+// either dropping the per-phase entries or spraying five loose keys into a bag
+// with no room for them. And every field on this result that QUALIFIES the
+// outcome rather than counting something — full_suite_status, env_status,
+// record_status, work_location — already sits top-level beside `approved` by
+// deliberate precedent. A reading that may be unavailable is exactly that kind
+// of qualifier.
+//
+// WHAT THE FIGURE IS NOT. Claude Code 2.1.263 documents budget.spent() as
+// "output tokens spent this turn across the main loop and all workflows — the
+// pool is shared, not per-workflow". Three consequences, each of which would
+// otherwise be found the hard way by someone acting on the number: it is OUTPUT
+// ONLY, with no input, cache-read or cache-write figure anywhere in the harness
+// API, so it structurally cannot answer whether prompt caching is helping; the
+// pool is SHARED, so a bracket around a phase measures what the whole turn
+// burned during that phase and is a delta rather than an attribution — hence
+// the field name output_tokens_delta; and it is PER-TURN, so every figure is
+// relative to a baseline sampled at run start and never an absolute reading.
+// That is why the note ships inside the block rather than living only in the
+// README: the block travels to the Recorder and into a review report, far away
+// from any prose written here.
+const COST_ENTRIES_MAX = 40
+const COST_NOTE = 'Output tokens only — no input tokens, no cache reads, no cache writes — so this figure cannot say whether prompt caching is helping. A per-phase number is a delta measured around that phase, not an attribution: the token pool is shared across the whole turn.'
+// Two formatters, deliberately different. formatTokens is for the run log, where
+// 768.9k reads faster than 768885. costFigure is for the Record prompt, where
+// the Recorder is told to reproduce the numbers verbatim — a rounded k-figure
+// copied into a report would be a number nobody can reconcile against anything.
+// One line each, not wrapped: the gate scripts brace-extract declarations by
+// walking to the first newline at depth zero, and a wrapped arrow body ends at
+// the `=>`.
+const formatTokens = n => !Number.isFinite(n) ? 'not measured' : Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n))
+const costFigure = n => Number.isFinite(n) ? String(Math.round(n)) : 'not measured'
+
+// `budget` is a harness global. It exists today — three log lines in this file
+// reference it bare — but a bare reference throws ReferenceError the instant a
+// harness build stops injecting it, which would end a run over an accounting
+// figure nothing gates on. Hence `typeof` before anything else; it is also what
+// lets the gate drive the absent case at all.
+// Every rejection returns a named reason instead of a number, and never 0: a
+// zero here would be indistinguishable from a run that genuinely produced no
+// output, which is the defect class record_status, env_status and
+// full_suite_status each already exist to close.
+// Every other `budget` read in this file goes through readSpent, which reports
+// an absent or broken global instead of raising. These three log lines did not,
+// and one of them runs BEFORE the ledger is built — so a harness that stopped
+// injecting the global would kill the run with a ReferenceError there, and the
+// unavailable path the gate proves would never be reached in a real run. A
+// degradation that cannot be reached is not a degradation; it is a test that
+// passes. Returns a formatted string, or null for "no target set / not
+// knowable", which both callers already treat as nothing to print.
+function budgetRemaining() {
+  if (typeof budget === 'undefined') return null
+  try {
+    if (!budget || !budget.total || typeof budget.remaining !== 'function') return null
+    const left = budget.remaining()
+    if (typeof left !== 'number' || !Number.isFinite(left)) return null
+    return `${Math.round(left / 1000)}k`
+  } catch { return null }
+}
+
+function readSpent() {
+  // The `typeof` guard first, alone, because it is the one test that cannot
+  // throw. Everything after it is inside the try — including the shape check:
+  // `budget.spent` is a property read, and a property read runs a getter. A
+  // shape check outside the try therefore has its own way to throw, past every
+  // catch, and would end a run over a figure nothing branches on. That is the
+  // whole point of this function returning a reason instead of raising one.
+  if (typeof budget === 'undefined') return { ok: false, reason: 'the harness exposed no `budget` global' }
+  let value
+  try {
+    if (!budget || typeof budget.spent !== 'function') return { ok: false, reason: 'the harness `budget` object exposes no spent function' }
+    value = budget.spent()
+  } catch (err) {
+    // Not swallowed: this message becomes the `reason` on the cost block, which
+    // is printed in the run log, carried on the result and rendered into the
+    // Record prompt. Rethrowing would end a run over a figure nothing branches on.
+    return { ok: false, reason: `the harness spent function threw: ${err?.message || err}` }
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    const shown = typeof value === 'string' ? JSON.stringify(value) : String(value)
+    return { ok: false, reason: `the harness spent function returned ${shown}, which is not a finite non-negative number` }
+  }
+  return { ok: true, value }
+}
+
+// Entries are an ordered array that is only ever appended to, never a map keyed
+// by label: agentWithRetry and agentWithModelFallback both re-enter runAgent
+// under the same label, and both attempts cost real output tokens. A
+// label-keyed store would silently report one retry's cost as the whole thing.
+// Nothing here can throw. Every read goes through readSpent, which converts a
+// missing global, a wrong shape and a throwing call alike into a named reason —
+// so a broken accounting path degrades to an honest "not measured" rather than
+// taking a run's real work down with it.
+function createCostLedger(options) {
+  const concurrent = !!(options && options.concurrent)
+  const base = readSpent()
+  const entries = []
+  let sampleFailures = 0
+  let droppedEntries = 0
+
+  const open = (phase, label) => {
+    const start = readSpent()
+    let closed = false
+    return () => {
+      // runAgent closes in a `finally`, which runs once — the guard is for the
+      // caller that ever wraps it in a retry and closes twice.
+      if (closed) return
+      closed = true
+      const end = readSpent()
+      const entry = { phase: phase || 'unknown', label: label || 'unknown', output_tokens_delta: null }
+      if (!start.ok) {
+        entry.unavailable_reason = start.reason
+        sampleFailures++
+      } else if (!end.ok) {
+        entry.unavailable_reason = end.reason
+        sampleFailures++
+      } else if (end.value < start.value) {
+        // A shared per-turn counter that moved backwards means the reading is
+        // not what this code assumes it is. null with a reason, never a negative
+        // and never a clamped 0 — a 0 would report the phase as free.
+        entry.unavailable_reason = 'the reading went backwards'
+        sampleFailures++
+      } else {
+        entry.output_tokens_delta = end.value - start.value
+      }
+      if (entries.length < COST_ENTRIES_MAX) entries.push(entry)
+      else droppedEntries++
+    }
+  }
+
+  const finish = () => {
+    const end = readSpent()
+    const reasons = []
+    let total = null
+    if (!base.ok) reasons.push(`the run-start baseline could not be read: ${base.reason}`)
+    else if (!end.ok) reasons.push(`the final reading could not be taken: ${end.reason}`)
+    else if (end.value < base.value) reasons.push('the total reading went backwards between run start and run end')
+    else total = end.value - base.value
+
+    if (sampleFailures) reasons.push(`${sampleFailures} of ${entries.length + droppedEntries} per-phase reading(s) could not be measured`)
+    // Past the cap the per-phase list no longer accounts for the total, which is
+    // a different defect from a failed sample but the same lie if reported as
+    // 'measured'. It rides in the reason rather than in a key of its own,
+    // because the block's shape is what the Recorder reproduces.
+    if (droppedEntries) reasons.push(`${droppedEntries} entr(ies) past the ${COST_ENTRIES_MAX}-entry cap were not recorded, so the per-phase figures do not add up to the total`)
+
+    const status = !base.ok
+      ? 'unavailable'
+      : (total === null || sampleFailures > 0 || droppedEntries > 0) ? 'partial' : 'measured'
+
+    const attributed = entries.reduce((sum, e) => Number.isFinite(e.output_tokens_delta) ? sum + e.output_tokens_delta : sum, 0)
+
+    return {
+      status,
+      unit: 'output_tokens',
+      total_output_tokens_delta: total,
+      // Never clamped at zero. Under parallel features the pool is shared, so a
+      // sibling's output lands inside this feature's brackets and the remainder
+      // can legitimately go negative. That negative is the evidence the deltas
+      // overlap, which is precisely what clamping would hide.
+      unattributed_output_tokens_delta: total === null ? null : total - attributed,
+      entries,
+      concurrent,
+      note: COST_NOTE,
+      ...(status === 'measured' ? {} : { reason: reasons.join('; ') || 'no reason was recorded' }),
+    }
+  }
+
+  return { open, finish }
+}
+
+// One log line per feature. The unavailable form says in words that this is not
+// a zero, because an operator scanning a log reads a missing cost line and a
+// `0` the same way — as "cheap" — and only one of those is true.
+function renderCostLine(cost) {
+  const overlap = cost?.concurrent ? 'these deltas overlap with the other features running in parallel and do not partition the pool.' : ''
+  if (!cost || cost.status === 'unavailable') {
+    return `Cost accounting unavailable — ${collapseLines(cost?.reason) || 'no reason was recorded'}. The run still spent output tokens; they could not be measured.`
+      + (overlap ? ` Also, ${overlap}` : '')
+  }
+  const parts = capList((Array.isArray(cost.entries) ? cost.entries : []).map(e => `${collapseLines(e?.label)} ${formatTokens(e?.output_tokens_delta)}`))
+  const partial = cost.status === 'measured' ? '' : ` [partial: ${collapseLines(cost.reason) || 'no reason was recorded'}]`
+  return `Cost (output tokens, delta from run start): ${formatTokens(cost.total_output_tokens_delta)} total`
+    + (parts.length ? ` — ${parts.join(', ')}` : '')
+    + partial
+    + (overlap ? ` — ${overlap}` : '')
+}
+
+// The only prompt text this whole feature adds, and it goes to exactly one
+// phase. agents/recorder.md's report template has no Cost section, so the
+// instruction to produce one has to travel with the block — the same way the
+// CONTRACT CANDIDATES and DESIGN DOC DRIFT blocks carry their own.
+// Nothing model-authored is interpolated: the labels are composed here from a
+// slugified ctx.label and a fixed role name, the phases are literals in this
+// file, and every figure is an integer. Both still go through collapseLines and
+// costFigure, so a future label built from something looser cannot forge a
+// heading or smuggle prose in as a number.
+function renderCost(cost) {
+  if (!cost) return ''
+  const measured = cost.status === 'measured'
+  const lines = ['\n\n## COST (output tokens — record only)', COST_NOTE, `- Total: ${costFigure(cost.total_output_tokens_delta)}`]
+  capList((Array.isArray(cost.entries) ? cost.entries : []).map(e => `- ${collapseLines(e?.label)} (${collapseLines(e?.phase)}): ${costFigure(e?.output_tokens_delta)}`)).forEach(l => lines.push(l))
+  // The second half is conditional: on an unavailable block, promising a total
+  // "elsewhere" contradicts the line two rows up saying nothing could be
+  // measured, and sends the reader looking for a number that does not exist.
+  // "larger" is dropped for the same reason it was never safe — the Record
+  // phase's own delta can legitimately be 0 if the counter did not move.
+  lines.push(Number.isFinite(cost?.total_output_tokens_delta)
+    ? '- Your own Record phase is NOT in these figures: this block was composed before you were called, so nothing here could include it. The run log and the returned result carry a later total that does.'
+    : '- Your own Record phase is NOT in these figures either: this block was composed before you were called. The later reading on the run log and the result is reported as not measured for the same reason given above.')
+  if (cost.concurrent) lines.push('- These deltas overlap with the other features that ran in parallel and do not partition the pool.')
+  if (!measured) lines.push(`- This run's accounting is ${cost.status}: ${collapseLines(cost.reason) || 'no reason was recorded'}. The run still spent output tokens; they could not be measured.`)
+  lines.push(measured
+    ? 'Reproduce this as a `## Cost` section at the end of the review report — the sentence above it and these figures verbatim. Add nothing: no price estimate, no inferred input token count, no per-model rate, no total you worked out yourself.'
+    : 'Reproduce this as a `## Cost` section at the end of the review report, and write every figure that reads "not measured" as exactly that — never a zero, never an estimate. A zero would say the run was free, which is false. Add nothing else: no price estimate, no inferred input token count.')
+  return lines.join('\n')
+}
+
 // The pipeline's own version, kept in lockstep with .claude-plugin/plugin.json,
 // .claude-plugin/marketplace.json (three copies), the `<!-- ldo:version -->`
 // stamp skills/ldo-init writes into a project's CLAUDE.md, and the newest
@@ -1999,7 +2237,7 @@ async function agentWithModelFallback(prompt, opts, fallbackModel) {
 // Nothing here reads or branches on the stamp — the stamp is a hint to re-run
 // /ldo-init, never a check, because an agent-written marker in a repo file
 // proves nothing about what surrounds it.
-const LDO_VERSION = '2.37.0'
+const LDO_VERSION = '2.38.0'
 
 // ═══════════════════════════════════════════
 // CONFIG
@@ -2536,7 +2774,7 @@ async function phaseIsolate(task, ctx, logStage, logPrefix) {
     // 400, which is how the Record phase silently wrote nothing for four releases.
     // No stallMs for the same reason the Recorder has none: it works through tool
     // calls, so the watchdog's clock keeps resetting on its own.
-    { label: `${ctx.label}:isolator`, phase: 'Isolate', model: 'sonnet', agentType: 'ldo:isolator', schema: ISOLATION_SCHEMA }
+    { label: `${ctx.label}:isolator`, phase: 'Isolate', model: 'sonnet', agentType: 'ldo:isolator', schema: ISOLATION_SCHEMA, ledger: ctx.ledger }
   )
 
   const verified = verifyWorktreeProof(proof)
@@ -2566,7 +2804,7 @@ async function phaseResearch(task, ctx, logStage, logPrefix) {
 
   const researchReport = await runAgent(
     `Deep-research this topic. Cross-verify claims across independent sources.\n\n## TOPIC\n${task}`,
-    { label: ctx.isMulti ? `${ctx.label}:researcher` : 'researcher', phase: 'Research', model: prePlanModels.researcher, agentType: 'ldo:researcher', schema: RESEARCH_SCHEMA, stallMs: STALL_MS.researcher }
+    { label: ctx.isMulti ? `${ctx.label}:researcher` : 'researcher', phase: 'Research', model: prePlanModels.researcher, agentType: 'ldo:researcher', schema: RESEARCH_SCHEMA, stallMs: STALL_MS.researcher, ledger: ctx.ledger }
   )
 
   if (researchReport) {
@@ -2637,7 +2875,7 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
   if (!plan) {
     plan = await agentWithRetry(
       worktreeTrigger + renderResearch(researchReport) + sizingBrief + reconciliationBrief + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
-      { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA, stallMs: STALL_MS.planner }
+      { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA, stallMs: STALL_MS.planner, ledger: ctx.ledger }
     )
   }
 
@@ -2803,7 +3041,7 @@ async function phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY
 
     securityReport = await runAgent(
       WORKTREE_BLOCK + CTX + `Threat-model this implementation plan. No code exists yet — identify risks before they are written.\n\n${renderPlan(plan)}${flagged}`,
-      { label: ctx.isMulti ? `${ctx.label}:security` : 'security', phase: 'Security', model: models.security, agentType: 'ldo:security', schema: SECURITY_SCHEMA, stallMs: STALL_MS.security }
+      { label: ctx.isMulti ? `${ctx.label}:security` : 'security', phase: 'Security', model: models.security, agentType: 'ldo:security', schema: SECURITY_SCHEMA, stallMs: STALL_MS.security, ledger: ctx.ledger }
     )
 
     if (securityReport) {
@@ -2891,6 +3129,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       agentType: 'ldo:coder',
       schema: CODER_SCHEMA,
       stallMs: STALL_MS.coder,
+      ledger: ctx.ledger,
     })
 
     lastCoderResult = coderResult || lastCoderResult
@@ -2959,6 +3198,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       agentType: 'ldo:reviewer',
       schema: VERDICT_SCHEMA,
       stallMs: STALL_MS.reviewer,
+      ledger: ctx.ledger,
     }, REVIEWER_FALLBACK[reviewerModel])
 
     if (!rawVerdict) {
@@ -3243,6 +3483,14 @@ All: ${(finalVerdict.issues || []).map(renderIssue).join('; ') || 'none'}`
   designDrift.forEach(d => log(`${logPrefix}⚠ Design doc drift: ${collapseLines(d.doc)} was not touched while ${d.matched.length} file(s) matching \`${collapseLines(d.glob)}\` changed`))
   const designDriftBlock = renderDesignDrift(designDrift)
 
+  // Sampled here rather than handed in, because this block has to be composed
+  // before the Recorder runs and therefore structurally cannot contain the
+  // Recorder's own output — renderCost says so in the block itself. The ledger
+  // keeps running: runOneFeature samples it again after this phase returns, and
+  // that later figure, which does include the Record phase, is the one the run
+  // log and the result carry.
+  const cost = ctx.ledger ? ctx.ledger.finish() : null
+
   const recordPrompt = WORKTREE_BLOCK + renderBacklogDirective(BACKLOG_DESTINATION) + `${opening}
 
 ## TASK
@@ -3263,7 +3511,7 @@ ${(Array.isArray(finalVerdict.attacks) ? finalVerdict.attacks : []).map((a, i) =
 ${issuesBlock}
 
 ## SECURITY (if any)
-${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f.severity}] ${f.category}: ${f.what} → ${f.mitigation}`).join('\n') : 'none'}` + contractCandidatesBlock + designDriftBlock
+${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f.severity}] ${f.category}: ${f.what} → ${f.mitigation}`).join('\n') : 'none'}` + contractCandidatesBlock + designDriftBlock + renderCost(cost)
 
   const recordResult = await runAgent(recordPrompt, {
     label: ctx.isMulti ? `${ctx.label}:recorder` : 'recorder',
@@ -3272,6 +3520,7 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
     agentType: 'ldo:recorder',
     schema: RECORD_SCHEMA,
     stallMs: STALL_MS.recorder,
+    ledger: ctx.ledger,
   })
 
   if (!recordResult) {
@@ -3361,7 +3610,7 @@ function recommendPlanReview(plan) {
 
 // approved leads the object — a caller checking the run's outcome shouldn't
 // have to dig past everything else to find it.
-function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, testScope, envStatus, issuesUnaccounted, isolation) {
+function shapeResult(approved, plan, researchReport, securityReport, finalVerdict, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, testScope, envStatus, issuesUnaccounted, isolation, cost) {
   return {
     approved,
     // Sits beside approved, not in stats, because it qualifies approved: under
@@ -3378,6 +3627,14 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
     // markEnvUnreproducible and its call site.
     env_status: envStatus?.status || 'unknown',
     env_unresolved: envStatus?.unresolved || [],
+    // Top-level and not inside `stats`, for the reason argued at COST_ENTRIES_MAX:
+    // `stats` is a flat bag of scalars, this is a nested block with a per-entry
+    // array and its own availability enum, and every field that QUALIFIES the
+    // result rather than counting something already sits out here. Always
+    // present and never null — an unmeasurable run carries an explicit
+    // {status:'unavailable', total_output_tokens_delta:null, reason} rather than
+    // a missing key a consumer would read as zero.
+    cost: cost || { status: 'unavailable', unit: 'output_tokens', total_output_tokens_delta: null, unattributed_output_tokens_delta: null, entries: [], concurrent: false, note: COST_NOTE, reason: 'the run finished without a cost ledger' },
     test_scope: testScope || 'full',
     // `record_misplaced: false` cannot express "the Recorder died and wrote
     // nothing" — the failure path satisfies it trivially, so a crashed Record
@@ -3447,7 +3704,7 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
 // at all: `if (r.approved)` is falsy, and `r.approved === false` — the
 // rejected-run test — correctly does not match. `mode` leads as the
 // discriminator.
-function shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx, isolation) {
+function shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx, isolation, cost) {
   return {
     mode: 'plan-only',
     label: ctx.label,
@@ -3460,6 +3717,11 @@ function shapePlanOnly(plan, researchReport, securityReport, surface, models, ta
     work_location: isolation ? 'worktree' : 'working_tree',
     worktree_path: plan.worktree_path || null,
     branch: plan.branch || null,
+    // Same block, same placement argument as shapeResult's. Carried here too
+    // because a plan-only run spends real output tokens — a Planner call is the
+    // single most expensive agent in the pipeline — and comparing what planning
+    // cost against what the whole run cost is exactly why an operator asks.
+    cost: cost || { status: 'unavailable', unit: 'output_tokens', total_output_tokens_delta: null, unattributed_output_tokens_delta: null, entries: [], concurrent: false, note: COST_NOTE, reason: 'the run finished without a cost ledger' },
     stats: {
       complexity: plan.complexity,
       securitySurface: surface,
@@ -3500,13 +3762,21 @@ async function runOneFeature(task, ctx) {
   try {
     const logPrefix = ctx.isMulti ? `[${ctx.label}] ` : ''
 
-    log(`Budget: ${budget.total ? Math.round(budget.remaining() / 1000) + 'k' : 'unlimited'}`)
+    log(`Budget: ${budgetRemaining() ?? 'unlimited'}`)
     log(`${logPrefix}Task: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}`)
 
     const logStage = (title) => {
       if (ctx.isMulti) log(`[${ctx.label}] ▸ ${title}`)
       else phase(title)
     }
+
+    // Opened before the first phase so the run-start baseline is sampled before
+    // any agent has run. ctx is a fresh object literal at all three call sites —
+    // the multi dispatch map, the isolate:true path and the plain single-task
+    // path — so this mutation cannot leak from one feature into another under
+    // parallel(). `concurrent` is what tells every downstream renderer that the
+    // deltas below overlap with sibling features sharing the same token pool.
+    ctx.ledger = createCostLedger({ concurrent: (ctx.total || 1) > 1 })
 
     // Phase 1: Isolate (isolated/multi-feature runs only)
     const isolateResult = await phaseIsolate(task, ctx, logStage, logPrefix)
@@ -3531,7 +3801,11 @@ async function runOneFeature(task, ctx) {
       log(`${logPrefix}⏹ Plan-only run — stopped after Plan${securityReport ? ' + Security' : ''} on purpose. No code was written, no review ran, nothing was recorded.`)
       renderSplitPaste(plan.sizing, plan.conflicts).forEach(line => log(`${logPrefix}${line}`))
       if (plan.sizing?.fits_one_run !== false) log(`${logPrefix}The Planner rated this as one run — re-issue the same task without planOnly to implement it.`)
-      return shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx, isolation)
+      // Sampled once here and reused for both the log line and the result, so
+      // the two can never disagree about what the same run cost.
+      const planOnlyCost = ctx.ledger.finish()
+      log(`${logPrefix}${renderCostLine(planOnlyCost)}`)
+      return shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx, isolation, planOnlyCost)
     }
 
     // Phase 5: Code + Review
@@ -3580,8 +3854,15 @@ async function runOneFeature(task, ctx) {
     // recomputed from the result.
     const recordMarked = markRecordFailed(finalVerdict, recordStatus)
 
+    // Sampled after Record, so this figure covers every agent the run paid for,
+    // including the Recorder — unlike the earlier snapshot phaseRecord had to
+    // compose into its own prompt. Taken once and reused for the log and the
+    // result, so the two can never disagree.
+    const cost = ctx.ledger.finish()
+    log(`${logPrefix}${renderCostLine(cost)}`)
+
     // Phase 7: Shape result
-    return shapeResult(approved, plan, researchReport, securityReport, recordMarked, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, scopedTests?.mode || 'full', envStatus, reviewResult.issuesUnaccounted, isolation)
+    return shapeResult(approved, plan, researchReport, securityReport, recordMarked, surface, models, iteration, task, ctx, recordMisplaced, recordStatus, fullSuiteStatus, scopedTests?.mode || 'full', envStatus, reviewResult.issuesUnaccounted, isolation, cost)
   } catch (err) {
     // A thrown error inside one feature must not abort siblings running under
     // parallel() — return a failure shape instead of letting it propagate.
@@ -3643,8 +3924,12 @@ if (tasksList) {
       if (f.error) log(`  [${f.label}] ✗ ${f.error}`)
       else if (f.worktree_path) log(`  [${f.label}] ✓ planned in ${f.worktree_path}`)
       else log(`  [${f.label}] ✓ planned`)
+      // Status first and total second, so an operator reading only the summary
+      // sees an unavailable reading as such rather than inferring a cheap run
+      // from a missing number.
+      if (f.cost) log(`  [${f.label}] cost (${f.cost.status}): ${f.cost.total_output_tokens_delta === null ? 'not measured — the run still spent output tokens' : `${formatTokens(f.cost.total_output_tokens_delta)} output tokens`}`)
     })
-    if (budget.total) log(`Budget remaining: ${Math.round(budget.remaining() / 1000)}k`)
+    { const r = budgetRemaining(); if (r) log(`Budget remaining: ${r}`) }
 
     return {
       mode: 'multi-plan-only',
@@ -3676,8 +3961,12 @@ if (tasksList) {
     // the rejection may be about an environment that was never built, not the
     // code, before the operator starts reading the diff for a defect.
     if (f.env_status === 'unreproducible') log(`  [${f.label}] ⚠ ENVIRONMENT NOT REPRODUCED — this result may be about the environment rather than the code`)
+    // Same reasoning as the lines above, plus one specific to this figure: under
+    // parallel features the pool is shared, so these per-feature totals overlap
+    // and deliberately do not sum to the run's total.
+    if (f.cost) log(`  [${f.label}] cost (${f.cost.status}): ${f.cost.total_output_tokens_delta === null ? 'not measured — the run still spent output tokens' : `${formatTokens(f.cost.total_output_tokens_delta)} output tokens`}`)
   })
-  if (budget.total) log(`Budget remaining: ${Math.round(budget.remaining() / 1000)}k`)
+  { const r = budgetRemaining(); if (r) log(`Budget remaining: ${r}`) }
 
   return {
     mode: 'multi',

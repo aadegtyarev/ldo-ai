@@ -111,5 +111,6 @@ the list. Offer; don't run either unasked.
 - LDO declines to own design documents on purpose; README bounds where a fact may live
 - the run recommends planOnly after the fact, naming which of four reasons held
 - a shell is never the scoped test runner, even when it is the project's own
+- every run reports per-phase output tokens; an unmeasurable reading says so instead of reading 0
 <!-- /ldo:features -->
 <!-- END ldo -->

@@ -5,6 +5,81 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.38.0] — 2026-09-07
+
+### Added
+
+- **A run reports what it cost, per phase, and says plainly what that number is not.**
+  Nothing in `workflows/ldo.js` sampled `budget.spent()` — the global appeared only in
+  three "budget remaining" log lines — so the only cost figure anyone had was whatever
+  the harness printed for the whole turn. Every agent call already funnels through
+  `runAgent`, so one bracket there plus a per-feature ledger on `ctx` now produces an
+  ordered entry per agent, closed in a `finally` so an agent that stalled or threw still
+  records what it burned. The run log gains one line — `Cost (output tokens, delta from
+  run start): 768.9k total — planner 84.2k, coder 231.0k, reviewer-1 190.1k` — the result
+  gains a top-level `cost` block beside `env_status` and `work_location`, and the Record
+  phase carries a `## COST` block the Recorder reproduces verbatim as a `## Cost` section
+  of the review report. That block is the only prompt text this change adds, and it goes
+  to exactly one phase.
+- **What the figure is not, stated everywhere it travels.** The harness exposes output
+  tokens only: no input tokens, no cache reads, no cache writes. So this cannot answer
+  whether prompt caching is helping, and the block says so in those words rather than
+  leaving a reader to assume a total is a total. The token pool is shared across the whole
+  turn, so a bracket around a phase is a *delta*, not an attribution — hence the field name
+  `output_tokens_delta` — and under parallel features the per-feature deltas overlap, which
+  is why `unattributed_output_tokens_delta` may go negative and is deliberately not clamped.
+- **An unmeasurable reading is an enum, never a zero.** `cost.status` is
+  `measured` | `partial` | `unavailable`, following `record_status`, `env_status` and
+  `full_suite_status` exactly. An absent `budget` global, a `spent` that is not a function,
+  a reading that is `NaN`, a string, negative or that throws, and a counter that goes
+  backwards each produce `total_output_tokens_delta: null` with a named reason — never `0`,
+  which would report the run as free. `scripts/check-cost-accounting.sh` is the fourteenth
+  gate and asserts `=== null` *and* `!== 0` on every one of those shapes separately, plus
+  the controls: a healthy ledger must report `measured`, and two Code and two Review passes
+  must stay four ordered entries rather than collapsing into two per-phase totals, since
+  `agentWithRetry` and `agentWithModelFallback` both re-enter under the same label.
+- **What five runs measured, and what this turns from inference into measurement.** Sampled
+  before the feature existed, as run id / agents / turn output tokens / tool calls:
+  `wf_0ce3af72` 9 / 308 / 768,885 / 2,496; `wf_de5c1e19` 4 / 176 / 415,283 / 2,359;
+  `wf_28db2128` 5 / 153 / 488,303 / 3,191; `wf_22026c28` 6 / 181 / 458,437 / 2,532;
+  `wf_ee307e5f` 9 / 299 / 949,061 / 3,174. Per agent the spread is 76k–104k and per tool
+  call 2.4k–3.2k — so cost tracks *turns*, not agent count, and adding an agent to a run
+  costs roughly nothing next to the turns it takes. That was an inference across five hand-
+  read transcripts; it is now a figure every run carries. It remains an output-token figure
+  and therefore still says nothing about prompt caching.
+
+### Fixed (by hand, after the review)
+
+- **`readSpent` can no longer throw past its own catch.** The shape check
+  `typeof budget.spent !== 'function'` sat outside the try, and a property read
+  runs a getter — so a `budget` whose `spent` is a throwing accessor escaped
+  readSpent, escaped `createCostLedger`, and would have ended the run in
+  `runOneFeature`'s catch. Over an accounting figure nothing branches on, which
+  is the one thing this design says must never happen. The check moved inside
+  the try; the `typeof budget === 'undefined'` guard stays outside it, being the
+  only test that cannot throw. Two assertions, revert-proven.
+
+- **The absent-`budget` path was unreachable in a real run.** Three
+  `Budget remaining:` log lines still read `budget.total` and `budget.remaining()`
+  bare, and one of them runs *before* the ledger is built — so a harness that
+  stopped injecting the global would have died there with a `ReferenceError`
+  and the unavailable path every other assertion drives would never have been
+  reached. A degradation that cannot be reached is not a degradation; it is a
+  test that passes. All three now go through `budgetRemaining()`, which returns
+  a formatted string or null and never raises. Five assertions including a
+  CONTROL that a real target is still printed rather than swallowed.
+
+- **The unavailable cost block no longer promises a total elsewhere.**
+  `renderCost` told the Recorder unconditionally that "the run log and the
+  returned result carry a later, larger total" — two lines below saying nothing
+  could be measured, which sends the reader after a number that does not exist.
+  Now conditional, and "larger" is gone in both branches: the Record phase's own
+  delta can legitimately be 0 if the counter did not move.
+
+The nit left unfixed on purpose: `costFigure` renders exponent notation above
+1e21. Output-token counts cannot reach it — `Number.MAX_SAFE_INTEGER` is ~9e15 —
+and the reviewer reproduced it only with a hand-stepped budget.
+
 ## [2.37.0] — 2026-09-07
 
 ### Added
