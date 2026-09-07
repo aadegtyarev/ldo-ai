@@ -54,6 +54,14 @@
     "destination": "file"
   },
 
+  "_design_note": "LDO does not own your design documents — it defines no format, ships no template and writes none of them; see README, \"What LDO does not own\". This is the one thing it does own: a mapping from a path glob to a document of yours that describes that code, so a run whose files_changed matched the glob while the document stayed untouched is reported. Issue #20 measured 4 of 46 design files untouched for six weeks while their code moved, and detecting that needs no format at all — just the glob, the path and the files the run already reported. It costs no filesystem access: the match is pure string comparison over data the orchestrator is holding anyway. The result is a BACKLOG ITEM, never a write — the Recorder is told explicitly never to open, create or edit a document named here, and the orchestrator logs a warning if it reports doing so anyway. `glob` supports `**` (crosses directories) and `*` (does not); every other character is literal, so `src/(a|b)/**` is not an alternation, and nothing is compiled to a regular expression. Each changed file is compared in its repo-relative form, so a path reported from inside a worktree still matches, and the glob may match the tail of a longer path — `docs` also matches `vendor/docs`, which over-reports a backlog line rather than staying silent. `doc` must be a repo-relative path with no `..` and no dot- or dash-leading segment: it is rendered into an agent's prompt as a path. Up to 40 entries; an entry whose glob is over 200 characters or carries more than 10 wildcards is rejected with a warning. Omit the block entirely and nothing changes — no map, no prompt block, byte-identical Record prompt.",
+  "design": {
+    "map": [
+      { "glob": "src/auth/**", "doc": "docs/design/auth.md" },
+      { "glob": "src/billing/**", "doc": "docs/design/billing.md" }
+    ]
+  },
+
   "_stallMs_note": "Claude Code's stall watchdog counts only tool calls as progress, so an agent composing a large structured output (a long plan, a full verdict) looks identical to a hung one until it's already aborted. Keyed by role, not tier, because output size tracks the schema the role fills, not task complexity. recorder sits at the 180000 harness default on purpose — it writes through tools, so tool_use events keep resetting its clock naturally. Values are MILLISECONDS with a floor of 1000: a seconds/ms mix-up like 480 would abort the role instantly six times in a row, so it's rejected with a warning rather than passed through.",
   "stallMs": {
     "planner": 480000,

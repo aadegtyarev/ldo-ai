@@ -82,7 +82,7 @@ const extractBlock = opener => {
 // SCOPED_TEMPLATE_SHAPE, SCOPED_RUNNERS and SCOPED_TEMPLATE_MAX directly —
 // safeScopedTemplate's own defence in depth (the raw `[\r\n]` pre-check, the
 // runner allowlist) otherwise masks a weakening of any one of them.
-const WANTED_CONSTS = ['SCOPED_TEMPLATE_MAX', 'SCOPED_TEMPLATE_SHAPE', 'SCOPED_RUNNERS', 'SAFE_REL_PATH', 'FULL_SUITE_REASONS']
+const WANTED_CONSTS = ['SCOPED_TEMPLATE_MAX', 'SCOPED_TEMPLATE_SHAPE', 'SCOPED_RUNNERS', 'SCOPED_SHELLS', 'SAFE_REL_PATH', 'FULL_SUITE_REASONS']
 const WANTED_CONSTS_2 = ['DEFAULT_FULL_SUITE_AT', 'FULL_SUITE_DIRECTIVES', 'FULL_SUITE_ROLE_INSTRUCTIONS']
 const WANTED_FNS = ['safeScopedTemplate', 'safeTestPath', 'partitionTestPaths', 'substituteScopedPaths', 'renderScopedTests', 'quoteRejected', 'markFullSuite', 'fullSuiteRan', 'effectiveFullSuiteAt', 'renderFullSuiteDirective']
 const WANTED = [...WANTED_CONSTS, ...WANTED_CONSTS_2, ...WANTED_FNS]
@@ -520,6 +520,23 @@ assert('an unknown fullSuiteAt renders nothing rather than a directive with no r
 assert("CONTROL: DEFAULT_FULL_SUITE_AT is the one value that renders no directive — otherwise neutralising to it would silence the Coder", ['DEFAULT_FULL_SUITE_AT', 'renderFullSuiteDirective'], s => {
   const r = s.renderFullSuiteDirective(s.DEFAULT_FULL_SUITE_AT, 'coder')
   return { ok: r === '', detail: `renderFullSuiteDirective(${JSON.stringify(s.DEFAULT_FULL_SUITE_AT)}, 'coder') = ${JSON.stringify(r)}` }
+})
+
+// A shell is rejected as the scoped runner even when it IS the project's own
+// test runner, which the baseRunner escape hatch would otherwise allow. `bash
+// {paths}` substituted over the files a plan touched means "execute these
+// files" — and a live run was handed exactly that template over Markdown. The
+// Coder refused it, which is the right outcome reached by the wrong mechanism.
+for (const shell of ['bash', 'sh', 'zsh', 'dash', 'env']) {
+  assert(`a ${shell} template is rejected even when ${shell} is the project's own runner`, ['safeScopedTemplate', 'SCOPED_SHELLS'], s => {
+    const got = s.safeScopedTemplate(`${shell} {paths}`, `${shell} scripts/check-all.sh`)
+    return { ok: got === null, detail: `safeScopedTemplate returned ${JSON.stringify(got)}, expected null` }
+  })
+}
+
+assert("CONTROL: a real runner still scopes through the baseRunner escape hatch", ['safeScopedTemplate'], s => {
+  const got = s.safeScopedTemplate('pytest {paths}', 'pytest')
+  return { ok: got === 'pytest {paths}', detail: `returned ${JSON.stringify(got)}` }
 })
 
 // The status ternary must read the resolved value, not the configured one: with

@@ -582,6 +582,64 @@ function renderConstraints(plan) {
   return lines.join('\n')
 }
 
+// ── project-knowledge signals ───────────────
+//
+// Two facts a run learns about a project that nothing used to carry back out.
+//
+// (1) The Planner is the only party that ever reads a host project's
+// `docs/contracts/` — the workflow has no filesystem access — so an entry too
+// long to carry verbatim is a fact only it can report, and it had nowhere to
+// report it. Issue #20 measured a real contracts directory: 66 of 75 entries
+// over the documented 200-character limit, longest 6407, so 88% of an enforced
+// security floor reached the Coder compressed with nobody told. agents/planner.md
+// section 1.5 prescribes the `CONTRACT OVER LIMIT:` prefix; this reads it back.
+//
+// (2) security_notes are COUNTED here and deliberately not capped. renderSecurity
+// is the only path by which a Planner's own notes reach the Coder when the
+// Security agent did not run, so a cap there would lose floor text that today
+// arrives whole. Measure and say so; never trim.
+//
+// Everything returned is collapsed and capped for the reason renderConstraints
+// does it: `risks` is text that came out of a file in someone else's repo, and
+// an entry beginning `## ISSUES` forges a section header both in a log the
+// operator reads as orchestrator output and in the Record prompt below.
+const CONTRACT_LIMIT_PREFIX = 'CONTRACT OVER LIMIT:'
+const CONTRACT_CANDIDATE_PREFIX = 'CONTRACT CANDIDATE:'
+
+function contractWarnings(plan) {
+  const risks = Array.isArray(plan?.risks) ? plan.risks : []
+  const out = risks
+    .map(r => String(r ?? '').trim())
+    .filter(r => r.startsWith(CONTRACT_LIMIT_PREFIX))
+    .map(r => collapseLines(r))
+  const notes = Array.isArray(plan?.security_notes) ? plan.security_notes : []
+  const overLong = notes.filter(n => String(n ?? '').length > PROMPT_TEXT_MAX).length
+  if (overLong) out.push(`${overLong} security_notes entry(ies) exceed PROMPT_TEXT_MAX (${PROMPT_TEXT_MAX} chars) — they are rendered whole, but an entry this long was compressed by the Planner before it got here. See /ldo-contract for the split that fixes it.`)
+  return capList(out)
+}
+
+// A project-wide rule the run had to settle because nothing in docs/contracts/
+// settled it. Proposed by the Coder in `deviations` and by the Reviewer in
+// `summary` — fields both already fill, because neither schema has room for
+// another and a prefix costs nothing. The summary is split through
+// LINE_BREAK_RUN rather than on `\n`, so a `\r`-separated line is still found.
+function collectContractCandidates(coderResult, verdict) {
+  const deviations = Array.isArray(coderResult?.deviations) ? coderResult.deviations : []
+  const summaryLines = String(verdict?.summary ?? '').replace(LINE_BREAK_RUN, '\n').split('\n')
+  const out = [...deviations.map(d => String(d ?? '')), ...summaryLines]
+    .map(x => x.trim())
+    .filter(x => x.startsWith(CONTRACT_CANDIDATE_PREFIX))
+    .map(x => collapseLines(x))
+  return capList(out)
+}
+
+function renderContractCandidates(candidates) {
+  if (!candidates.length) return ''
+  return '\n\n## CONTRACT CANDIDATES (propose only — never write a contract file)\n'
+    + candidates.map(c => `- ${c}`).join('\n')
+    + '\nWrite each as its own backlog item suggesting `/ldo-contract`, naming the file it would belong in. Do NOT create or edit anything under `docs/contracts/`: a contract is the operator\'s decision and this run only noticed the gap. State each rule in the abstract — never quote a credential, token, endpoint or customer identifier into a backlog item.'
+}
+
 function renderPlanCompact(plan) {
   return plan.steps.map((s, i) => `${i + 1}. ${s.what} [${s.files.join(', ')}]`).join('\n')
 }
@@ -896,6 +954,7 @@ const SCOPED_TEMPLATE_MAX = 200
 // would pass. The class also excludes `{`, so neither `[...]*` can cross the
 // placeholder and the match stays linear.
 const SCOPED_TEMPLATE_SHAPE = /^[A-Za-z0-9 ._\/,:=+@-]*\{paths\}[A-Za-z0-9 ._\/,:=+@-]*$/
+const SCOPED_SHELLS = ['bash', 'sh', 'zsh', 'dash', 'ksh', 'env', 'eval', 'source', 'exec']
 const SCOPED_RUNNERS = ['npm', 'npx', 'yarn', 'pnpm', 'pytest', 'python', 'python3', 'go', 'cargo', 'mvn', 'gradle', 'dotnet', 'rspec', 'bundle', 'phpunit', 'jest', 'vitest', 'ctest', 'make', 'tox', 'deno', 'bun', 'node']
 
 function safeScopedTemplate(t, testCommand) {
@@ -919,6 +978,14 @@ function safeScopedTemplate(t, testCommand) {
   if (tokens.some(tok => tok !== '{paths}' && (tok.startsWith('/') || tok.startsWith('.')))) return null
   const runner = tokens[0]
   const baseRunner = String(testCommand || '').trim().split(/ +/)[0]
+  // A shell is rejected even when it IS the project's own runner. The
+  // baseRunner escape hatch exists so an unusual test command still scopes, but
+  // `bash {paths}` substituted over the matched files means "execute these
+  // files", not "test these files" — and the files are whatever the plan
+  // touched, Markdown included. A live run handed exactly that template over
+  // .md files; the Coder refused it and ran the real suite, which is the
+  // correct outcome reached by the wrong mechanism.
+  if (SCOPED_SHELLS.includes(runner)) return null
   if (!SCOPED_RUNNERS.includes(runner) && runner !== baseRunner) return null
   return s
 }
@@ -1920,6 +1987,20 @@ async function agentWithModelFallback(prompt, opts, fallbackModel) {
   return runAgent(prompt, { ...opts, model: fallbackModel })
 }
 
+// The pipeline's own version, kept in lockstep with .claude-plugin/plugin.json,
+// .claude-plugin/marketplace.json (three copies), the `<!-- ldo:version -->`
+// stamp skills/ldo-init writes into a project's CLAUDE.md, and the newest
+// CHANGELOG heading — scripts/check-version-lockstep.sh is what holds them
+// together. It exists because a CLAUDE.md block written by 2.31.0 is
+// byte-indistinguishable from a current one, and until now the running
+// pipeline could not have reported the mismatch even against a stamped block:
+// nothing in this file knew what version it was. Logged once per run so the
+// operator has the other half of that comparison in front of them.
+// Nothing here reads or branches on the stamp — the stamp is a hint to re-run
+// /ldo-init, never a check, because an agent-written marker in a repo file
+// proves nothing about what surrounds it.
+const LDO_VERSION = '2.37.0'
+
 // ═══════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════
@@ -2029,6 +2110,8 @@ function resolveBacklogDestination(cfg) {
 const { destination: BACKLOG_DESTINATION, warnings: BACKLOG_WARNINGS } = resolveBacklogDestination(CONFIG.backlog)
 BACKLOG_WARNINGS.forEach(w => log(`⚠ ${w}`))
 
+log(`LDO ${LDO_VERSION}`)
+
 // The directive is a prompt block rather than a flag the agent interprets, for
 // the same reason renderFullSuiteDirective is one: agents/recorder.md has to
 // hold for both settings at once, so the run-specific half — which of the two
@@ -2047,6 +2130,270 @@ const BACKLOG_DIRECTIVES = {
 // already-validated BACKLOG_DESTINATION; the fallback exists for the caller
 // that doesn't validate, which is exactly the one that would hit this.
 const renderBacklogDirective = destination => Object.hasOwn(BACKLOG_DIRECTIVES, destination) ? BACKLOG_DIRECTIVES[destination] : BACKLOG_DIRECTIVES[DEFAULT_BACKLOG_DESTINATION]
+
+// ── design-doc drift ────────────────────────
+//
+// LDO does not own a project's design documents — no format, no template, no
+// skill; README, "What LDO does not own", argues why. What it owns is the one
+// check that needs no format at all. Issue #20 measured 4 of 46 design files
+// untouched for six weeks while the code they describe moved, and detecting
+// that takes a glob, a path, and the files this run already reported changing.
+// No filesystem access is involved or needed: this is pure string matching over
+// data the orchestrator is holding anyway.
+//
+// The values are semi-untrusted, which is why they are validated harder than a
+// config value normally would be. CONFIG is `args.config`, composed by the
+// calling agent out of CLAUDE.md — repo content — so on a contributed branch or
+// a vendored copy someone else prepared, these strings came from that repo. And
+// `doc` is rendered into the Record prompt, where an agent holding Write, Edit
+// and Bash reads it. safeMigrationsDir is the existing validator for exactly
+// this class (absolute, `..`, a segment starting with `.` or `-`, anything
+// outside SAFE_REL_PATH); reusing it beats writing a second, weaker one, and
+// its name says "migrations" only because that was its first caller.
+const DESIGN_MAP_MAX = 40
+// A glob is walked against every changed file, so its length is a cost
+// multiplier, not just a value. Both limits bound that walk. Neither is a
+// safety boundary — globMatch below has no backtracking to exploit — and
+// neither may be treated as one: a glob well inside both can still be
+// pathological for any matcher that backtracks.
+const DESIGN_GLOB_MAX = 200
+const DESIGN_GLOB_WILDCARDS_MAX = 10
+const DESIGN_KEYS = ['map']
+const DESIGN_ENTRY_KEYS = ['glob', 'doc']
+
+function resolveDesignMap(cfg) {
+  const c = cfg || {}
+  const warnings = []
+  const map = []
+  for (const key of Object.keys(c)) {
+    if (!DESIGN_KEYS.includes(key)) warnings.push(`config.design.${key} is not a known key — ignored. Keys: ${DESIGN_KEYS.join(', ')}`)
+  }
+  if (c.map === undefined) return { map, warnings }
+  if (!Array.isArray(c.map)) {
+    warnings.push(`config.design.map is not an array (${typeof c.map}) — ignored. Expected [{ glob, doc }].`)
+    return { map, warnings }
+  }
+  const entries = c.map.slice(0, DESIGN_MAP_MAX)
+  if (c.map.length > DESIGN_MAP_MAX) warnings.push(`config.design.map has ${c.map.length} entries — only the first ${DESIGN_MAP_MAX} are used.`)
+  entries.forEach((raw, i) => {
+    const at = `config.design.map[${i}]`
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      warnings.push(`${at} is not an object — ignored.`)
+      return
+    }
+    for (const key of Object.keys(raw)) {
+      if (!DESIGN_ENTRY_KEYS.includes(key)) warnings.push(`${at}.${key} is not a known key — ignored. Keys: ${DESIGN_ENTRY_KEYS.join(', ')}`)
+    }
+    const glob = typeof raw.glob === 'string' ? raw.glob.trim() : ''
+    const doc = typeof raw.doc === 'string' ? raw.doc.trim() : ''
+    if (!glob) {
+      warnings.push(`${at}.glob is missing or not a non-empty string — entry ignored.`)
+      return
+    }
+    if (glob.length > DESIGN_GLOB_MAX) {
+      warnings.push(`${at}.glob is ${glob.length} chars, over the ${DESIGN_GLOB_MAX} limit — entry ignored.`)
+      return
+    }
+    const wildcards = (glob.match(/\*/g) || []).length
+    if (wildcards > DESIGN_GLOB_WILDCARDS_MAX) {
+      warnings.push(`${at}.glob has ${wildcards} wildcard characters, over the ${DESIGN_GLOB_WILDCARDS_MAX} limit — entry ignored.`)
+      return
+    }
+    // detectDesignDrift matches the glob in the same normalized form it puts
+    // every changed path through, so `./src/**` and `src\auth\**` are live
+    // spellings rather than dead ones. What normalizes to nothing at all (`/`,
+    // `./`, `..`) can never match and is rejected here instead of accepted and
+    // silently never firing.
+    if (!normalizeIssuePath(glob)) {
+      warnings.push(`${at}.glob names no path once normalized (${JSON.stringify(collapseLines(glob))}) — entry ignored. A glob is matched against normalized paths, so it must name at least one path segment.`)
+      return
+    }
+    if (!doc) {
+      warnings.push(`${at}.doc is missing or not a non-empty string — entry ignored.`)
+      return
+    }
+    const safeDoc = safeMigrationsDir(doc)
+    if (!safeDoc) {
+      warnings.push(`${at}.doc is not a safe repo-relative path (${JSON.stringify(collapseLines(doc))}) — entry ignored. It is rendered into an agent's prompt as a path, so absolute paths, \`..\` segments and dot/dash-leading segments are rejected.`)
+      return
+    }
+    map.push({ glob, doc: safeDoc })
+  })
+  return { map, warnings }
+}
+
+// Matching is a bounded table walk, and no RegExp may ever be compiled from a
+// glob here: no cap resolveDesignMap can enforce bounds RegExp backtracking,
+// since a shape like `*a*a*a*a*a*a*a*a*a*a` is 20 characters with 10 wildcards
+// and passes every one of those limits with no warning. This runs at
+// phaseRecord, after the code is written and reviewed, with no watchdog, over a
+// glob that reached CONFIG from repo content.
+//
+// The table is one boolean per path position per token — at most 200 x 401
+// cells, every one visited once, whatever shape the glob has. Nothing is ever
+// compiled, so `src/(a|b)/**` is literal by construction rather than by
+// escaping, and there is no `lastIndex` to leak between files.
+//
+// `**` matches any run of characters including `/`; a single `*` matches any
+// run containing no `/`; every other character is literal. A run of three or
+// more stars is `**`. The match is anchored at both ends — a glob of `docs`
+// matches the path `docs` and nothing else, or the drift block would fire on
+// every path containing that substring. An empty glob matches nothing, which is
+// why detectDesignDrift skips such an entry rather than reporting it.
+function globMatch(glob, path) {
+  const g = String(glob ?? '').trim()
+  const p = String(path ?? '')
+  if (!g) return false
+
+  const tokens = []
+  for (let i = 0; i < g.length; i++) {
+    if (g[i] === '*') {
+      let stars = 0
+      while (i < g.length && g[i] === '*') { stars++; i++ }
+      i--
+      tokens.push({ star: stars > 1 ? 2 : 1 })
+    } else {
+      let lit = ''
+      while (i < g.length && g[i] !== '*') { lit += g[i]; i++ }
+      i--
+      tokens.push({ lit })
+    }
+  }
+
+  // `**` immediately followed by `/` is one token, not two: the slash belongs to
+  // the wildcard, because `**/` is allowed to match zero directories and there
+  // is then no slash left for a literal to consume. Folding it here keeps the
+  // sweep below a single pass per token.
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const cur = tokens[i]
+    const nxt = tokens[i + 1]
+    if (cur.star === 2 && nxt.lit !== undefined && nxt.lit.startsWith('/')) {
+      delete cur.star
+      cur.starSlash = true
+      if (nxt.lit.length === 1) tokens.splice(i + 1, 1)
+      else nxt.lit = nxt.lit.slice(1)
+    }
+  }
+
+  // reach[j] is true when the tokens consumed so far match exactly the first j
+  // characters of the path.
+  let reach = new Array(p.length + 1).fill(false)
+  reach[0] = true
+  for (const token of tokens) {
+    const next = new Array(p.length + 1).fill(false)
+    if (token.lit !== undefined) {
+      for (let j = 0; j <= p.length; j++) {
+        if (reach[j] && p.startsWith(token.lit, j)) next[j + token.lit.length] = true
+      }
+    } else if (token.star !== undefined) {
+      // One left-to-right sweep rather than a nested loop over start positions:
+      // `carry` means "some reachable position can stretch this far", which a
+      // single `*` loses the moment it passes a `/` and `**` never does.
+      let carry = false
+      for (let j = 0; j <= p.length; j++) {
+        if (j > 0 && token.star === 1 && p[j - 1] === '/') carry = false
+        carry = carry || reach[j]
+        next[j] = carry
+      }
+    } else {
+      // `**/` matches ZERO or more directories, which is what every other glob
+      // implementation means by it and what a project writing the idiomatic
+      // `src/**/*.test.ts` expects. Without the zero case that glob misses
+      // every file directly under `src/`, and this detector's whole job is to
+      // not be silent — a map entry that quietly matches nothing reports no
+      // drift and looks exactly like a healthy one.
+      // Two ways to land: consume nothing (reach[j] itself), or consume any run
+      // that ENDS on a `/` (carry from strictly before j, with p[j-1] === '/').
+      let carry = false
+      for (let j = 0; j <= p.length; j++) {
+        next[j] = reach[j] || (j > 0 && p[j - 1] === '/' && carry)
+        carry = carry || reach[j]
+      }
+    }
+    reach = next
+  }
+  return reach[p.length]
+}
+
+// files_changed is CODER_SCHEMA `array of string` with no pattern — model
+// authored and length-unbounded — and every entry is walked against every glob,
+// so the work here is N x M tables. Both dimensions are capped: M by
+// DESIGN_MAP_MAX above, N here, plus a per-path length limit, because a single
+// absurdly long path is the other half of the same cost.
+const DRIFT_FILES_MAX = 200
+const DRIFT_PATH_MAX = 400
+
+// files_changed is what a Coder reported, and a Coder inside a worktree reports
+// `/home/u/repo/src/auth/x.ts` for the file the map calls `src/auth/**` — the
+// same mismatch normalizeIssuePath exists for upstream. So every path goes
+// through the same normalizer, `doc` is compared with sameFilePath rather than
+// by equality, and the glob is also tried with a leading `**/` so a
+// repo-relative pattern still matches a path carrying the worktree root ahead
+// of it. That leading prefix over-reports in principle — glob `docs` also
+// matches `vendor/docs` — in the direction that costs a backlog line rather
+// than silence, the same trade sameFilePath already documents.
+// BOTH SIDES of the comparison go through that normalizer, never one. A glob
+// spelled `./src/**`, `/src/**`, `src//**`, `src/**/` or `src\auth\**` passes
+// every check resolveDesignMap makes, so matching a raw glob against a
+// normalized path is a mapping accepted with no warning that can never fire —
+// the same "declared a map, nothing happens, no signal" failure this block
+// exists to remove.
+// Matching is on the normalized form; what gets REPORTED is the path the Coder
+// wrote, because a backlog item naming `home/u/repo/src/auth/x.ts` — normalized,
+// leading slash gone — names a file that exists nowhere. Both forms are held to
+// DRIFT_PATH_MAX: the normalized one is the cost bound, the raw one is what
+// reaches the prompt.
+function detectDesignDrift(map, filesChanged) {
+  const entries = Array.isArray(map) ? map : []
+  if (!entries.length) return []
+  const files = (Array.isArray(filesChanged) ? filesChanged : [])
+    .slice(0, DRIFT_FILES_MAX)
+    .map(f => ({ raw: String(f ?? '').trim(), path: normalizeIssuePath(f) }))
+    .filter(f => f.path && f.path.length <= DRIFT_PATH_MAX && f.raw.length <= DRIFT_PATH_MAX)
+  if (!files.length) return []
+  const drifted = []
+  for (const entry of entries) {
+    const glob = typeof entry?.glob === 'string' ? normalizeIssuePath(entry.glob) : ''
+    if (!glob) continue
+    const matched = files.filter(f => globMatch(glob, f.path) || globMatch(`**/${glob}`, f.path))
+    // The doc moving with the code is the whole point — that run is healthy and
+    // has nothing to report.
+    // One direction, deliberately, unlike the forbiddenDocs check below.
+    // `entry.doc` is already repo-relative and validated, so only the changed
+    // path can be the longer form; sameFilePath also matches the short side
+    // against the long one, which lets a root-level `auth.md` stand in for
+    // `docs/design/auth.md` and SUPPRESS the drift report. Suppression is the
+    // silent direction this block must never fail in.
+    if (!matched.length || files.some(f => f.path === entry.doc || f.path.endsWith(`/${entry.doc}`))) continue
+    drifted.push({ doc: entry.doc, glob: entry.glob, matched: matched.map(f => f.raw) })
+  }
+  return drifted
+}
+
+// Empty string for an empty list, so a project that declared no map pays no
+// prompt block at all and its Record prompt stays byte-identical to today's.
+// Every string here is collapsed before it is rendered: `doc` and `glob` came
+// from repo-authored config and the matched paths came from a model, and any of
+// the three carrying `\n## ISSUES` would forge a section header in this prompt.
+function renderDesignDrift(drifted) {
+  const list = Array.isArray(drifted) ? drifted : []
+  if (!list.length) return ''
+  const shown = list.slice(0, RENDER_LIST_MAX)
+  const lines = ['\n\n## DESIGN DOC DRIFT (record only — never open, create or edit the document)']
+  shown.forEach(d => {
+    lines.push(`- ${collapseLines(d?.doc)} — glob \`${collapseLines(d?.glob)}\` matched: ${capList((Array.isArray(d?.matched) ? d.matched : []).map(m => collapseLines(m))).join(', ')}`)
+  })
+  if (list.length > shown.length) lines.push(`+${list.length - shown.length} more`)
+  lines.push('The project mapped each document to code it describes; that code changed in this run and the document did not. Write one backlog item per line above — which document, which files moved — and stop there. **Do not open, create or edit any of these documents.** LDO defines no format for them and does not write them; whether the drift matters is the operator\'s call, not yours.')
+  return lines.join('\n')
+}
+
+// Resolved once, here rather than beside BACKLOG_DESTINATION above, because
+// every DESIGN_* limit this reads is a `const` declared in this block — a
+// call placed higher throws a TDZ error before the run starts. Same
+// resolve-once, warn-once discipline as the two blocks around it.
+const { map: DESIGN_MAP, warnings: DESIGN_WARNINGS } = resolveDesignMap(CONFIG.design)
+DESIGN_WARNINGS.forEach(w => log(`⚠ ${w}`))
 
 // Merged once at module scope, not per routeModels() call: routeModels runs
 // twice per feature and N times in a multi-feature run, so warning inside it
@@ -2299,6 +2646,12 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
     return { error: 'Planner failed', label: ctx.label, task }
   }
 
+  // The host-side half of the contract-length signal. Logged here rather than
+  // rendered into a prompt: the audience is the operator, who is the only one
+  // who can go and split the entry, and the agents downstream already receive
+  // the compressed text with renderConstraints' truncation marker on it.
+  contractWarnings(plan).forEach(w => log(`${logPrefix}⚠ ${w}`))
+
   // Asserts the orchestrator holds a verified worktree, not that the Planner
   // claimed one — a non-empty model-authored string is satisfied by a Planner
   // that skipped the step entirely, which is how every later agent ended up
@@ -2495,6 +2848,12 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
   // re-raised on pass 2 with `introduced_by_fix: true` is blocking now, and a
   // report built from the run-lifetime Set would label it advisory anyway.
   let lastDowngraded = new Map()
+  // The last pass's Coder output, kept past the loop so phaseRecord can read the
+  // two signals that outlive the review: what the run changed, and what rule it
+  // had to settle for itself. Last pass, not first: a fix pass can touch files
+  // the first one did not, and a contract candidate noticed while fixing is the
+  // same finding as one noticed while building.
+  let lastCoderResult = null
   // Run-lifetime count of issues sent to a fix pass that came back with no
   // outcome entry — surfaced in the result so "the loop ran out" and "the loop
   // ran out while nobody could say what each pass actually answered" are
@@ -2533,6 +2892,8 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
       schema: CODER_SCHEMA,
       stallMs: STALL_MS.coder,
     })
+
+    lastCoderResult = coderResult || lastCoderResult
 
     if (coderResult?.tests?.result) log(`${logPrefix}Coder pass ${iteration + 1}: ${coderResult.tests.result}`)
     else log(`${logPrefix}Coder pass ${iteration + 1} complete`)
@@ -2776,7 +3137,9 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     logUnproven(finalVerdict, logPrefix)
   }
 
-  return { finalVerdict, iteration, downgraded: lastDowngraded, fullSuiteRan: fullSuiteRanOnce, issuesUnaccounted, envStatus }
+  return { finalVerdict, iteration, downgraded: lastDowngraded, fullSuiteRan: fullSuiteRanOnce, issuesUnaccounted, envStatus,
+    filesChanged: Array.isArray(lastCoderResult?.files_changed) ? lastCoderResult.files_changed : [],
+    deviations: Array.isArray(lastCoderResult?.deviations) ? lastCoderResult.deviations : [] }
 }
 
 // ── phaseRecord ────────────────────────────
@@ -2802,7 +3165,7 @@ function verifyRecordLocation(recordResult, plan, ctx) {
 // script itself, because the script has no filesystem access — only agents
 // it spawns can read/write, so persisting anything to disk has to go through
 // an agent call even when the "work" is just rendering already-known data.
-async function phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded) {
+async function phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded, coderSignals) {
   if ((!approved && finalVerdict.loops_exhausted !== true) || plan.complexity === 'trivial') {
     return { recordMisplaced: false, recordStatus: 'skipped' }
   }
@@ -2868,6 +3231,18 @@ ${(finalVerdict.resolved_issues || []).map(iss => `[${oneLine(iss.severity)}] ${
     : `## ISSUES
 All: ${(finalVerdict.issues || []).map(renderIssue).join('; ') || 'none'}`
 
+  // Both proposal channels feed one list: a rule the Coder had to invent and a
+  // rule the Reviewer noticed missing are the same finding, and the operator
+  // should see them once. Logged as well as rendered, because a Recorder that
+  // dies loses the prompt but not the run log.
+  const contractCandidates = collectContractCandidates({ deviations: coderSignals?.deviations }, finalVerdict)
+  contractCandidates.forEach(c => log(`${logPrefix}⚠ ${c}`))
+  const contractCandidatesBlock = renderContractCandidates(contractCandidates)
+
+  const designDrift = detectDesignDrift(DESIGN_MAP, coderSignals?.filesChanged)
+  designDrift.forEach(d => log(`${logPrefix}⚠ Design doc drift: ${collapseLines(d.doc)} was not touched while ${d.matched.length} file(s) matching \`${collapseLines(d.glob)}\` changed`))
+  const designDriftBlock = renderDesignDrift(designDrift)
+
   const recordPrompt = WORKTREE_BLOCK + renderBacklogDirective(BACKLOG_DESTINATION) + `${opening}
 
 ## TASK
@@ -2888,7 +3263,7 @@ ${(Array.isArray(finalVerdict.attacks) ? finalVerdict.attacks : []).map((a, i) =
 ${issuesBlock}
 
 ## SECURITY (if any)
-${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f.severity}] ${f.category}: ${f.what} → ${f.mitigation}`).join('\n') : 'none'}`
+${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f.severity}] ${f.category}: ${f.what} → ${f.mitigation}`).join('\n') : 'none'}` + contractCandidatesBlock + designDriftBlock
 
   const recordResult = await runAgent(recordPrompt, {
     label: ctx.isMulti ? `${ctx.label}:recorder` : 'recorder',
@@ -2921,6 +3296,30 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
     log(`${logPrefix}⚠ Recorder reported backlog → github, which config.backlog.destination 'file' does not permit — check what it published`)
   }
 
+  // Both new blocks hand the Recorder file paths and rely on prompt text to
+  // stop it writing to them — and verifyRecordLocation below opens with
+  // `if (!ctx?.isMulti) return false`, so on a single-feature run, the
+  // documented default, nothing inspects files_written at all. This does,
+  // unconditionally. Non-blocking, same shape as the backlog-destination
+  // warning above: the artifacts exist and the verdict is unaffected, but a
+  // contract or a design document written by an agent is the operator's
+  // decision made by inference, and only this line says it happened.
+  // Normalized on both sides, and matched with sameFilePath rather than by
+  // equality: a Recorder reporting `./docs/design/auth.md` or an absolute path
+  // is the same mismatch normalizeIssuePath exists for everywhere else, and a
+  // raw comparison simply misses it. The bidirectional match is right HERE and
+  // wrong in detectDesignDrift above, because the directions differ: there a
+  // loose match suppresses a report, here it prints one warning too many.
+  const wroteProposalTargets = files
+    .map(f => String(f || '').trim())
+    .filter(f => {
+      const n = normalizeIssuePath(f)
+      return n.startsWith('docs/contracts/') || DESIGN_MAP.some(m => sameFilePath(f, m.doc))
+    })
+  if (wroteProposalTargets.length) {
+    log(`${logPrefix}⚠ Recorder reported writing ${capList(wroteProposalTargets.map(f => collapseLines(f))).join(', ')} — contracts and mapped design documents are proposed as backlog items and never written by the Record phase. Check what it changed.`)
+  }
+
   const misplaced = verifyRecordLocation(recordResult, plan, ctx)
   if (misplaced) {
     log(`${logPrefix}✗ RECORDER WROTE OUTSIDE ITS WORKTREE — expected ${plan.worktree_path}, reported ${recordResult.worktree_root}`)
@@ -2928,6 +3327,34 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
   }
 
   return { recordMisplaced: misplaced, recordStatus: 'ok' }
+}
+
+// planOnly was used zero times across the eight runs issue #20 measured, and
+// one of those tasks was restarted four times — every restart a correction to
+// the approach, not to the code. The flag was documented and nothing ever
+// pointed at a specific run and said "this was one of them". This does, after
+// the fact, from the plan the Planner just returned.
+//
+// Advice, never a gate: it runs after Plan and changes nothing about what
+// happens next. The string is composed from FIELD NAMES and fixed reason text
+// only — never from the content of `conflicts` or `risks`, which is
+// model-authored text that would land uncollapsed on the result object the
+// caller prints.
+//
+// `NONE —` conflicts are excluded because agents/planner.md tells the Planner
+// to report `NONE — <what you checked it against>` when it reconciled an
+// artifact and found nothing: that is a clean reconciliation, and treating it
+// as an unresolved decision would make this fire on every artifact-bearing run.
+function recommendPlanReview(plan) {
+  const reasons = []
+  if (plan?.complexity === 'complex') reasons.push('complexity is `complex`')
+  if (plan?.security_surface === 'elevated') reasons.push('security_surface is `elevated`')
+  const conflicts = (Array.isArray(plan?.conflicts) ? plan.conflicts : [])
+    .filter(c => !String(c ?? '').trim().startsWith('NONE —'))
+  if (conflicts.length) reasons.push(`${conflicts.length} unresolved conflict(s) in \`conflicts\``)
+  if (plan?.sizing?.fits_one_run === false) reasons.push('`sizing.fits_one_run` is false')
+  if (!reasons.length) return null
+  return `Worth planning first next time — ${reasons.join('; ')}. Re-issuing this task with \`planOnly: true\` returns the plan without implementing it, so the approach can be corrected before any code is written.`
 }
 
 // ── shapeResult ────────────────────────────
@@ -2971,6 +3398,10 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
     branch: plan.branch || null,
     verdict: finalVerdict,
     verification: finalVerdict.verification?.verdict || 'not_run',
+    // A string or null, on the result object only — never a schema field.
+    // PLAN_SCHEMA has 87 characters of headroom and this is derived, not
+    // reported: the Planner already filled every field it reads.
+    plan_review_recommended: recommendPlanReview(plan),
     // Top-level beside unproven, not buried in `plan`: both name something the
     // run did NOT settle, and a caller reading the outcome has to see an
     // unconfirmed decision without digging for it.
@@ -3020,6 +3451,10 @@ function shapePlanOnly(plan, researchReport, securityReport, surface, models, ta
   return {
     mode: 'plan-only',
     label: ctx.label,
+    // Same derived field as shapeResult's. Present here too because a caller
+    // comparing the two shapes should not have to special-case which one
+    // carries the advice — and a plan-only run is where the advice was taken.
+    plan_review_recommended: recommendPlanReview(plan),
     // Same derivation and the same caveat as shapeResult's — from the verified
     // object, never from the flag.
     work_location: isolation ? 'worktree' : 'working_tree',
@@ -3086,6 +3521,9 @@ async function runOneFeature(task, ctx) {
     if (planResult.error) return planResult
     const { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK, scopedTests } = planResult
 
+    const planReviewAdvice = recommendPlanReview(plan)
+    if (planReviewAdvice) log(`${logPrefix}▸ ${planReviewAdvice}`)
+
     // Phase 4: Security
     const { securityReport, SECURITY_BLOCK } = await phaseSecurity(plan, models, ctx, WORKTREE_BLOCK, CTX, DO_SECURITY, logStage, logPrefix)
 
@@ -3100,6 +3538,7 @@ async function runOneFeature(task, ctx) {
     const reviewResult = await phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_BLOCK, task, logStage, logPrefix, scopedTests)
     if (reviewResult.error) return reviewResult
     const { finalVerdict: rawFinalVerdict, iteration, downgraded } = reviewResult
+    const coderSignals = { filesChanged: reviewResult.filesChanged || [], deviations: reviewResult.deviations || [] }
 
     // 'ran' outranks the configured intent: a Coder that ran the whole suite
     // under fullSuiteAt 'never' still ran it, and the status describes what
@@ -3134,7 +3573,7 @@ async function runOneFeature(task, ctx) {
     const finalVerdict = approved ? suiteMarked : markEnvUnreproducible(suiteMarked, envStatus)
 
     // Phase 6: Record
-    const { recordMisplaced, recordStatus } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded)
+    const { recordMisplaced, recordStatus } = await phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded, coderSignals)
 
     // Unlike markFullSuite, this cannot be applied before Record — the fact it
     // reports is Record's outcome. `approved` above is deliberately not
