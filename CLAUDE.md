@@ -139,5 +139,6 @@ the list. Offer; don't run either unasked.
 - every run reports per-phase output tokens; an unmeasurable reading says so instead of reading 0
 - models: opus plans and codes, sonnet reviews, at every tier — no haiku, no fable in the defaults
 - vendor.sh stages and verifies before it writes; a rejected source leaves the target untouched
+- check-config-defaults.sh holds every documented default to the source, not just the model table
 <!-- /ldo:features -->
 <!-- END ldo -->
