@@ -1,4 +1,5 @@
 <!-- BEGIN ldo -->
+<!-- ldo:version 2.39.0 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -31,6 +32,9 @@ unsure of. See `/ldo-agent-ux`.
 Project contracts live in `docs/contracts/`. When a task touches scope, security,
 or structural rules, read the relevant file before planning — see `/ldo-contract`.
 
+Decision history lives in `docs/DECISIONS.md` — check it before re-litigating a
+past call, don't read it automatically. See `/ldo-note`.
+
 Models route automatically: Haiku codes trivial work, Sonnet writes + Opus
 reviews for medium, Opus writes + Fable reviews for complex (Sonnet fallback).
 To change that, pass the routing on the call —
@@ -41,6 +45,19 @@ in this block so it's applied on every run.
 A single-task run edits the working tree directly by default — no commit, no
 branch. Pass `isolate: true` on the call to run it in a separate worktree instead
 and leave your tree untouched.
+
+**When the approach isn't settled, make the first call with `planOnly: true`** —
+a task that reframes a problem, touches a contract, or spans layers. The run
+stops after Plan and hands the plan back instead of implementing it; correct
+the approach there, then re-issue the same task without the flag. Four restarts
+of one task, every restart a design correction, is what this replaces.
+
+**This block is a snapshot of the LDO version that wrote it.** The
+`<!-- ldo:version -->` stamp on its first line says which, and every pipeline
+run logs its own version. When the two disagree the block is stale — re-run
+`/ldo-init` after updating or reinstalling the LDO plugin; it replaces the
+block in place and carries the drift log below over unchanged. The stamp is a
+hint for you, not a check: nothing in the pipeline reads it.
 
 **Docs drift log.** Append a line here after each user-facing change. When the
 list reaches roughly eight, offer to run `/ldo-docs-audit` and `/ldo-code-audit`
@@ -112,5 +129,7 @@ the list. Offer; don't run either unasked.
 - the run recommends planOnly after the fact, naming which of four reasons held
 - a shell is never the scoped test runner, even when it is the project's own
 - every run reports per-phase output tokens; an unmeasurable reading says so instead of reading 0
+- models: opus plans and codes, sonnet reviews, at every tier — no haiku, no fable in the defaults
+- vendor.sh stages and verifies before it writes; a rejected source leaves the target untouched
 <!-- /ldo:features -->
 <!-- END ldo -->

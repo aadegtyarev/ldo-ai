@@ -34,7 +34,17 @@ fi
 
 echo "Vendoring LDO from $SRC into $TARGET/.claude/ ..."
 
-mkdir -p "$TARGET/.claude/agents" "$TARGET/.claude/skills" "$TARGET/.claude/workflows"
+# Everything is built in a staging directory and only published into $TARGET
+# once every guard below has passed. It used to write straight into the target
+# and check afterwards, so a failed guard left a HALF-VENDORED install — agents
+# and a workflow present, skills and the marker file missing — while printing
+# only "transform incomplete". That is the shape a reader trusts least: an
+# error message about the source, next to a target that now looks populated.
+# README's own sentence ("verifies the result, refusing to proceed if anything
+# is left half-transformed") is only true with the staging step in place.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+mkdir -p "$STAGE/agents" "$STAGE/skills" "$STAGE/workflows"
 
 # ── 1. Agents, verbatim — frontmatter names are already bare ──────────────
 
@@ -48,7 +58,7 @@ for f in "$SRC"/agents/*.md; do
     collision=1
   fi
 done
-cp "$SRC"/agents/*.md "$TARGET/.claude/agents/"
+cp "$SRC"/agents/*.md "$STAGE/agents/"
 echo "  agents/*.md -> .claude/agents/ ($(ls "$SRC"/agents/*.md | wc -l | tr -d ' ') files)"
 if [ "$collision" = "1" ]; then
   echo "  -> one or more agent names collided with existing files in the target; see warnings above."
@@ -63,17 +73,26 @@ fi
 # `Workflow({name:"ldo:ldo", ...})` hands the operator a name that does not
 # resolve, at exactly the moment they are trying to recover a dead run. The
 # skills get the same treatment in step 3.
-sed -E -e "s/agentType: '?ldo:([a-z]+)'?/agentType: '\1'/g" -e 's/name:"ldo:ldo"/name:"ldo"/g' "$SRC/workflows/ldo.js" > "$TARGET/.claude/workflows/ldo.js"
+sed -E -e "s/agentType: '?ldo:([a-z]+)'?/agentType: '\1'/g" -e 's/name:"ldo:ldo"/name:"ldo"/g' "$SRC/workflows/ldo.js" > "$STAGE/workflows/ldo.js"
 
-# Deliberately still a bare `ldo:` search rather than one narrowed to
-# `agentType: 'ldo:`. Narrowing it would have silenced this check instead of
-# fixing what it caught: it tripped on those three log lines for three
-# versions, every vendoring run exited 1 while having actually worked, and a
-# tool that reports failure every time trains its operator to stop reading the
-# exit code. The broad search is the one that noticed; keep it broad.
-if grep -q "ldo:" "$TARGET/.claude/workflows/ldo.js"; then
-  echo "error: transform incomplete — 'ldo:' still present in the vendored workflow script. The source shape changed since this script was written; fix the sed pattern above before vendoring." >&2
-  grep -n "ldo:" "$TARGET/.claude/workflows/ldo.js" >&2
+# Still a broad `ldo:` search rather than one narrowed to `agentType: 'ldo:`,
+# because the broad one is what has twice caught a shape nobody had thought
+# about. But broad-and-unqualified cried wolf twice on prose that was correct
+# both times, and a tool that fails on every successful run trains its operator
+# to stop reading the exit code. So: search broadly, then subtract the forms
+# already adjudicated as safe. A genuinely new shape still trips it; a mention
+# this project has already reasoned about does not.
+#
+# VENDOR_SAFE_LDO is that allowlist, and adding to it is meant to be a
+# deliberate act with a reason attached — not a regex loosened in passing.
+#   ldo:version — the `<!-- ldo:version -->` marker /ldo-init stamps into a
+#   project's CLAUDE.md. Vendored installs run /ldo-init too, so the comment
+#   describing it is as true in a vendored copy as it is here.
+VENDOR_SAFE_LDO='ldo:version'
+residual="$(grep -n "ldo:" "$STAGE/workflows/ldo.js" | grep -Ev "$VENDOR_SAFE_LDO" || true)"
+if [ -n "$residual" ]; then
+  echo "error: transform incomplete — an unrecognised 'ldo:' survived in the vendored workflow script. Either the source shape changed and the sed above needs updating, or this is a new prose mention that belongs in VENDOR_SAFE_LDO with a reason." >&2
+  printf '%s\n' "$residual" >&2
   exit 1
 fi
 echo "  workflows/ldo.js -> .claude/workflows/ldo.js (agentType prefix and ldo:ldo workflow name stripped, verified clean)"
@@ -90,8 +109,8 @@ for d in "$SRC"/skills/*/; do
   if [ "$skill_name" = "ldo-vendor" ]; then
     continue
   fi
-  mkdir -p "$TARGET/.claude/skills/$skill_name"
-  sed -e 's#/ldo:ldo#/ldo#g' -e 's#name: *"ldo:ldo"#name: "ldo"#g' "$d/SKILL.md" > "$TARGET/.claude/skills/$skill_name/SKILL.md"
+  mkdir -p "$STAGE/skills/$skill_name"
+  sed -e 's#/ldo:ldo#/ldo#g' -e 's#name: *"ldo:ldo"#name: "ldo"#g' "$d/SKILL.md" > "$STAGE/skills/$skill_name/SKILL.md"
   skill_count=$((skill_count + 1))
 done
 echo "  skills/*/SKILL.md -> .claude/skills/ ($skill_count skills, /ldo:ldo and name:\"ldo:ldo\" -> bare \"ldo\" in each)"
@@ -99,9 +118,9 @@ echo "  skills/*/SKILL.md -> .claude/skills/ ($skill_count skills, /ldo:ldo and 
 # Verify no plugin-scoped workflow reference survived — same refusal logic as
 # the agentType check in step 2. A skill still pointing at /ldo:ldo or
 # name:"ldo:ldo" after vendoring would resolve to nothing (vendored runs bare).
-if grep -rq 'ldo:ldo' "$TARGET/.claude/skills/"; then
+if grep -rq 'ldo:ldo' "$STAGE/skills/"; then
   echo "error: transform incomplete — 'ldo:ldo' still present in vendored skills. The source shape changed since this script was written; fix the sed above before vendoring." >&2
-  grep -rn 'ldo:ldo' "$TARGET/.claude/skills/" >&2
+  grep -rn 'ldo:ldo' "$STAGE/skills/" >&2
   exit 1
 fi
 
@@ -110,7 +129,7 @@ fi
 src_version="$(python3 -c "import json; print(json.load(open('$SRC/.claude-plugin/plugin.json'))['version'])" 2>/dev/null || echo "unknown")"
 vendored_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")"
 
-cat > "$TARGET/.claude/LDO_VENDORED.md" <<EOF
+cat > "$STAGE/LDO_VENDORED.md" <<EOF
 # LDO — vendored copy
 
 Vendored from LDO v${src_version} on ${vendored_at}.
@@ -128,6 +147,18 @@ vendoring; only the LDO-owned files under .claude/agents, .claude/skills,
 and .claude/workflows are replaced.
 EOF
 echo "  .claude/LDO_VENDORED.md written (source version: $src_version)"
+
+# ── 5. Publish — the first and only writes into $TARGET ───────────────────
+#
+# Everything above ran against $STAGE, so a guard that fired left the target
+# exactly as it was. From here the copies are mechanical: nothing below can
+# decide to stop, which is the property that makes "verified before written"
+# true rather than aspirational.
+mkdir -p "$TARGET/.claude/agents" "$TARGET/.claude/skills" "$TARGET/.claude/workflows"
+cp "$STAGE"/agents/*.md "$TARGET/.claude/agents/"
+cp "$STAGE"/workflows/ldo.js "$TARGET/.claude/workflows/ldo.js"
+cp -R "$STAGE"/skills/. "$TARGET/.claude/skills/"
+cp "$STAGE"/LDO_VENDORED.md "$TARGET/.claude/LDO_VENDORED.md"
 
 echo
 echo "Done. Next: run /ldo-init in $TARGET to write the CLAUDE.md self-routing block."

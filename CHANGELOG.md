@@ -5,6 +5,84 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.39.0] — 2026-09-08
+
+Two audits (`/ldo-docs-audit`, `/ldo-code-audit`), both delegated to agents with no
+prior context on this repo — the skills require that, and a session that had just
+shipped seven releases into the codebase is exactly the reader they exclude. What
+follows is the hand pass over their findings; the structural ones are queued for the
+pipeline rather than patched here.
+
+### Changed
+
+- **The model table is flat, and inverted: Opus plans and writes, Sonnet reviews, at
+  every tier.** The old shape put the cheap model on the Coder and the strongest on the
+  Reviewer, on the theory that catching what the Coder missed is the premise of the
+  protocol. Weeks of daily runs on the inverted table reported plainly better results,
+  and the cost model measured this week explains why: a run's cost tracks **turns**, not
+  agents — 2.4-3.2k output tokens per tool call, stable across five runs of very
+  different shape — and turns are set by review rounds. A weak Coder buys rounds, and
+  every round is a full Coder *and* Reviewer pass, so Opus once beats Sonnet three times
+  plus three reviews. `planner` stays Opus for a different reason (complexity is its own
+  output, so it cannot gate its own model) and `security` stays Opus because an
+  authorization hole missed at plan time is not what a later round recovers.
+
+  The trade is real and stated rather than hidden: a weaker Reviewer catches less, and
+  `{"models": {"complex": {"reviewer": "opus"}}}` takes it back. The product description
+  in both manifests changed with it — it said "route implementation to a cheap model and
+  review to a strong one", which is now the opposite of what ships.
+
+  **No `haiku` and no `fable` in the defaults**, neither as a judgment about the model.
+  `fable` was the `complex` Reviewer but is not on every proxy route, and only the
+  Reviewer has a fallback for a missing model — a Coder routed to one fails the run
+  rather than degrading — so the declared default and the effective one had already
+  drifted apart for anyone without the route. `haiku` was the `trivial` Coder while every
+  Haiku sub-agent this project ran died on a thinking/context_management 400 (issue #4).
+  Either is one `config.models` line away.
+
+### Fixed
+
+- **`vendor.sh` half-wrote its target, and was broken outright.** The post-transform
+  guard ran *after* the agents and the workflow had been copied, so a guard that fired
+  left an install with agents and a workflow but no skills and no marker file, reporting
+  only "transform incomplete". And it was firing: 2.37.0 added a comment mentioning the
+  `<!-- ldo:version -->` marker, whose text contains `ldo:`, so **every vendor run since
+  has failed**. Measured against the pre-fix script: exit 1, twelve entries left in the
+  target, no skills. Now everything is built in a staging directory and published only
+  after every guard passes, so a rejected source leaves the target byte-for-byte as it
+  was. The guard stays broad — it is what caught both shapes — but subtracts an explicit
+  allowlist of mentions already adjudicated safe, so it fails on a new shape instead of
+  on prose it has already seen. `scripts/check-vendor.sh` is the fifteenth gate and pins
+  the property that was false: a rejected vendor writes nothing.
+
+- **Four comments in `workflows/ldo.js` stated things that are not true.** Three said the
+  Recorder runs on Haiku — it has been Sonnet since 2.31.1, and one of the three is the
+  stated reason `recorder` keeps the default stall budget, which a later comment chains
+  off. The fourth said the Isolator has no `stallMs` "for the same reason the Recorder
+  has none"; the Recorder does take one. These are load-bearing rationale, and this repo's
+  own `docs/contracts/code.md` requires a comment to state something the code cannot show
+  — a comment that states something false fails that twice over.
+
+- **README claimed `vendor.sh` "verifies the result before writing it"** — untrue until
+  this release, which is the rarer kind of finding: the doc audit and the code audit
+  reached the same defect from opposite ends without knowing about each other. It also
+  said six agent references where there are seven, since the Isolator.
+
+- **`agents/planner.md` told the Planner to fill `problem_evidence` and left it out of the
+  agent's own output schema**, which is the block it composes from. **`agents/recorder.md`
+  had no `## Cost` section** although every run's Record prompt now demands one verbatim.
+  **`/ldo-config` documented eleven keys and not `design.map`**, the one its own skill
+  exists to walk an operator through. **`/ldo-contract` quoted a measurement of this
+  repo's contracts (~1935 bytes) that its own recommended change made stale** — it is
+  1401 now, and the sentence points at `check-contracts.sh` rather than asking to be
+  believed. README called a config block "the defaults, in full" while it contained a
+  non-default `design.map`, and its file tree omitted `ldo-feedback`.
+
+- **This repo's own `CLAUDE.md` block was a version behind** — no `<!-- ldo:version -->`
+  stamp, missing the `planOnly` and snapshot paragraphs, while its drift log announced the
+  stamp feature it did not carry. Refreshed from the template with all 63 drift-log
+  entries preserved.
+
 ## [2.38.0] — 2026-09-07
 
 ### Added
