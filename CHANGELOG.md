@@ -5,6 +5,130 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.37.0] — 2026-09-07
+
+### Added
+
+- **The pipeline knows its own version, and the `CLAUDE.md` block says which version wrote
+  it.** A standing complaint: `/ldo-init` writes a block that goes stale after a plugin
+  update, and nothing could tell — a block written by 2.31.0 is byte-indistinguishable
+  from a current one, and `workflows/ldo.js` carried no version constant to compare it
+  against. It now carries `LDO_VERSION`, logs it once per run, and the block `/ldo-init`
+  writes opens with an `<!-- ldo:version -->` stamp. Disagreement between the two means
+  re-run `/ldo-init`; the block and README §Install both say so, and the re-run is now
+  safe (see Fixed). The stamp is a hint for the operator, never a check — nothing in the
+  pipeline reads or branches on it. `scripts/check-version-lockstep.sh` holds all five
+  copies of the version together: the constant, `plugin.json`, `marketplace.json`'s three
+  fields, the stamp, and the newest heading here.
+- **Contract length is measured where the contract is read, and reported.** Issue #20
+  measured a real `docs/contracts/` directory: `security.md` at 102897 characters, 66 of
+  its 75 entries over the documented 200-character limit, the longest 6407 — so 88% of an
+  enforced security floor reached the Coder compressed, with nobody told. The workflow has
+  no filesystem access, so only the Planner can see this: section 1.5 now hands it a
+  measurement command that interpolates no discovered filename, and an over-limit file
+  comes back as one `CONTRACT OVER LIMIT:` risk naming the file and the counts, which the
+  orchestrator logs. Over-long `security_notes` entries are counted in the same place —
+  counted, never trimmed, because `renderSecurity` is the only path by which a Planner's
+  own notes reach the Coder when the Security agent did not run, and a cap there would
+  lose floor text that arrives whole today.
+- **`/ldo-contract` and `/ldo-init` now run the contract check against your project.**
+  `scripts/check-contracts.sh` already took `[repo-root] [contracts-dir]` and was only ever
+  documented as measuring this repo. It is now a numbered step in both skills, resolved
+  strictly through `${CLAUDE_PLUGIN_ROOT}` and fully quoted; a `check-contracts.sh` found by
+  any other means must not be executed — a cwd-relative path resolves against the operator's
+  own repo, the defect class `/ldo-feedback` documents for `redact.sh`. A vendored install
+  has no `scripts/`, so the fallback is to read the files and count, and to say the script
+  was not reachable.
+- **A rule a run had to invent is proposed as a contract, never written.** When the Coder or
+  the Reviewer settles a project-wide rule because nothing in `docs/contracts/` settled it,
+  it comes back as a `CONTRACT CANDIDATE:` line — in `deviations`, or in the Reviewer's
+  `summary` where it is explicitly not an issue, carries no severity and cannot hold the fix
+  loop. The orchestrator logs each and hands them to the Recorder as backlog items
+  suggesting `/ldo-contract`. No agent writes under `docs/contracts/`, and the orchestrator
+  now warns if the Recorder reports having done so — on every run, not only isolated ones,
+  where `verifyRecordLocation` has always returned early.
+- **Design-doc drift, without owning the design document.** Issue #20 measured 4 of 46
+  design files untouched for six weeks while their code moved. LDO declines to own those
+  documents — no format, no template, no skill, argued in README under "What LDO does not
+  own: design documents", with a four-row table bounding where a fact may live so a fourth
+  place cannot appear by accident. What it does own is the check, which needs no format:
+  declare `config.design.map` (`{ glob, doc }` pairs) and a run whose changed files matched
+  the glob while the document stayed untouched is logged and recorded as a backlog item. The
+  match is pure string comparison over data the run already reported — no filesystem access
+  is added, and no `RegExp` either: globs are walked against a bounded table, because a glob
+  reaching CONFIG from repo content is semi-untrusted and a compiled one backtracks
+  exponentially inside every cap worth enforcing. Both sides of the match are normalized, so
+  the absolute paths a Coder inside a worktree reports still match a repo-relative glob and
+  still suppress the drift when the document is among them, and a glob spelled `./src/**`,
+  `/src/**`, `src//**`, `src/**/` or `src\auth\**` matches what it obviously means instead of
+  being accepted without a warning and never firing. Declare nothing and the Record prompt is
+  byte-identical to before.
+- **The run says when planning first would have paid.** `planOnly` was used zero times across
+  the eight runs issue #20 measured, while one task was restarted four times, every restart a
+  design correction. After Plan, a `▸` line now names the reasons this task looked like one —
+  `complex`, `elevated`, a non-empty `conflicts`, `fits_one_run: false` — and the result
+  carries the same string as `plan_review_recommended`. Advice after the fact; it blocks
+  nothing. The `/ldo-init` block also tells the calling agent to reach for `planOnly: true`
+  when the approach isn't settled.
+- **Two new gates.** `scripts/check-plan-signals.sh` and `scripts/check-design-drift.sh` drive
+  the real functions brace-extracted out of `workflows/ldo.js`, each with the controls that
+  matter more than the positive cases: an ordinary risk must produce no warning (a warner that
+  fires every run has silenced itself), an empty design map must render the empty string (a
+  project that declared nothing must pay no prompt block), and a `NONE — …` conflicts entry —
+  which the Planner is told to write after a clean reconciliation — must not trigger the plan
+  advice. Both take a second argument so `git show HEAD:workflows/ldo.js` demonstrates the
+  pre-change failure.
+
+### Fixed
+
+- **`/ldo-init` no longer destroys the drift log on a re-run.** Step 4 said to "replace
+  everything between the markers with the current block", the block it writes carries empty
+  `<!-- ldo:features -->` markers, and a sentence 70 lines further down claimed a re-run
+  preserved drift-log entries. Both could not be true, and this repo's own `CLAUDE.md` held
+  53 lines the procedure would have deleted. Step 4 is now an ordered procedure stated at the
+  destructive instruction rather than far from it: capture the lines and count them, then
+  replace, then write them back, then count again and stop if the counts differ — with the
+  reverse order ("write the block first and re-add the log from memory") forbidden by name.
+  The contradicting sentence at the end of the file now points at that procedure instead of
+  asserting the guarantee independently. This is the change that makes the re-run-after-update
+  advice above safe to give.
+
+### Fixed (by hand, after the review)
+
+- **`**/` matches zero directories, the way every other glob does.** `globMatch`
+  treated `**` as "any run of characters" with no zero-directory case, so
+  `src/**/x.ts` did not match `src/x.ts` and `**/x.ts` did not match a
+  repo-relative `x.ts`. A project writing the idiomatic `src/**/*.test.ts` would
+  have had its map entry silently match nothing, report no drift, and look
+  exactly like a healthy one — the silent direction this detector exists to
+  avoid. `**` followed by `/` is now one token that matches nothing at all or
+  any run ending on a slash. Ten named assertions in the gate, four of them
+  CONTROLs (a single `*` still does not cross a slash; the literal prefix is
+  still required; `src/**/x.ts` still does not match `srcx.ts`; `docs/**` still
+  does not match `docs`), and revert-proven: removing the fold makes exactly the
+  three zero-directory assertions fail and leaves the other seven green.
+
+- **Two comparisons that failed toward silence, in opposite directions.** The
+  drift suppression used `sameFilePath`, which matches a suffix in BOTH
+  directions, so a root-level `auth.md` counted as `docs/design/auth.md` having
+  moved and suppressed the report. That one is now one-directional: `entry.doc`
+  is already repo-relative, so only the changed path can be the longer form. The
+  Recorder's `forbiddenDocs` warning had the opposite problem — it compared raw
+  strings, so `./docs/design/auth.md` or an absolute path slipped past — and
+  that one now normalizes both sides and matches broadly. The directions differ
+  on purpose, and the code now says so: a loose match suppresses a report in the
+  detector and prints one warning too many in the Recorder.
+
+- **A shell is never the scoped test runner, even when it is the project's
+  own.** `SCOPED_RUNNERS` never contained `bash`, but the `baseRunner` escape
+  hatch — there so an unusual test command still scopes — let it through for any
+  project whose own command starts with one. This run was handed
+  `bash {paths}` rendered over Markdown files, which is "execute these files",
+  not "test these files"; the Coder refused it and ran the real gate set, which
+  is the right outcome reached by the wrong mechanism. `SCOPED_SHELLS` is
+  rejected ahead of the escape hatch, with an assertion per shell and a CONTROL
+  that a real runner still scopes through it.
+
 ## [2.36.1] — 2026-09-07
 
 ### Fixed

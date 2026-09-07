@@ -96,6 +96,18 @@ or structural rules, read the relevant file before planning.
 
 Don't duplicate the contracts themselves into `CLAUDE.md` — the pointer is enough; the Planner reads selectively per task.
 
+### 6. Measure what you wrote
+
+Run the check against the project's own contracts — it takes `[repo-root] [contracts-dir]`, so it works on any project, not just LDO's:
+
+```
+"${CLAUDE_PLUGIN_ROOT:?}/scripts/check-contracts.sh" "$PWD" docs/contracts
+```
+
+Fully quoted, and resolved only through `CLAUDE_PLUGIN_ROOT`. This skill runs with the cwd set to the operator's project, so a bare `scripts/check-contracts.sh` resolves against whatever repo happens to be open — somebody else's script, the same defect class `/ldo-feedback` documents for `redact.sh`. **A `check-contracts.sh` found by any other means must not be executed.** If `CLAUDE_PLUGIN_ROOT` is unset or that file doesn't exist — a vendored install copies agents, skills and workflows only, never `scripts/` — do not go looking for it elsewhere: read the contract files yourself, count the characters of each entry, and tell the operator the script was not reachable and why.
+
+Report per file which entries are over 200 characters. The fix shape is always the same one from (i)-(iii) above: the short imperative rule on the line, the evidence moved to a trailing `## Sources` section, as this repo's own `docs/contracts/code.md` does. Report it and offer — rewriting the operator's entries unprompted is the one thing this skill never does.
+
 ## Discovering contracts in an existing project
 
 A project being migrated onto LDO usually already *has* these decisions — "single-user, no auth", "we accepted the CSRF risk because it's VPN-only", "handlers always validate input first" — they're just sitting in a README paragraph, a code comment, a security doc, or nowhere but the maintainer's head. `/ldo-init` triggers this automatically the first time it runs on a non-empty existing project (see its "Discover contract candidates" step); you can also run it standalone here if the operator asks to (re-)scan later.
@@ -137,4 +149,4 @@ If a contract is retired outright, mark it rather than deleting it — `~~struck
 - When the rule already exists as an agent instruction or another doc, reference it and state the enforcement the contract adds — don't restate it.
 - Provenance goes in a trailing `## Sources` section, keyed by date and first few words — never in the rule line itself.
 - A contract file's byte cost is paid on every run that touches its area; that's a reason to keep entries short, not an afterthought.
-- `scripts/check-contracts.sh` measures the first three of these against THIS repo's `docs/contracts/`: it fails on an entry over 200 characters or carrying an inline `(Source: …)` tail, warns on a file with entries and no `## Sources`, and prints the recurring byte cost. LDO cannot run the same check on a host project's contracts from inside the pipeline — the workflow has no filesystem access, and by the time an agent could read the files the entries are already in the prompt. The host-side signal is instead the `⚠ Plan risks trimmed` line the orchestrator logs when it truncates an over-long entry on its way into a fix-pass prompt.
+- `scripts/check-contracts.sh` measures the first three of these: it fails on an entry over 200 characters or carrying an inline `(Source: …)` tail, warns on a file with entries and no `## Sources`, and prints the recurring byte cost. It takes `[repo-root] [contracts-dir]`, so step 6 above runs it against the project's own contracts — it is not limited to this repo. What remains true is that LDO cannot run it from *inside* the pipeline: the workflow has no filesystem access, and by the time an agent could read the files the entries are already in the prompt. The signals that reach the operator from inside a run are the `⚠ Plan risks trimmed` line and the `CONTRACT OVER LIMIT:` risk the Planner raises when it reads an entry it cannot carry verbatim.

@@ -136,11 +136,16 @@ On **FILE**, do not run `gh` at all — no subcommand of it, for any reason: no 
 
 On **GITHUB**, the operator opted in: one issue per item, and the block tells you what to do if `gh` turns out to be unusable.
 
+When your prompt carries a `## DESIGN DOC DRIFT` block, the project mapped each of those documents to code it describes, that code moved in this run and the document did not. Write one backlog item per line — which document, which files changed — and stop there. **Do not open, create or edit any document named in that block.** LDO defines no format for design documents and does not write them; whether the drift matters is the operator's call, and a run that noticed it has done its whole job by saying so.
+
+When your prompt carries a `## CONTRACT CANDIDATES` block, each entry — they arrive prefixed `CONTRACT CANDIDATE:` — is one more backlog item: what the rule is, that the run had to settle it because nothing in `docs/contracts/` did, and that `/ldo-contract` is how it becomes a contract. Name the file it would belong in (`scope.md`, `security.md`, `code.md`) as a suggestion. **Do not create or edit anything under `docs/contracts/`** — a contract is a decision the operator makes, and a run that noticed the gap has done its whole job by saying so.
+
 Report `backlog.destination` as the destination you actually used — `"file"` or `"github"`, or `"none"` when there were no backlog items to write.
 
 ## Rules
 
 - You write files; you don't change code. If the review found a code problem, it's already in the report — don't try to fix it.
+- Never create or edit a file under `docs/contracts/`, and never open, create or edit a design document named in a `## DESIGN DOC DRIFT` block. Both are proposals you record as backlog items; writing either would put an agent's inference where the operator's decision belongs.
 - Keep the architecture doc to one page. If it's growing past that, it's becoming documentation the Coder should own, not a map.
 - Report `worktree_root` — verbatim from `git rev-parse --show-toplevel` — and every path you wrote in `files_written`, relative to that root.
 - Never continue a numbering scheme you find in a file you're appending to. The numbering belongs to the project, and two runs can't agree on what the next free number is — start your own `## <date>` heading instead.

@@ -102,5 +102,14 @@ the list. Offer; don't run either unasked.
 - vendor.sh rewrites the ldo:ldo workflow name too, so a vendored run's own advice resolves
 - a brief that supplies an artifact is reconciled against the contracts and its own prose; each contradiction rides downstream as a conflict to confirm
 - the migration check counts identifiers, not filenames — an up/down pair is no longer a collision
+- /ldo-init preserves the drift log on a re-run: capture, replace, restore, count
+- the pipeline logs its own version; the CLAUDE.md block carries an ldo:version stamp
+- /ldo-contract and /ldo-init run check-contracts.sh against the project's own contracts
+- the Planner raises CONTRACT OVER LIMIT for a contract file it cannot carry verbatim
+- a rule a run had to invent comes back as CONTRACT CANDIDATE, proposed and never written
+- config.design.map reports a design doc whose code moved while the doc did not
+- LDO declines to own design documents on purpose; README bounds where a fact may live
+- the run recommends planOnly after the fact, naming which of four reasons held
+- a shell is never the scoped test runner, even when it is the project's own
 <!-- /ldo:features -->
 <!-- END ldo -->

@@ -31,6 +31,8 @@ If something can't be resolved — missing credentials, unavailable service — 
 
 If setup hit a real, non-obvious gotcha not already in `docs/NOTES.md` — something that would waste the next run's time the same way it wasted yours — mention it in `deviations` and suggest `/ldo-note`. Don't write to `docs/NOTES.md` yourself; that's the operator's call, same as a contract.
 
+Same shape for a contract. If this run had to settle a rule that will bind every future run — an invariant you discovered mid-implementation, a project-wide decision nothing in `docs/contracts/` settled for you — name it in `deviations` as one entry beginning `CONTRACT CANDIDATE:` and suggest `/ldo-contract`. State the rule in the abstract, the way a contract entry states it: never quote a credential, token, endpoint or customer identifier into one. **Never write to `docs/contracts/` yourself** — proposing is your half; deciding is the operator's.
+
 ### 2. Implement, step by step
 
 For each step in the plan:

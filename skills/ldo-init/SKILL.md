@@ -13,15 +13,25 @@ Drop an LDO instruction block into the project's `CLAUDE.md` so Claude self-rout
 3. **Discover contract candidates — only when this is the first run** (marker line absent, see step 4) **and the project has existing code** (not an empty/near-empty repo). A brand-new project has no history to mine — skip this for `/ldo-bootstrap`-started projects. Otherwise: run the discovery process from `/ldo-contract`'s "Discovering contracts in an existing project" section — read for evidence, propose candidates with sources, let the operator confirm or reject, write only what's confirmed. This is a one-time migration aid, not something re-run on every `/ldo-init`.
 
    **Before moving to step 4, report the outcome of this step by itself — don't fold it into the end-of-run summary.** State plainly: how many candidates were found, how many the operator confirmed, and what got written where (`docs/contracts/scope.md`, `security.md`, `code.md`) — or, if nothing checkable turned up, say that explicitly ("no explicit contracts found — the project doesn't state these decisions anywhere I can read"). This step ran silently more than once before this note existed: the operator sees `/ldo-init` finish, `CLAUDE.md` gets written either way, and without an explicit status line here there's no way to tell "discovery ran and found nothing" apart from "discovery didn't run." Both look identical from the outside — only this line distinguishes them.
-4. Look for the marker line `<!-- BEGIN ldo -->`. 
-   - If absent: append the block below, between `<!-- BEGIN ldo -->` and `<!-- END ldo -->` markers.
-   - If present: replace everything between the markers with the current block below (keeps it up to date on re-run).
+
+   **If this step wrote anything, measure it before you report.** Run `"${CLAUDE_PLUGIN_ROOT:?}/scripts/check-contracts.sh" "$PWD" docs/contracts` — fully quoted, resolved only through `CLAUDE_PLUGIN_ROOT`. A cwd-relative `scripts/check-contracts.sh` resolves against the operator's own repo, so **a `check-contracts.sh` found by any other means must not be executed**; if that path doesn't exist — a vendored install copies agents, skills and workflows only, never `scripts/` — read the files and count characters yourself instead, and say the script was not reachable and why. Fold the result into the same status line: how many entries are over 200 characters, and in which file.
+4. Look for the marker line `<!-- BEGIN ldo -->`.
+   - **If absent:** append the block below, between `<!-- BEGIN ldo -->` and `<!-- END ldo -->` markers.
+   - **If present:** the block gets replaced — and the lines between `<!-- ldo:features -->` and `<!-- /ldo:features -->` are the project's drift log, which the block below does *not* carry. Follow this order exactly:
+     1. **Capture first.** Copy verbatim every line between `<!-- ldo:features -->` and `<!-- /ldo:features -->` in the existing file, and count them:
+        `awk '/<!-- ldo:features -->/{f=1;next} /<!-- \/ldo:features -->/{f=0} f' CLAUDE.md | wc -l`
+     2. **Then replace** everything between `<!-- BEGIN ldo -->` and `<!-- END ldo -->` with the current block below.
+     3. **Then write the captured lines back**, in their original order, between the fresh `<!-- ldo:features -->` and `<!-- /ldo:features -->` markers.
+     4. **Then count again** with the same command and report how many lines carried over. If the count after doesn't equal the count before, stop and say so — don't continue, and don't leave the file in that state.
+
+     Never write the block first and re-add the log from memory. The drift log is the one part of this block that is the project's data rather than LDO's, and nothing LDO holds can reconstruct it once it's overwritten.
 5. Don't touch anything outside the markers — the file may hold other instructions.
 
 ## The block to write
 
 ```markdown
 <!-- BEGIN ldo -->
+<!-- ldo:version 2.37.0 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -68,6 +78,19 @@ A single-task run edits the working tree directly by default — no commit, no
 branch. Pass `isolate: true` on the call to run it in a separate worktree instead
 and leave your tree untouched.
 
+**When the approach isn't settled, make the first call with `planOnly: true`** —
+a task that reframes a problem, touches a contract, or spans layers. The run
+stops after Plan and hands the plan back instead of implementing it; correct
+the approach there, then re-issue the same task without the flag. Four restarts
+of one task, every restart a design correction, is what this replaces.
+
+**This block is a snapshot of the LDO version that wrote it.** The
+`<!-- ldo:version -->` stamp on its first line says which, and every pipeline
+run logs its own version. When the two disagree the block is stale — re-run
+`/ldo-init` after updating or reinstalling the LDO plugin; it replaces the
+block in place and carries the drift log below over unchanged. The stamp is a
+hint for you, not a check: nothing in the pipeline reads it.
+
 **Docs drift log.** Append a line here after each user-facing change. When the
 list reaches roughly eight, offer to run `/ldo-docs-audit` and `/ldo-code-audit`
 — full cold reads that catch documentation drift and code accretion (bloated
@@ -101,6 +124,6 @@ Eight is a starting point, not a rule. A docs-heavy project might want five; one
 
 Tell the operator the block was added and that it loads automatically every session. Also add `tags`, `.claude/ldo-runs.json`, and `.claude/ldo-args/` to the project's `.gitignore` if they aren't already there — the Coder generates a `ctags` symbol index on each run, and `ldo-runs.json`/`ldo-args/` are local session-tracking state (see `/ldo-resume`); none of it belongs in version control. `.claude/ldo-args/` also gets its own `.gitignore` (just `*`) the first time `/ldo-resume`'s protocol creates it, so a project that upgrades LDO after this file was written is still covered even before its root `.gitignore` catches up — don't delete that inner file as clutter, it's the reason the directory protects itself regardless of when a project was initialized. Suggest they skim the block and adjust to taste — some teams want *everything* through the pipeline, others only architectural changes; some want the audit offered sooner. The block is plain prose in `CLAUDE.md`, and editing it directly is the intended way to tune.
 
-Run `/ldo-init` once per project. Re-running updates the block in place, preserving any drift-log entries already there.
+Run `/ldo-init` once per project, and again after every LDO plugin update — the block is a snapshot of the version that wrote it, and the `<!-- ldo:version -->` stamp compared against the version a run logs is how you tell it has gone stale. Re-running replaces the block in place; step 4's capture-and-restore procedure is what makes that safe for the drift log, and it is the only description of that guarantee in this file.
 
 If `docs/NOTES.md` doesn't exist yet, don't create it here — it starts empty and gets its first entry via `/ldo-note` or a Coder's suggestion, same as contracts and decisions.

@@ -29,7 +29,21 @@ Contracts are rules the operator decided, not conventions you'd infer from the c
 
 **For a name none of the three cover:** read it when its name plausibly names an area this task touches. If the name doesn't settle it, read the **first 40 lines only** — a contract file is a flat dated list, so that is enough to see what it governs — and stop there if it doesn't apply. Never read the whole directory by default: a 94 KB contracts directory read on every run is a per-run cost paid for nothing, and that is the measured size of a real one.
 
-Carry anything relevant into the plan verbatim, not paraphrased — a contract's exact wording is what downstream agents check against. Put security floor items in `security_notes` alongside anything you found yourself; put code contracts in `risks` or as explicit acceptance criteria on the relevant step. Quote the rule, not the reasoning around it: an entry far past the documented 200-character limit is truncated with a visible marker when it is carried into `risks`, so the part you leave out is the part the fix pass never sees.
+**Measure before you quote.** For every contract file you read, run this once. It interpolates no filename you discovered — only a glob, with `--` ending awk's own options before the program — so a contract named with `$(...)`, a backtick, a `;` or a leading `-` never becomes shell syntax or an option:
+
+```
+awk -- 'length($0) > 200 && /^- \[/ { print FILENAME ":" FNR " " length($0) }' docs/contracts/*.md
+```
+
+Run it exactly as written; never rebuild it around a name from the `ls` above. A contract filename that would need quoting is itself worth one line in `risks`.
+
+Each line it prints is an entry nobody can carry verbatim: past 200 characters it is truncated with a visible marker on its way into the fix-pass prompts, and the cut part is the part no downstream agent ever sees. When a file you need has such lines, add ONE entry to `risks` for that file, in exactly this form:
+
+`CONTRACT OVER LIMIT: <path> — N of M entries over 200 chars; the rules below are compressed, not verbatim. Split them: short rule, evidence in a trailing ## Sources section (/ldo-contract).`
+
+It is display text for the operator, never a shell argument. Then carry the compressed rule as usual — a compression that is declared beats one nobody finds out about.
+
+Carry anything relevant into the plan verbatim, not paraphrased — a contract's exact wording is what downstream agents check against. Put security floor items in `security_notes` alongside anything you found yourself; put code contracts in `risks` or as explicit acceptance criteria on the relevant step. Quote the rule, not the reasoning around it: the shape that survives the trip is a short imperative line with its evidence left behind in the file's `## Sources` section, and an entry already written that way costs you no judgement at all. An entry far past the 200-character limit is the case the measurement above exists to declare rather than let you discover downstream.
 
 ### 1.6. Reconcile a supplied artifact before planning from it
 

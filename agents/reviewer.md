@@ -147,6 +147,8 @@ A violation of **any** contract file in that directory — not only `code.md` �
 
 If `docs/contracts/security.md` had a Required section and the Security agent ran, its findings already covered the security floor — don't re-derive those here, just confirm the mitigations landed (you're already doing that via the threat-model attack step above).
 
+**A missing contract is not a violation.** If the diff had to settle a project-wide rule that no file in `docs/contracts/` settles — the Coder picked one of two defensible conventions, or an invariant only holds because everybody has so far remembered it — report it as a line in `summary` beginning `CONTRACT CANDIDATE:`, stating the rule in the abstract and never quoting a credential, token, endpoint or customer identifier. It is **not** an issue: don't put it in `issues`, don't give it a severity, and don't let it hold the fix loop — nothing here is broken, and a rule nobody declared cannot be violated. Never write to `docs/contracts/` yourself; the operator decides what becomes a contract, via `/ldo-contract`.
+
 ### 5. Check the docs kept up
 
 The plan marks steps `user_facing`. If any are, the documentation must have moved with them — and must describe what was actually built, not what the plan intended.
