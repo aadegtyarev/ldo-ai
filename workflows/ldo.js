@@ -378,6 +378,54 @@ function renderContext(ctx) {
   return parts.join('\n') + '\n\n'
 }
 
+// The three fields on a plan whose entire purpose is to be executed.
+const RECOVERED_COMMAND_FIELDS = ['test_command', 'test_command_scoped', 'run_command']
+
+// A live Planner call derives these by reading the codebase; a recovered plan's
+// copy cannot be re-verified against anything, so they are deleted rather than
+// nulled — nothing downstream can re-trust what is not there.
+// Unconditional over all three rather than guarded on any one being present: a
+// guard keyed on sibling fields lets a recovered plan carrying ONLY
+// test_command_scoped skip the strip entirely, and that template is rendered
+// into both the Coder and the Reviewer prompt for execution.
+// Returns what it removed, so the caller can log it AND tell the two agents
+// what they now have to rediscover. Returning nothing was the whole defect:
+// agents/coder.md already tells the Coder to find its own test command, but
+// run_command is what the REVIEWER drives the app with, and nothing told it
+// anything — so a resumed run verified materially less than the run it claimed
+// to continue, and the only notice was one log line nobody downstream reads.
+function stripRecoveredCommands(planFromResume, plan) {
+  if (!planFromResume || !plan?.codebase_context) return []
+  const dropped = RECOVERED_COMMAND_FIELDS.filter(f => plan.codebase_context[f] !== undefined)
+  dropped.forEach(f => delete plan.codebase_context[f])
+  return dropped
+}
+
+// Empty string for an empty list — the same discipline renderDesignDrift uses —
+// so a run that was not resumed pays no prompt block at all and its Coder,
+// Reviewer and Security prompts stay byte-identical to what they were.
+// Built from FIELD NAMES and fixed text only, never from the dropped values:
+// rendering the command back into a prompt would hand an executing agent
+// exactly the string the strip exists to keep away from a Bash tool.
+// The evidence requirement is the audit half. Telling the Reviewer to
+// rediscover a run command trades one unverified command for another sourced
+// the same way the Coder's is — a trade this project already accepts — but a
+// rediscovered command nobody wrote down leaves a resumed run's verification
+// uncomparable to the run it claims to continue, which is the gap this block
+// exists to close.
+function renderRecoveredCommands(dropped) {
+  const fields = (Array.isArray(dropped) ? dropped : []).filter(f => RECOVERED_COMMAND_FIELDS.includes(f))
+  if (!fields.length) return ''
+  return [
+    '## RECOVERED PLAN — COMMANDS NOT CARRIED OVER',
+    `This plan was recovered from an interrupted run. ${fields.join(', ')} ${fields.length === 1 ? 'was' : 'were'} dropped from its context on the way in: a command string from a dead run cannot be re-verified against anything, and the one thing these fields are for is being executed, so none of them may reach a Bash tool on the strength of a file.`,
+    'CODER: rediscover the test command from the project itself, as your agent definition already requires — package.json scripts, the Makefile, tox/nox, the CI workflow, the README.',
+    'REVIEWER: rediscover the run command the same way, from the same places, BEFORE reporting a criterion `skipped` or a verdict of `nothing_to_drive` for want of one. Name the command you used and where you found it in the `evidence` of every criterion it drove. If there genuinely is none, say that in the `evidence` too, naming what you checked — a resumed run that verifies less than the run it continues has to say so where the operator reads the result, not only in a log line.',
+    '',
+    '',
+  ].join('\n')
+}
+
 // Every path substituted into a scoped command is filtered HERE, in code,
 // before it reaches a prompt — never by a prose rule telling an agent to skip
 // odd characters, because the strings come from the same class of component
@@ -385,27 +433,61 @@ function renderContext(ctx) {
 // own tests.written/updated JSON, neither of which is pattern-constrained by
 // its schema). A leading `-` makes a path an option rather than a target, and
 // a `..` segment or a leading `/` points the runner outside the tree — both
-// pass the character class, exactly as safeMigrationsDir's comment describes.
+// pass the character class.
+//
+// The rules themselves live in safeRelPathSegments, with safeMigrationsDir, so
+// there is one implementation rather than two that drift. The one deliberate
+// divergence is allowDotPrefix: a segment here may begin with a dot, because
+// test trees legitimately live under `.cache`, `.pytest_cache` or `.tox` and
+// rejecting those would shrink a scoped selection to nothing on a project that
+// uses them. `.` and `..` as whole segments stay rejected — the exception is
+// about hidden directories, not about traversal. The empty segment (`a//b`)
+// and the trailing slash were NOT deliberate: they were drift from an
+// independent second copy of these rules, and delegating closes them.
+//
+// The trim stays here rather than in the shared core. It is existing behaviour
+// on model-supplied test paths, while safeMigrationsDir and safeWorktreePath
+// have always rejected a whitespace-padded value outright — SAFE_REL_PATH has
+// no space in its class — and trimming in the core would widen the stricter of
+// the two callers, which is the direction a validator must never move by
+// accident.
 function safeTestPath(p) {
-  if (typeof p !== 'string') return false
-  const s = p.trim()
-  if (!s || !SAFE_REL_PATH.test(s) || s.startsWith('/') || s.startsWith('-')) return false
-  return !s.split('/').some(seg => seg === '..' || seg.startsWith('-'))
+  return safeRelPathSegments(typeof p === 'string' ? p.trim() : p, { allowDotPrefix: true })
 }
 
 // Returns the safe paths and the rejected ones separately: a silently shorter
 // list means files the pass believed it tested and did not, which is the
 // docs/contracts/code.md "never swallow an error silently" rule applied to a
 // filter rather than to a catch. Every caller logs `dropped`.
+// What goes into `safe` is safeTestPath's NORMALIZED return, not the string it
+// was given: validating `a/b/` and then substituting `a/b/` is how a path that
+// passed a check reaches a command in a spelling nothing checked. The de-dup
+// keys on that same normalized form, so `a/b` and `a/b/` cannot both be
+// substituted as two selections of one file.
+// `dropped` keeps the raw trimmed string, because that is what the caller has
+// to show the operator to be recognisable.
 function partitionTestPaths(paths) {
   const seen = new Set()
   const safe = []
   const dropped = []
   for (const p of paths || []) {
-    const s = typeof p === 'string' ? p.trim() : String(p)
-    if (seen.has(s)) continue
-    seen.add(s)
-    if (safeTestPath(s)) safe.push(s)
+    // A non-string is dropped, never coerced. `String(null)` is `'null'`, a
+    // perfectly well-formed relative path that safeTestPath accepts and
+    // substituteScopedPaths then quotes into a real command — so a malformed
+    // model reply became `pytest 'null' 'undefined' '42'`, a run testing three
+    // files that do not exist and reporting whatever that returns. The typed
+    // rejection one level down (safeRelPathSegments) exists for exactly this,
+    // and the coercion here was defeating it. Both schemas that feed this
+    // declare string arrays, so the only way in is a reply that ignored them.
+    if (typeof p !== 'string') { dropped.push(String(p)); continue }
+    const s = p.trim()
+    const normalized = safeTestPath(s)
+    // A rejected path has no normalized form, so it de-dups on the raw spelling
+    // — the same one `dropped` shows, so that list does not repeat either.
+    const key = normalized ?? s
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (normalized) safe.push(normalized)
     else dropped.push(s)
   }
   return { safe, dropped }
@@ -514,11 +596,15 @@ function renderConflicts(plan) {
 // plan.migrations.directory is validated (and deleted if unsafe) once, in
 // phasePlan, before this function ever runs — never re-trust the raw string here.
 function renderMigrations(plan) {
-  if (!(plan?.migrations?.count > 0) || !safeMigrationsDir(plan.migrations.directory)) return ''
+  // The NORMALIZED return is what gets rendered, not the raw field: validating
+  // one spelling and then rendering another is the same validate-this-use-that
+  // gap partitionTestPaths closes on the test-path side.
+  const directory = safeMigrationsDir(plan?.migrations?.directory)
+  if (!(plan?.migrations?.count > 0) || !directory) return ''
   return [
     '',
     '### Migrations (numbering is a hard constraint)',
-    `Directory: ${plan.migrations.directory}`,
+    `Directory: ${directory}`,
     `Count: ${plan.migrations.count}`,
     `Identifiers: ${(plan.migrations.identifiers || []).join(', ') || '(none listed)'}`,
     'Create exactly these. If you find you need a number that is not on this list, stop and say so in `deviations` — do not take the next free one. In a parallel run another feature already owns it, and two migrations with the same number have undefined apply order.',
@@ -638,6 +724,22 @@ function renderContractCandidates(candidates) {
   return '\n\n## CONTRACT CANDIDATES (propose only — never write a contract file)\n'
     + candidates.map(c => `- ${c}`).join('\n')
     + '\nWrite each as its own backlog item suggesting `/ldo-contract`, naming the file it would belong in. Do NOT create or edit anything under `docs/contracts/`: a contract is the operator\'s decision and this run only noticed the gap. State each rule in the abstract — never quote a credential, token, endpoint or customer identifier into a backlog item.'
+}
+
+// The single call site of both signals, kept pure and logging nothing so a gate
+// can drive it: they used to be collected inside phaseRecord BELOW its early
+// return, which made both inert on every `trivial` run and every ordinary
+// rejection. An operator who declared `config.design.map` saw a normal-looking
+// run and concluded the map matched nothing; a contract candidate the Coder or
+// the Reviewer took the trouble to raise was discarded without ever being
+// logged. Neither signal needs a Record phase to be true — both read data the
+// run is already holding — so the collection moved above the return and only
+// the WRITING of backlog items stayed below it.
+function collectRunSignals(designMap, coderSignals, verdict) {
+  return {
+    contractCandidates: collectContractCandidates({ deviations: coderSignals?.deviations }, verdict),
+    designDrift: detectDesignDrift(designMap, coderSignals?.filesChanged),
+  }
 }
 
 function renderPlanCompact(plan) {
@@ -801,19 +903,42 @@ function slugify(text, fallback) {
 // bad write/scan target — so reject by path segment, not by regex alone.
 const SAFE_REL_PATH = /^[A-Za-z0-9._\/-]+$/
 
-function safeMigrationsDir(dir) {
-  const d = String(dir || '')
-  if (!d || !SAFE_REL_PATH.test(d) || d.startsWith('/')) return null
-  const normalized = d.replace(/\/+$/, '')
-  const segments = normalized.split('/')
-  if (segments.includes('..')) return null
+// The one implementation of the rule set. It exists as a shared function
+// because safeTestPath used to be a second copy of it and had already drifted
+// on four input classes — `a//b`, `a/./b`, a dot-prefixed segment and a
+// trailing slash — which is exactly what the comment beside safeWorktreePath
+// warns about: two validators for one class of value drift apart, and the
+// divergence is itself the defect.
+//
+// Returns the normalized path or null, never a boolean, so a caller cannot
+// validate one spelling and go on to use another.
+//
+// Deliberately NOT trimmed: safeTestPath trims its own input, which is the
+// behaviour its model-supplied paths already had, while this path — migrations
+// directories and worktree paths — has always rejected a whitespace-padded
+// value outright, since SAFE_REL_PATH has no space in its class. A trim here
+// would widen the stricter caller silently.
+// Deliberately typed: a non-string is rejected rather than coerced. `String(123)`
+// used to make `123` a valid migrations directory, and a number that reached
+// this slot is a malformed plan, not a directory somebody meant.
+function safeRelPathSegments(value, { allowDotPrefix = false } = {}) {
+  if (typeof value !== 'string' || !value) return null
+  if (!SAFE_REL_PATH.test(value) || value.startsWith('/')) return null
+  const normalized = value.replace(/\/+$/, '')
   // An empty segment — `a//b` — is rejected for the same reason `.` and `-`
   // are: the rule here is per-segment, and `''.startsWith('.')` is false, so
-  // without this the two checks below wave it through. Reachable only by a
+  // without this the checks beside it wave it through. Reachable only by a
   // fabricated value (no real `git rev-parse --show-toplevel` emits `//`),
   // which is exactly the input this validator exists for.
-  if (segments.some(seg => !seg || seg.startsWith('.') || seg.startsWith('-'))) return null
-  return normalized
+  // `.` and `..` are rejected as WHOLE segments whatever allowDotPrefix says:
+  // that exception is for directories that happen to be hidden, never for the
+  // two names meaning "here" and "one level up".
+  const bad = seg => !seg || seg === '.' || seg === '..' || seg.startsWith('-') || (!allowDotPrefix && seg.startsWith('.'))
+  return normalized.split('/').some(bad) ? null : normalized
+}
+
+function safeMigrationsDir(dir) {
+  return safeRelPathSegments(dir)
 }
 
 // ── Isolation proof ────────────────────────
@@ -846,8 +971,11 @@ const SAFE_ISOLATION_SHA = /^[0-9a-f]{7,64}$/
 // The only segment allowed to start with a dot is the fixed literal prefix, so
 // the remainder is handed to safeMigrationsDir rather than re-checked by a
 // second copy of the same rules — two validators for one class of value drift
-// apart, and the divergence is itself the defect. A character class alone would
-// call `.worktrees/-rf` and `.worktrees/..` well-formed.
+// apart, and the divergence is itself the defect. That rule now holds across
+// the file: safeMigrationsDir and safeTestPath are both thin callers of
+// safeRelPathSegments, differing only in the one flag each documents. A
+// character class alone would call `.worktrees/-rf` and `.worktrees/..`
+// well-formed.
 function safeWorktreePath(p) {
   const s = String(p || '').trim().replace(/\/+$/, '')
   if (!s.startsWith(ISOLATION_PREFIX)) return null
@@ -2249,7 +2377,7 @@ function renderCost(cost) {
 // Nothing here reads or branches on the stamp — the stamp is a hint to re-run
 // /ldo-init, never a check, because an agent-written marker in a repo file
 // proves nothing about what surrounds it.
-const LDO_VERSION = '2.39.0'
+const LDO_VERSION = '2.40.0'
 
 // ═══════════════════════════════════════════
 // CONFIG
@@ -2257,7 +2385,99 @@ const LDO_VERSION = '2.39.0'
 
 const CONFIG = args?.config || {}
 const MAX_FIX_LOOPS = CONFIG.maxFixLoops || 3
-const BLOCKING_SEVERITIES = CONFIG.blockingSeverities || ['critical', 'major']
+// Which severities hold the fix loop. Resolved and validated rather than read
+// raw, for a reason no other key in this block shares: a bad value everywhere
+// else degrades a run loudly, while a bad value HERE makes `isBlocking` false
+// for every issue — each review reports `0 blocking`, the loop ends on its
+// first pass, and the run reports approved with its criticals intact, with
+// nothing in the log to say why. `["Critical","Major"]` is enough to do it,
+// because VERDICT_SCHEMA constrains severity to lowercase.
+//
+// The allowlist is READ OUT of that schema rather than restated, so a severity
+// added to VERDICT_SCHEMA cannot be rejected here by a second copy that nobody
+// updated. Written to fail toward the full default: should that read ever
+// yield nothing, every configured value is rejected and the default stands —
+// an empty allowlist that warns and defaults is safe, one that honours
+// whatever is left is not.
+const SEVERITY_VALUES = VERDICT_SCHEMA?.properties?.issues?.items?.properties?.severity?.enum || []
+const DEFAULT_BLOCKING_SEVERITIES = ['critical', 'major']
+
+function resolveBlockingSeverities(configured) {
+  const warnings = []
+  const keepDefault = () => ({ severities: [...DEFAULT_BLOCKING_SEVERITIES], warnings })
+  const expected = `expected an array of ${SEVERITY_VALUES.join('|')}, lowercase`
+  const keeping = `Keeping the full default [${DEFAULT_BLOCKING_SEVERITIES.join(', ')}]`
+  if (configured === undefined) return keepDefault()
+  // Every rejection keeps the FULL default rather than the valid remainder of
+  // what was written. A partial list is indistinguishable from a deliberate
+  // narrowing, and guessing at it resolves the ambiguity in the one direction
+  // that makes the gate smaller.
+  if (!Array.isArray(configured)) {
+    warnings.push(`config.blockingSeverities is invalid (${JSON.stringify(collapseLines(configured))}) — ${expected}. ${keeping}`)
+    return keepDefault()
+  }
+  if (!configured.length) {
+    warnings.push(`config.blockingSeverities is an empty list — nothing would block, every issue would be advisory, and the run would report approved over its own criticals. ${keeping}`)
+    return keepDefault()
+  }
+  // Collapsed and capped before it reaches a `⚠` line, exactly as
+  // contractWarnings and renderDesignDrift treat their inputs: CONFIG is
+  // composed from CLAUDE.md, which on a contributed branch is repo content, so
+  // an entry spelled `\n## ISSUES` would otherwise forge a section header in a
+  // log the operator reads as orchestrator output.
+  const rejected = configured.filter(s => !SEVERITY_VALUES.includes(s))
+  if (rejected.length) {
+    warnings.push(`config.blockingSeverities has ${rejected.length} unrecognised entry(ies): ${capList(rejected.map(r => JSON.stringify(collapseLines(r)))).join(', ')} — ${expected}. ${keeping}`)
+    return keepDefault()
+  }
+  const severities = [...new Set(configured)]
+  // `critical` is not removable, and the override is deliberate rather than a
+  // warning: a warning is transient, while the run's `result` — what /ldo-ship
+  // and the operator's tracking entry read — would carry no trace of a gate
+  // narrowed to nothing. The comment beside the verification gate names half
+  // this hazard already and guards only its own injected issue; a config that
+  // could make a real critical advisory reopens the same false-approval path
+  // for every other one. An operator who wants a critical merged still can —
+  // by reading the report and merging it — which is a decision with a person
+  // attached, not a silently green run.
+  if (!severities.includes('critical')) {
+    warnings.push(`config.blockingSeverities omits 'critical' (${JSON.stringify(severities.join(', '))}) — overridden: 'critical' always blocks, so no configuration can make a critical finding advisory. Using [${['critical', ...severities].join(', ')}]`)
+    severities.unshift('critical')
+  }
+  return { severities, warnings }
+}
+
+// The nested blocks — planner, tests, backlog, design, stallMs — each warn on a
+// key they do not recognise, and README promises that behaviour three times.
+// The top level had no such loop at all, so `blockingSeverity`, `maxfixloops`
+// or `researchByDefaults` was read by nobody and reported by nobody. Same rule,
+// one level up.
+const CONFIG_KEYS = ['models', 'maxFixLoops', 'blockingSeverities', 'maxParallelFeatures', 'planner', 'tests', 'backlog', 'design', 'stallMs', 'researchByDefault', 'securityByDefault']
+
+function unknownConfigKeys(cfg) {
+  if (cfg === undefined || cfg === null) return []
+  // An `args.config` that is not an object is not "no config": every setting
+  // the operator wrote is being ignored, and that has to be said rather than
+  // resolved into silence one default at a time.
+  if (typeof cfg !== 'object' || Array.isArray(cfg)) {
+    return [`config is not an object (${JSON.stringify(collapseLines(cfg))}) — every setting in it is being ignored. Expected an object with keys: ${CONFIG_KEYS.join(', ')}`]
+  }
+  // `_`-prefixed keys are skipped deliberately. ldo-config.example.json carries
+  // `_README`, `_models_note`, `_phases` and eight more as pseudo-comments, and
+  // operators copy that file's contents into their CLAUDE.md — an allowlist
+  // without this exemption fires on this project's own documented example,
+  // which is how an operator learns that the warning means nothing.
+  const unknown = Object.keys(cfg).filter(k => !k.startsWith('_') && !CONFIG_KEYS.includes(k))
+  // A key NAME is as operator-authored as a value is, and reaches the same log
+  // line, so it gets the same collapse the rejected severities above get; the
+  // list is capped so a config carrying a thousand stray keys yields a bounded
+  // block plus `+N more` rather than a thousand lines.
+  return capList(unknown.map(k => `config.${collapseLines(k, 80)} is not a known key — ignored. Keys: ${CONFIG_KEYS.join(', ')}`))
+}
+
+const { severities: BLOCKING_SEVERITIES, warnings: BLOCKING_WARNINGS } = resolveBlockingSeverities(CONFIG.blockingSeverities)
+BLOCKING_WARNINGS.forEach(w => log(`⚠ ${w}`))
+unknownConfigKeys(CONFIG).forEach(w => log(`⚠ ${w}`))
 // Dice coefficient over distinct normalized tokens; see matchIssueKey for the
 // corpus this is calibrated against and why lowering it is not an improvement.
 const ISSUE_MATCH_THRESHOLD = 0.45
@@ -2947,26 +3167,13 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
     }
   }
 
-  // test_command/run_command are the one field on the plan whose entire
-  // purpose is to be executed — agents/coder.md substitutes test_command
-  // verbatim into a bash line. A live Planner call derives them by reading
-  // the codebase; a recovered plan's copy cannot be re-verified against
-  // anything, so they're dropped rather than trusted. The Coder handles their
-  // absence: agents/coder.md tells it to run the suite before touching a file
-  // and to find the command itself if the plan doesn't name one. So this
-  // costs one rediscovery and closes the only route a resumed plan has to a
-  // shell.
-  // Unconditional over the three fields rather than guarded on any one of
-  // them being present: a guard keyed on sibling fields lets a recovered plan
-  // carrying ONLY test_command_scoped skip the block entirely, and that
-  // template is rendered into both the Coder and the Reviewer prompt for
-  // execution. The log fires only when something was actually removed, so a
-  // resume of a plan that never had them stays quiet.
-  if (planFromResume && plan.codebase_context) {
-    const dropped = ['test_command', 'test_command_scoped', 'run_command'].filter(f => plan.codebase_context[f] !== undefined)
-    dropped.forEach(f => delete plan.codebase_context[f])
-    if (dropped.length) log(`${logPrefix}⚠ resumePlan: dropped ${dropped.join('/')} — a recovered command string is executed by the Coder and cannot be verified from a dead run; the Coder will rediscover them.`)
-  }
+  // Closes the only route a resumed plan has to a shell — see
+  // stripRecoveredCommands for why all three fields go unconditionally, and
+  // renderRecoveredCommands for what the two executing agents are told in their
+  // place. The log fires only when something was actually removed, so a resume
+  // of a plan that never carried them stays quiet.
+  const droppedCommands = stripRecoveredCommands(planFromResume, plan)
+  if (droppedCommands.length) log(`${logPrefix}⚠ resumePlan: dropped ${droppedCommands.join('/')} — a recovered command string is executed by the Coder and cannot be verified from a dead run; the Coder and the Reviewer are told to rediscover them.`)
 
   // Computed once, here, so the Coder and the Reviewer are told the same
   // thing: a run where one scoped and the other ran everything produces a
@@ -2991,7 +3198,7 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
   scopedTests.fullSuiteAt = fullSuiteAt
 
   const models = routeModels(plan.complexity)
-  const CTX = renderContext(plan.codebase_context)
+  const CTX = renderContext(plan.codebase_context) + renderRecoveredCommands(droppedCommands)
   const surface = plan.security_surface || 'unrated'
   if (planFromResume && !plan.security_surface) {
     log(`${logPrefix}⚠ resumePlan carries no security_surface rating — no Planner ran to rate it, so the threat model is being forced on. Pass security:false to skip it deliberately.`)
@@ -3351,9 +3558,12 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
     lastIssues.forEach(iss => log(`${logPrefix}  [${iss.severity}] ${iss.file}: ${iss.what}`))
 
     // `verificationBlocked` is tested alongside the injected issue, not instead
-    // of it: BLOCKING_SEVERITIES is operator-configurable (config.blockingSeverities),
-    // so a project that drops 'critical' from it would let the gate's own issue
-    // fall out of `blocking` and reopen the false-approval path.
+    // of it. resolveBlockingSeverities now forces 'critical' back into
+    // BLOCKING_SEVERITIES whatever config.blockingSeverities says, so the gate's
+    // own injected issue can no longer fall out of `blocking` — but this second
+    // test costs nothing and does not depend on that guarantee holding, which is
+    // the property worth keeping for a gate whose failure direction is a green
+    // run over an unproven criterion.
     if (blocking.length === 0 && !verificationBlocked) {
       finalVerdict = markUnproven({ ...gatedVerdict, status: 'approved', summary: `${gatedVerdict.summary} (${advisory.length} advisory issue(s) left unfixed)` })
       log(`${logPrefix}✓ APPROVED — no blocking issues remain`)
@@ -3420,7 +3630,26 @@ function verifyRecordLocation(recordResult, plan, ctx) {
 // it spawns can read/write, so persisting anything to disk has to go through
 // an agent call even when the "work" is just rendering already-known data.
 async function phaseRecord(approved, plan, finalVerdict, securityReport, task, ctx, WORKTREE_BLOCK, models, logStage, logPrefix, downgraded, coderSignals) {
+  // Collected and logged ABOVE the early return: see collectRunSignals for what
+  // being below it cost. Logged as well as rendered on the path that does reach
+  // the Recorder, because a Recorder that dies loses the prompt but not the run
+  // log.
+  const { contractCandidates, designDrift } = collectRunSignals(DESIGN_MAP, coderSignals, finalVerdict)
+  contractCandidates.forEach(c => log(`${logPrefix}⚠ ${c}`))
+  designDrift.forEach(d => log(`${logPrefix}⚠ Design doc drift: ${collapseLines(d.doc)} was not touched while ${d.matched.length} file(s) matching \`${collapseLines(d.glob)}\` changed`))
+
   if ((!approved && finalVerdict.loops_exhausted !== true) || plan.complexity === 'trivial') {
+    // Which condition skipped the phase is named rather than left to be
+    // inferred: the two mean opposite things to an operator reading the log, and
+    // a signal with no destination is worth less than one that says where it
+    // did not go. No logStage('Record') and no Recorder on this path — a
+    // trivial run must not grow a phase just to log a line.
+    if (contractCandidates.length || designDrift.length) {
+      const why = plan.complexity === 'trivial'
+        ? "the run is rated 'trivial'"
+        : 'the work was not approved and the fix loop did not exhaust'
+      log(`${logPrefix}  ↑ logged only — ${why}, so this run has no Record phase and nothing above was written as a backlog item.`)
+    }
     return { recordMisplaced: false, recordStatus: 'skipped' }
   }
 
@@ -3487,14 +3716,10 @@ All: ${(finalVerdict.issues || []).map(renderIssue).join('; ') || 'none'}`
 
   // Both proposal channels feed one list: a rule the Coder had to invent and a
   // rule the Reviewer noticed missing are the same finding, and the operator
-  // should see them once. Logged as well as rendered, because a Recorder that
-  // dies loses the prompt but not the run log.
-  const contractCandidates = collectContractCandidates({ deviations: coderSignals?.deviations }, finalVerdict)
-  contractCandidates.forEach(c => log(`${logPrefix}⚠ ${c}`))
+  // should see them once. Composed from the values collected above the early
+  // return, so this prompt is byte-identical to what it was when the collection
+  // lived here.
   const contractCandidatesBlock = renderContractCandidates(contractCandidates)
-
-  const designDrift = detectDesignDrift(DESIGN_MAP, coderSignals?.filesChanged)
-  designDrift.forEach(d => log(`${logPrefix}⚠ Design doc drift: ${collapseLines(d.doc)} was not touched while ${d.matched.length} file(s) matching \`${collapseLines(d.glob)}\` changed`))
   const designDriftBlock = renderDesignDrift(designDrift)
 
   // Sampled here rather than handed in, because this block has to be composed

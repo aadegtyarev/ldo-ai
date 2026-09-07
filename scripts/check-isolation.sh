@@ -71,7 +71,7 @@ const extract = name => {
 // widening of the character class fail this gate instead of leaving it green
 // against the harness's own private copy.
 const WANTED_CONSTS = ['SAFE_REL_PATH', 'ISOLATION_FIELD_MAX', 'ISOLATION_LIST_MAX', 'ISOLATION_ENTRY_MAX', 'ISOLATION_REQUIRED', 'ISOLATION_PREFIX', 'ISOLATION_GIT_DIR', 'SAFE_ISOLATION_BRANCH', 'SAFE_ISOLATION_SHA']
-const WANTED_FNS = ['safeMigrationsDir', 'safeWorktreePath', 'parseWorktreeList', 'verifyWorktreeProof']
+const WANTED_FNS = ['safeRelPathSegments', 'safeMigrationsDir', 'safeWorktreePath', 'parseWorktreeList', 'verifyWorktreeProof']
 const WANTED = [...WANTED_CONSTS, ...WANTED_FNS]
 const problems = []
 const sources = {}

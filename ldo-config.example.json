@@ -10,6 +10,7 @@
   },
 
   "maxFixLoops": 3,
+  "_blockingSeverities_note": "Which review severities hold the fix loop. Allowed values are exactly the verdict schema's own enum, lowercase: critical, major, minor, nit. Anything else — a capitalised value, a bare string, an empty list — is warned about and the FULL default is kept, never the valid remainder; 'critical' cannot be removed and is added back with a warning if omitted, because no config should be able to make a critical finding advisory. Unknown TOP-LEVEL keys are warned about too (a misspelled blockingSeverity used to be dropped in silence); keys starting with _ are skipped, which is what keeps the pseudo-comments in this file quiet.",
   "blockingSeverities": ["critical", "major"],
   "maxParallelFeatures": 12,
 

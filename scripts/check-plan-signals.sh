@@ -72,7 +72,7 @@ const extract = name => {
 }
 
 const WANTED_CONSTS = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'CONTRACT_LIMIT_PREFIX', 'CONTRACT_CANDIDATE_PREFIX']
-const WANTED_FNS = ['contractWarnings', 'collectContractCandidates', 'renderContractCandidates', 'recommendPlanReview']
+const WANTED_FNS = ['contractWarnings', 'collectContractCandidates', 'renderContractCandidates', 'recommendPlanReview', 'collectRunSignals']
 const problems = []
 const sources = {}
 for (const name of [...WANTED_CONSTS, ...WANTED_FNS]) {
@@ -270,6 +270,89 @@ assert('the advice quotes no content from conflicts', ['recommendPlanReview'], s
   return { ok: !r.includes(secret), detail: r.includes(secret) ? 'conflict content leaked into the advice string' : 'field names and fixed text only' }
 })
 
+// ── collectRunSignals: the one call site, driven for the contract half ──
+//
+// The candidate channel used to be read inside phaseRecord BELOW its early
+// return, so a rule the Coder had to invent on a `trivial` run — or on any run
+// rejected before the loop exhausted — was collected by nobody and logged by
+// nobody. Moving the collection above that return is only worth anything if the
+// collector still reads both channels, which is what these drive.
+//
+// detectDesignDrift is stubbed rather than extracted: the drift half has its own
+// gate (check-design-drift.sh) driving the real detector, and a stub here means
+// a failure names the contract channel instead of something three functions
+// away.
+let runSignals = null
+{
+  const deps = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'CONTRACT_CANDIDATE_PREFIX', 'collectContractCandidates', 'collectRunSignals']
+  const missing = deps.filter(d => !sources[d])
+  if (missing.length) {
+    problems.push(`collectRunSignals could not be driven: ${missing.join(', ')} not extracted from ${target} (expected when pointing at a pre-change copy).`)
+  } else {
+    try {
+      runSignals = new Function(`${deps.map(n => sources[n]).join('\n')}\nconst detectDesignDrift = () => []\nreturn collectRunSignals`)()
+    } catch (e) {
+      problems.push(`collectRunSignals does not evaluate standalone (${e.message}) — this script's extraction is stale. Fix it before trusting a pass.`)
+    }
+  }
+}
+
+const signalAssert = (label, fn) => {
+  if (!runSignals) {
+    console.log(`✗ ${label} — could not run: collectRunSignals was not extracted`)
+    problems.push(`${label}: could not run, collectRunSignals was not extracted`)
+    return
+  }
+  let ok = false
+  let detail = ''
+  try {
+    const r = fn(runSignals)
+    ok = r === true || r?.ok === true
+    detail = typeof r === 'object' && r?.detail ? ` — ${r.detail}` : ''
+  } catch (e) {
+    detail = ` — threw: ${e.message}`
+  }
+  console.log(`${ok ? '✓' : '✗'} ${label}${detail}`)
+  if (!ok) problems.push(`${label}${detail}`)
+}
+
+signalAssert("a CONTRACT CANDIDATE: line in the Reviewer's summary yields one candidate", collect => {
+  const r = collect([], { filesChanged: [], deviations: [] }, { summary: 'Approved.\nCONTRACT CANDIDATE: every resolver warns and keeps the default.' })
+  return { ok: r.contractCandidates.length === 1 && r.contractCandidates[0].includes('every resolver warns'), detail: JSON.stringify(r.contractCandidates) }
+})
+
+signalAssert("a CONTRACT CANDIDATE: line in the Coder's deviations yields one candidate", collect => {
+  const r = collect([], { deviations: ['CONTRACT CANDIDATE: gate scripts name the silent failure in their header.'] }, { summary: 'Approved.' })
+  return { ok: r.contractCandidates.length === 1, detail: JSON.stringify(r.contractCandidates) }
+})
+
+signalAssert('CONTROL: an ordinary deviation and an ordinary summary yield no candidate', collect => {
+  const r = collect([], { deviations: ['Plan said src/auth.ts; the path is src/auth/index.ts'] }, { summary: 'Approved — two advisory issues left.' })
+  return { ok: r.contractCandidates.length === 0, detail: JSON.stringify(r.contractCandidates) }
+})
+
+// It now runs on paths it never ran on — a trivial run and every ordinary
+// rejection — where the Coder may have returned nothing at all. A throw here
+// would land in runOneFeature's catch and turn a merely rejected run into a
+// dead one.
+signalAssert('it is total over the shapes a rejected or trivial run hands it', collect => {
+  const shapes = [
+    [[], { filesChanged: [], deviations: [] }, {}],
+    [[], undefined, undefined],
+    [undefined, {}, { summary: undefined }],
+    [[], { filesChanged: null, deviations: null }, { summary: null }],
+  ]
+  const broken = shapes.filter(args => {
+    try {
+      const r = collect(...args)
+      return !Array.isArray(r?.contractCandidates) || !Array.isArray(r?.designDrift)
+    } catch {
+      return true
+    }
+  })
+  return { ok: broken.length === 0, detail: broken.length ? `${broken.length} shape(s) threw or returned a non-array` : `all ${shapes.length} shapes return two arrays` }
+})
+
 // ── source-level: a pure function nothing calls is the defect ──
 
 {
@@ -290,6 +373,21 @@ assert('the advice quotes no content from conflicts', ['recommendPlanReview'], s
   const ok = start >= 0 && composition.includes('contractCandidatesBlock') && /renderContractCandidates\(/.test(src)
   console.log(`${ok ? '✓' : '✗'} ${label} — ${ok ? 'contractCandidatesBlock is concatenated into the prompt' : 'renderContractCandidates is resolved and dropped, or never called'}`)
   if (!ok) problems.push(`${label}: the block never reaches the Recorder in ${target}.`)
+}
+
+{
+  const label = "collectRunSignals runs ABOVE phaseRecord's early return"
+  const start = src.indexOf('async function phaseRecord(')
+  const end = start < 0 ? -1 : src.indexOf('\nasync function ', start + 1)
+  const body = start < 0 ? '' : src.slice(start, end < 0 ? src.length : end)
+  const call = body.indexOf('collectRunSignals(')
+  const skip = body.indexOf("recordStatus: 'skipped'")
+  const ok = start >= 0 && call >= 0 && skip >= 0 && call < skip
+  const detail = ok
+    ? 'the collection is above the return, so a trivial run and an ordinary rejection still log both signals'
+    : `collectRunSignals at ${call}, the skipped return at ${skip} — the signals are inert on every trivial run and every ordinary rejection`
+  console.log(`${ok ? '✓' : '✗'} ${label} — ${detail}`)
+  if (!ok) problems.push(`${label}: ${detail} in ${target}.`)
 }
 
 if (problems.length) {
