@@ -60,7 +60,8 @@ const src = readFileSync(target, 'utf8')
 const fixture = JSON.parse(readFileSync('scripts/fixtures/wf2b451aee-verdicts.json', 'utf8'))
 const [round1, round2] = fixture
 
-// Same technique as check-schema-size.sh: find the declaration, then walk
+// Same technique as check-isolation.sh and every other gate here: find the
+// declaration, then walk
 // forward counting brackets until the first newline at depth zero. Covers both
 // `const f = ...` arrows and `function f(...)` declarations.
 const extract = name => {
@@ -135,7 +136,11 @@ try {
 }
 
 const assert = (label, deps, fn) => {
-  const missing = deps.filter(d => !scope[d])
+  // `in`, not truthiness: a dependency that is legitimately 0, '' or false is
+  // present and extractable, and reporting it as "not extracted" would point the
+  // reader at the extraction when the value is the thing under test. Every other
+  // gate in this directory spells it this way; this copy had drifted.
+  const missing = deps.filter(d => !(d in scope))
   if (missing.length) {
     console.log(`✗ ${label} — could not run: ${missing.join(', ')} not extracted`)
     problems.push(`${label}: could not run, ${missing.join(', ')} not extracted`)

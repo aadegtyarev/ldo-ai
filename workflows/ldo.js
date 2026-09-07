@@ -2170,6 +2170,12 @@ async function agentWithModelFallback(prompt, opts, fallbackModel) {
 // from any prose written here.
 const COST_ENTRIES_MAX = 40
 const COST_NOTE = 'Output tokens only — no input tokens, no cache reads, no cache writes — so this figure cannot say whether prompt caching is helping. A per-phase number is a delta measured around that phase, not an attribution: the token pool is shared across the whole turn.'
+
+// The one shape `createCostLedger().finish()` returns when there was no ledger
+// to finish. Written out twice at the two shapeResult call sites before this,
+// verbatim, which made it a third definition of a shape that already had two —
+// add a field to the cost block and you had to find every copy.
+const COST_UNAVAILABLE = { status: 'unavailable', unit: 'output_tokens', total_output_tokens_delta: null, unattributed_output_tokens_delta: null, entries: [], concurrent: false, note: COST_NOTE, reason: 'the run finished without a cost ledger' }
 // Two formatters, deliberately different. formatTokens is for the run log, where
 // 768.9k reads faster than 768885. costFigure is for the Record prompt, where
 // the Recorder is told to reproduce the numbers verbatim — a rounded k-figure
@@ -2377,7 +2383,7 @@ function renderCost(cost) {
 // Nothing here reads or branches on the stamp — the stamp is a hint to re-run
 // /ldo-init, never a check, because an agent-written marker in a repo file
 // proves nothing about what surrounds it.
-const LDO_VERSION = '2.40.0'
+const LDO_VERSION = '2.40.1'
 
 // ═══════════════════════════════════════════
 // CONFIG
@@ -3873,7 +3879,7 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
     // present and never null — an unmeasurable run carries an explicit
     // {status:'unavailable', total_output_tokens_delta:null, reason} rather than
     // a missing key a consumer would read as zero.
-    cost: cost || { status: 'unavailable', unit: 'output_tokens', total_output_tokens_delta: null, unattributed_output_tokens_delta: null, entries: [], concurrent: false, note: COST_NOTE, reason: 'the run finished without a cost ledger' },
+    cost: cost || COST_UNAVAILABLE,
     test_scope: testScope || 'full',
     // `record_misplaced: false` cannot express "the Recorder died and wrote
     // nothing" — the failure path satisfies it trivially, so a crashed Record
@@ -3960,7 +3966,7 @@ function shapePlanOnly(plan, researchReport, securityReport, surface, models, ta
     // because a plan-only run spends real output tokens — a Planner call is the
     // single most expensive agent in the pipeline — and comparing what planning
     // cost against what the whole run cost is exactly why an operator asks.
-    cost: cost || { status: 'unavailable', unit: 'output_tokens', total_output_tokens_delta: null, unattributed_output_tokens_delta: null, entries: [], concurrent: false, note: COST_NOTE, reason: 'the run finished without a cost ledger' },
+    cost: cost || COST_UNAVAILABLE,
     stats: {
       complexity: plan.complexity,
       securitySurface: surface,

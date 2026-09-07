@@ -146,7 +146,7 @@ assert('the schema enum is lowercase throughout — the case mismatch is the who
 {
   const label = 'an EMPTY allowlist rejects every configured value and keeps the full default'
   const deps = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'DEFAULT_BLOCKING_SEVERITIES', 'resolveBlockingSeverities']
-  const missing = deps.filter(d => !sources[d])
+  const missing = deps.filter(d => !(d in sources))
   if (missing.length) {
     console.log(`✗ ${label} — could not run: ${missing.join(', ')} not extracted`)
     problems.push(`${label}: could not run, ${missing.join(', ')} not extracted`)

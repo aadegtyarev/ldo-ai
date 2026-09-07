@@ -285,7 +285,7 @@ assert('the advice quotes no content from conflicts', ['recommendPlanReview'], s
 let runSignals = null
 {
   const deps = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'CONTRACT_CANDIDATE_PREFIX', 'collectContractCandidates', 'collectRunSignals']
-  const missing = deps.filter(d => !sources[d])
+  const missing = deps.filter(d => !(d in sources))
   if (missing.length) {
     problems.push(`collectRunSignals could not be driven: ${missing.join(', ')} not extracted from ${target} (expected when pointing at a pre-change copy).`)
   } else {

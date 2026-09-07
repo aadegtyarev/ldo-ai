@@ -5,6 +5,50 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.40.1] — 2026-09-08
+
+The tail of the two audits: findings that are real but mechanical, plus the one
+gate they argued for.
+
+### Added
+
+- **`scripts/check-config-defaults.sh`** — the seventeenth gate, and the same
+  gate as `check-model-table.sh` for the same reason. The model table is checked
+  across four files because eyeballing those copies missed one regression three
+  times; every *other* default is duplicated across the same four files and
+  nothing checked them: `maxFixLoops`, `maxParallelFeatures`,
+  `planner.maxStepsPerRun`, `tests.scope`, `tests.fullSuiteAt`,
+  `backlog.destination`, the `design.map` entry cap, and the six per-role
+  `stallMs` budgets. They agreed today — verified by hand during the audit —
+  which is precisely the state the model table was in before its third
+  regression. Each value is read out of the real declaration rather than
+  retyped, and matched only on a line that also names the key: a bare search for
+  `3` matches almost any prose, so a default drifting from 3 to 5 would have
+  passed while looking checked, which is the failure this gate exists to
+  prevent, one level up. Revert-proven against a source with two defaults moved.
+
+### Fixed
+
+- **One gate's `assert` had drifted from the other nine.**
+  `check-verdict-gates.sh` tested its dependencies with `!scope[d]` where every
+  sibling uses `!(d in scope)`. Every dependency it declares happens to be
+  truthy, so it passed — but the first gate to depend on a constant that is
+  legitimately `0`, `''` or `false` would have been told "not extracted", which
+  points the reader at the extraction when the value is the thing under test. It
+  fails closed, so this was a misleading diagnosis rather than a false pass. Two
+  other copies keyed on `!sources[d]` and got the same treatment.
+
+- **A cross-reference pointing at the one file that does not use the
+  technique.** Each gate's extractor carries a "same technique as check-X.sh"
+  comment; `check-verdict-gates.sh` named `check-schema-size.sh`, which uses a
+  different, brace-only extractor and has no `extract` function at all. A reader
+  following it to learn the convention landed on the counter-example.
+
+- **The cost-unavailable literal was written out twice, verbatim** — a third
+  definition of a shape that already had two, so adding a field to the cost
+  block meant finding every copy. Hoisted to `COST_UNAVAILABLE` beside
+  `COST_NOTE`.
+
 ## [2.40.0] — 2026-09-08
 
 The structural half of the same two audits that produced 2.39.0 — `/ldo-docs-audit` and
