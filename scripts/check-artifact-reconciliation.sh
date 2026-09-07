@@ -66,7 +66,7 @@ const extract = name => {
 // Constants first so no extracted function body sits in their temporal dead
 // zone; among themselves the order here is the order in the source.
 const WANTED_CONSTS = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'ARTIFACT_MARKERS', 'PLAN_SCHEMA']
-const WANTED_FNS = ['detectSuppliedArtifact', 'reconciliationStatus', 'renderReconciliationBrief', 'renderConflicts', 'renderMigrations', 'safeMigrationsDir', 'renderPlan', 'renderConstraints', 'renderSplitPaste', 'resumePlanRejection']
+const WANTED_FNS = ['detectSuppliedArtifact', 'reconciliationStatus', 'renderReconciliationBrief', 'renderConflicts', 'renderMigrations', 'safeRelPathSegments', 'safeMigrationsDir', 'renderPlan', 'renderConstraints', 'renderSplitPaste', 'resumePlanRejection']
 const WANTED = [...WANTED_CONSTS, ...WANTED_FNS]
 
 const problems = []

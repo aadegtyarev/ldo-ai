@@ -31,7 +31,7 @@ Drop an LDO instruction block into the project's `CLAUDE.md` so Claude self-rout
 
 ```markdown
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.39.0 -->
+<!-- ldo:version 2.40.0 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -51,9 +51,11 @@ calling, then record the `runId`, the `transcriptDir` the tool result hands
 back, and that reference in the tracking entry, and update its status when the
 result comes back; resuming needs both the run id and the real args, and the
 tracking entry alone doesn't carry them). At the start of this session, before
-anything else, check that file for entries still marked `running` — an earlier session may have been interrupted mid-run. If any
-exist, follow `/ldo-resume`'s recovery steps rather than leaving them
-unmentioned.
+anything else, check that file for any entry whose status is not one of
+`approved`, `changes_requested`, `planned`, `error`, `abandoned`, `shipped`,
+`completed` or `failed` — `running`, `interrupted` and anything unrecognised all
+mean an earlier session may have been interrupted mid-run. If any exist, follow
+`/ldo-resume`'s recovery steps rather than leaving them unmentioned.
 
 When working inline, keep the discipline: read before editing, write or update a
 test for any behavior change, and update README/CHANGELOG for user-facing changes.

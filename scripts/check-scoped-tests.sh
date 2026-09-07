@@ -57,21 +57,6 @@ const extract = name => {
   return null
 }
 
-// A statement block, not a function: extracted by brace-matching from its
-// opening line so the assertions below drive the strip phasePlan really
-// performs, not a paraphrase of it.
-const extractBlock = opener => {
-  const start = src.indexOf(opener)
-  if (start < 0) return null
-  let depth = 0
-  for (let k = start; k < src.length; k++) {
-    const c = src[k]
-    if (c === '{') depth++
-    else if (c === '}') { depth--; if (depth === 0) return src.slice(start, k + 1) }
-  }
-  return null
-}
-
 // The module-level constants come out of the target by the same extraction as
 // the functions — a regex literal, a number and an array evaluate under
 // `new Function` exactly as a function body does. Mirroring them as literals
@@ -83,8 +68,8 @@ const extractBlock = opener => {
 // safeScopedTemplate's own defence in depth (the raw `[\r\n]` pre-check, the
 // runner allowlist) otherwise masks a weakening of any one of them.
 const WANTED_CONSTS = ['SCOPED_TEMPLATE_MAX', 'SCOPED_TEMPLATE_SHAPE', 'SCOPED_RUNNERS', 'SCOPED_SHELLS', 'SAFE_REL_PATH', 'FULL_SUITE_REASONS']
-const WANTED_CONSTS_2 = ['DEFAULT_FULL_SUITE_AT', 'FULL_SUITE_DIRECTIVES', 'FULL_SUITE_ROLE_INSTRUCTIONS']
-const WANTED_FNS = ['safeScopedTemplate', 'safeTestPath', 'partitionTestPaths', 'substituteScopedPaths', 'renderScopedTests', 'quoteRejected', 'markFullSuite', 'fullSuiteRan', 'effectiveFullSuiteAt', 'renderFullSuiteDirective']
+const WANTED_CONSTS_2 = ['DEFAULT_FULL_SUITE_AT', 'FULL_SUITE_DIRECTIVES', 'FULL_SUITE_ROLE_INSTRUCTIONS', 'ISOLATION_PREFIX', 'RECOVERED_COMMAND_FIELDS']
+const WANTED_FNS = ['safeScopedTemplate', 'safeRelPathSegments', 'safeTestPath', 'safeMigrationsDir', 'safeWorktreePath', 'stripRecoveredCommands', 'renderRecoveredCommands', 'partitionTestPaths', 'substituteScopedPaths', 'renderScopedTests', 'quoteRejected', 'markFullSuite', 'fullSuiteRan', 'effectiveFullSuiteAt', 'renderFullSuiteDirective']
 const WANTED = [...WANTED_CONSTS, ...WANTED_CONSTS_2, ...WANTED_FNS]
 const problems = []
 const sources = {}
@@ -265,6 +250,152 @@ assert('CONTROL: partitionTestPaths reports what it dropped, so nothing is silen
   return { ok: dropped.length === 1 && dropped[0] === 'tests/a b.py', detail: JSON.stringify(dropped) }
 })
 
+// ── one validator, not two ──
+//
+// safeTestPath was an independent second copy of safeMigrationsDir's rule set
+// and had already drifted on four input classes: `a//b`, `a/./b`, a
+// dot-prefixed segment and a trailing slash were accepted on the test-path side
+// and rejected on the migrations side. The cost is not injection — SAFE_REL_PATH
+// excludes the metacharacters and substituteScopedPaths quotes — it is the one
+// renderScopedTests' own comment warns about: a path that does not resolve
+// produces a near-empty test selection that reports green.
+//
+// One separately named assertion per class, so a regression says which class
+// reopened rather than "one of eight", plus a byte-identity table for
+// safeMigrationsDir proving the delegation closed safeTestPath without moving
+// the validator it delegates to.
+
+const REJECTED_TEST_PATHS = [
+  ['an empty segment — `a//b`, which `startsWith` waves through', 'a//b'],
+  ['a `.` segment — `a/./b`, which is not the same thing as a hidden directory', 'a/./b'],
+  ['`..` alone', '..'],
+  ['a traversing segment', 'a/../../etc/passwd'],
+  ['a leading `-`, which makes a path an option rather than a target', '-rf'],
+  ['an absolute path', '/etc/passwd'],
+  ['a `-` prefix on an inner segment', 'x/-rf'],
+  ['a `.` as the whole path', '.'],
+]
+REJECTED_TEST_PATHS.forEach(([why, value]) => {
+  assert(`safeTestPath rejects ${why}`, ['safeTestPath'], s => {
+    const r = s.safeTestPath(value)
+    return { ok: r === null, detail: `${JSON.stringify(value)} -> ${JSON.stringify(r)}, expected null` }
+  })
+})
+
+assert('safeTestPath normalizes a trailing slash instead of passing it through', ['safeTestPath'], s => {
+  const r = s.safeTestPath('a/b/')
+  return { ok: r === 'a/b', detail: `"a/b/" -> ${JSON.stringify(r)}` }
+})
+
+// The one deliberate divergence from safeMigrationsDir. Rejecting it would
+// shrink a scoped selection to nothing on any project whose tests live under
+// `.cache`, `.pytest_cache` or `.tox` — and a near-empty selection reports green.
+assert('safeTestPath allows a dot-prefixed DIRECTORY — the one deliberate divergence', ['safeTestPath'], s => {
+  const r = s.safeTestPath('tests/.cache/t.py')
+  return { ok: r === 'tests/.cache/t.py', detail: JSON.stringify(r) }
+})
+
+assert('CONTROL: an ordinary test path is returned unchanged', ['safeTestPath'], s => {
+  const r = s.safeTestPath('src/auth/session.ts')
+  return { ok: r === 'src/auth/session.ts', detail: JSON.stringify(r) }
+})
+
+// A boolean return is what let `a/b/` be validated and then substituted in the
+// spelling nobody checked. Asserted on the type, not just on the value.
+assert('safeTestPath returns a normalized string or null — never a boolean', ['safeTestPath'], s => {
+  const values = ['src/a.ts', 'a/b/', 'a//b', '..', '-rf', '', '   ', null, undefined, 42, {}, ['a']]
+  const wrong = values.filter(v => {
+    const r = s.safeTestPath(v)
+    return typeof r !== 'string' && r !== null
+  })
+  return { ok: wrong.length === 0, detail: wrong.length ? `${wrong.length} value(s) returned a boolean` : `all ${values.length} return a string or null` }
+})
+
+assert('safeTestPath still trims its own input — that behaviour did not move to the shared core', ['safeTestPath'], s => {
+  const r = s.safeTestPath('  tests/a.py  ')
+  return { ok: r === 'tests/a.py', detail: JSON.stringify(r) }
+})
+
+assert('partitionTestPaths substitutes the NORMALIZED path, not the spelling it was given', ['partitionTestPaths', 'substituteScopedPaths'], s => {
+  const { safe, dropped } = s.partitionTestPaths(['tests/a.py/', 'tests//b.py'])
+  const cmd = s.substituteScopedPaths('pytest {paths}', safe)
+  const ok = cmd === "pytest 'tests/a.py'" && dropped.length === 1 && dropped[0] === 'tests//b.py'
+  return { ok, detail: `${cmd}, dropped ${JSON.stringify(dropped)}` }
+})
+
+// Two spellings of one file. The de-dup has to key on what gets substituted,
+// not on what was supplied — keyed on the raw string these pass as distinct
+// and the runner is handed the same file twice.
+assert('partitionTestPaths de-dups two spellings of one path down to one selection', ['partitionTestPaths', 'substituteScopedPaths'], s => {
+  const { safe, dropped } = s.partitionTestPaths(['a/b', 'a/b/'])
+  const cmd = s.substituteScopedPaths('pytest {paths}', safe)
+  const ok = safe.length === 1 && cmd === "pytest 'a/b'" && dropped.length === 0
+  return { ok, detail: `safe ${JSON.stringify(safe)} -> ${cmd}` }
+})
+
+assert('partitionTestPaths de-dups three spellings of one path, including a doubled trailing slash', ['partitionTestPaths'], s => {
+  const { safe } = s.partitionTestPaths(['a/b/', 'a/b//', 'a/b'])
+  return { ok: safe.length === 1 && safe[0] === 'a/b', detail: JSON.stringify(safe) }
+})
+
+// CONTROL in the other direction: the de-dup must not collapse distinct paths.
+assert('CONTROL: two genuinely different paths still yield two selections', ['partitionTestPaths', 'substituteScopedPaths'], s => {
+  const { safe, dropped } = s.partitionTestPaths(['a/b', 'a/c'])
+  const cmd = s.substituteScopedPaths('pytest {paths}', safe)
+  const ok = safe.length === 2 && cmd === "pytest 'a/b' 'a/c'" && dropped.length === 0
+  return { ok, detail: `safe ${JSON.stringify(safe)} -> ${cmd}` }
+})
+
+// CONTROL for the rejected half: falling back to the raw spelling as the key
+// must not make `dropped` repeat a path the caller lists twice.
+assert('CONTROL: a rejected path repeated verbatim is dropped once', ['partitionTestPaths'], s => {
+  const { safe, dropped } = s.partitionTestPaths(['a//b', 'a//b'])
+  return { ok: safe.length === 0 && dropped.length === 1 && dropped[0] === 'a//b', detail: JSON.stringify(dropped) }
+})
+
+// ── safeMigrationsDir is byte-identical to before the delegation ──
+//
+// The expected column is what the pre-change implementation returned, measured
+// over the same table. Whitespace cases are in it deliberately: the shared core
+// is NOT trimmed, and if the trim had been lifted out of safeTestPath into it,
+// safeMigrationsDir — and safeWorktreePath through it — would newly accept a
+// padded value that SAFE_REL_PATH rejects outright. That widening would pass a
+// table without these three rows.
+const MIGRATIONS_TABLE = [
+  ['a//b', null],
+  ['a/./b', null],
+  ['tests/.cache/t.py', null],
+  ['a/b/', 'a/b'],
+  ['..', null],
+  ['-rf', null],
+  ['/etc/passwd', null],
+  ['x/-rf', null],
+  [' a/b ', null],
+  ['a/b ', null],
+  [' ', null],
+  ['', null],
+  ['db/migrations', 'db/migrations'],
+]
+MIGRATIONS_TABLE.forEach(([value, want]) => {
+  assert(`CONTROL: safeMigrationsDir(${JSON.stringify(value)}) is unchanged by the delegation`, ['safeMigrationsDir'], s => {
+    const r = s.safeMigrationsDir(value)
+    return { ok: r === want, detail: `-> ${JSON.stringify(r)}, expected ${JSON.stringify(want)}` }
+  })
+})
+
+// The one deliberate narrowing, named so it is a decision rather than a side
+// effect: `String(123)` used to make `123` a valid migrations directory.
+assert('safeMigrationsDir rejects a non-string rather than coercing it — a deliberate narrowing', ['safeMigrationsDir'], s => {
+  const coerced = [123, true, ['a/b'], { toString: () => 'a/b' }].filter(v => s.safeMigrationsDir(v) !== null)
+  return { ok: coerced.length === 0, detail: coerced.length ? `${coerced.length} non-string(s) still accepted` : 'every non-string returns null' }
+})
+
+assert('safeWorktreePath is unmoved by the delegation — prefix required, segments still checked', ['safeWorktreePath'], s => {
+  const cases = [['.worktrees/feature-a', '.worktrees/feature-a'], ['.worktrees/..', null], ['.worktrees/-rf', null], ['worktrees/x', null], ['.worktrees/a//b', null]]
+  const wrong = cases.filter(([v, want]) => s.safeWorktreePath(v) !== want)
+  return { ok: wrong.length === 0, detail: wrong.length ? `wrong for ${JSON.stringify(wrong.map(c => c[0]))}` : `all ${cases.length} unchanged` }
+})
+
 // ── the fallback to full: three reasons the operator has to be able to tell apart ──
 
 const planWith = (ctx, files) => ({ codebase_context: ctx, steps: [{ files }] })
@@ -294,55 +425,115 @@ assert('a partially filtered list still renders, and names what it left out', ['
   return { ok, detail: `dropped ${JSON.stringify(r.dropped)}` }
 })
 
-// ── the resumePlan strip ──
+// ── the resumePlan strip, and what replaces the commands it removes ──
+//
+// A recovered plan carrying ONLY test_command_scoped is the shape a guard keyed
+// on its sibling fields would wave through, and the template it carries is
+// rendered into both the Coder and the Reviewer prompt for execution — the one
+// route from a dead run's file to a live shell.
+//
+// The strip used to be an inline block; it is a named function now because
+// returning what it removed is what lets the two executing agents be told to
+// rediscover it. Dropping run_command and telling nobody is how a resumed run
+// came to verify materially less than the run it claimed to continue.
 
-// A recovered plan carrying ONLY test_command_scoped is the shape a guard
-// keyed on its sibling fields would wave through, and the template it carries
-// is rendered into both the Coder and the Reviewer prompt for execution — the
-// one route from a dead run's file to a live shell.
-const resumeStrip = extractBlock('  if (planFromResume && plan.codebase_context) {')
 const driveStrip = ctx => {
-  const lines = []
   const plan = { codebase_context: ctx }
-  new Function('planFromResume', 'plan', 'log', 'logPrefix', resumeStrip)(true, plan, m => lines.push(m), '')
-  return { ctx: plan.codebase_context, lines }
+  const dropped = scope.stripRecoveredCommands(true, plan)
+  return { ctx: plan.codebase_context, dropped }
 }
 
-const stripAssert = (label, fn) => {
-  if (!resumeStrip) {
-    console.log(`✗ ${label} — could not run: the resumePlan strip block was not extracted`)
-    problems.push(`${label}: could not run, the resumePlan strip block was not extracted from ${target} (expected when pointing at a pre-change copy)`)
-    return
-  }
-  let ok = false
-  let detail = ''
-  try {
-    const r = fn()
-    ok = r === true || r?.ok === true
-    detail = typeof r === 'object' && r?.detail ? ` — ${r.detail}` : ''
-  } catch (e) {
-    detail = ` — threw: ${e.message}`
-  }
-  console.log(`${ok ? '✓' : '✗'} ${label}${detail}`)
-  if (!ok) problems.push(`${label}${detail}`)
-}
-
-stripAssert('a resumed plan carrying ONLY test_command_scoped still has it stripped', () => {
+assert('a resumed plan carrying ONLY test_command_scoped still has it stripped', ['stripRecoveredCommands'], () => {
   const r = driveStrip({ test_command_scoped: 'pytest {paths}' })
-  const ok = r.ctx.test_command_scoped === undefined && r.lines.length === 1
-  return { ok, detail: `left ${JSON.stringify(r.ctx)}, logged ${r.lines.length}` }
+  const ok = r.ctx.test_command_scoped === undefined && r.dropped.length === 1 && r.dropped[0] === 'test_command_scoped'
+  return { ok, detail: `left ${JSON.stringify(r.ctx)}, returned ${JSON.stringify(r.dropped)}` }
 })
 
-stripAssert('a resumed plan carrying all three has all three stripped, named in one log line', () => {
+assert('a resumed plan carrying all three has all three stripped and all three returned', ['stripRecoveredCommands'], () => {
   const r = driveStrip({ test_command: 'npm test', test_command_scoped: 'pytest {paths}', run_command: 'npm run dev' })
-  const ok = Object.keys(r.ctx).length === 0 && r.lines[0].includes('test_command/test_command_scoped/run_command')
-  return { ok, detail: r.lines[0] || '(nothing logged)' }
+  const ok = Object.keys(r.ctx).length === 0 && r.dropped.join('/') === 'test_command/test_command_scoped/run_command'
+  return { ok, detail: `left ${JSON.stringify(r.ctx)}, returned ${JSON.stringify(r.dropped)}` }
 })
 
-stripAssert('CONTROL: a resumed plan with none of them is left alone and logs nothing', () => {
+assert('CONTROL: a resumed plan with none of them is left alone and returns an empty list', ['stripRecoveredCommands'], () => {
   const r = driveStrip({ stack: 'node' })
-  return { ok: r.ctx.stack === 'node' && r.lines.length === 0, detail: `logged ${r.lines.length}` }
+  return { ok: r.ctx.stack === 'node' && r.dropped.length === 0, detail: `left ${JSON.stringify(r.ctx)}, returned ${JSON.stringify(r.dropped)}` }
 })
+
+assert('CONTROL: a plan that was NOT resumed is never touched', ['stripRecoveredCommands'], s => {
+  const plan = { codebase_context: { test_command: 'npm test', run_command: 'npm run dev' } }
+  const dropped = s.stripRecoveredCommands(false, plan)
+  const ok = dropped.length === 0 && plan.codebase_context.test_command === 'npm test' && plan.codebase_context.run_command === 'npm run dev'
+  return { ok, detail: `returned ${JSON.stringify(dropped)}, context ${JSON.stringify(plan.codebase_context)}` }
+})
+
+assert('the strip survives a recovered plan with no codebase_context at all', ['stripRecoveredCommands'], s => {
+  const shapes = [[true, {}], [true, undefined], [true, { codebase_context: null }]]
+  const broken = shapes.filter(([r, p]) => {
+    try {
+      return s.stripRecoveredCommands(r, p).length !== 0
+    } catch {
+      return true
+    }
+  })
+  return { ok: broken.length === 0, detail: broken.length ? `${broken.length} shape(s) threw` : `all ${shapes.length} shapes return []` }
+})
+
+// ── renderRecoveredCommands ──
+//
+// An empty list must render nothing at all: every non-resumed run's Coder,
+// Reviewer and Security prompt is built from this string, and a block that is
+// merely short still changes the cached prefix for every run in the project.
+
+assert('renderRecoveredCommands([]) is exactly the empty string', ['renderRecoveredCommands'], s => {
+  const empty = [[], undefined, null, 'run_command', ['nonsense'], [null]].map(v => s.renderRecoveredCommands(v))
+  const wrong = empty.filter(r => r !== '')
+  return { ok: wrong.length === 0, detail: wrong.length ? `${wrong.length} input(s) rendered a block` : 'every empty or unrecognised list renders nothing' }
+})
+
+assert('renderRecoveredCommands names the dropped field and tells the Reviewer to rediscover it', ['renderRecoveredCommands'], s => {
+  const r = s.renderRecoveredCommands(['run_command'])
+  const ok = r.includes('run_command') && /RECOVERED PLAN/.test(r) && /REVIEWER/.test(r) && /rediscover/i.test(r) && /nothing_to_drive/.test(r)
+  return { ok, detail: ok ? `${r.length} chars` : JSON.stringify(r.slice(0, 200)) }
+})
+
+// The audit half. Rediscovery without a record leaves a resumed run's
+// verification uncomparable to the run it claims to continue, which is the gap
+// the block exists to close — so the instruction is asserted, not just the word
+// 'rediscover'.
+assert('the block requires the rediscovered command to be named in the criterion evidence', ['renderRecoveredCommands'], s => {
+  const r = s.renderRecoveredCommands(['run_command'])
+  const ok = /`evidence`/.test(r) && /where you found it/.test(r)
+  return { ok, detail: ok ? 'names `evidence` and where the command was found' : JSON.stringify(r.slice(0, 400)) }
+})
+
+// The strip exists to keep a dead run's command away from a Bash tool. A block
+// that quotes the command back into a prompt hands it to an agent holding one.
+assert('the block is built from field names and fixed text — never the dropped command strings', ['renderRecoveredCommands', 'stripRecoveredCommands'], s => {
+  const plan = { codebase_context: { test_command: 'ZZ-DEAD-TEST-CMD-ZZ', test_command_scoped: 'ZZ-DEAD-SCOPED-CMD-ZZ', run_command: 'ZZ-DEAD-RUN-CMD-ZZ' } }
+  const dropped = s.stripRecoveredCommands(true, plan)
+  const r = s.renderRecoveredCommands(dropped)
+  const leaked = ['ZZ-DEAD-TEST-CMD-ZZ', 'ZZ-DEAD-SCOPED-CMD-ZZ', 'ZZ-DEAD-RUN-CMD-ZZ'].filter(v => r.includes(v))
+  const named = ['test_command', 'test_command_scoped', 'run_command'].every(f => r.includes(f))
+  return { ok: leaked.length === 0 && named, detail: leaked.length ? `leaked ${JSON.stringify(leaked)}` : 'all three field names present, no command string' }
+})
+
+assert('RECOVERED_COMMAND_FIELDS is exactly the three executable fields', ['RECOVERED_COMMAND_FIELDS'], s => {
+  const ok = JSON.stringify(s.RECOVERED_COMMAND_FIELDS) === '["test_command","test_command_scoped","run_command"]'
+  return { ok, detail: JSON.stringify(s.RECOVERED_COMMAND_FIELDS) }
+})
+
+// ── source-level: the block has to reach the prompts ──
+
+{
+  const label = 'phasePlan feeds the strip\'s result into renderRecoveredCommands and onto CTX'
+  const stripCall = /const droppedCommands = stripRecoveredCommands\(planFromResume, plan\)/.test(src)
+  const ctxLine = (src.match(/const CTX = .*/) || [''])[0]
+  const ok = stripCall && /renderContext\(plan\.codebase_context\) \+ renderRecoveredCommands\(droppedCommands\)/.test(ctxLine)
+  const detail = ok ? ctxLine.trim() : `strip wired: ${stripCall}, CTX line: ${JSON.stringify(ctxLine.trim())}`
+  console.log(`${ok ? '✓' : '✗'} ${label} — ${detail}`)
+  if (!ok) problems.push(`${label}: ${detail} in ${target}.`)
+}
 
 // ── quoteRejected: it only ever runs on a rejection path ──
 //
@@ -537,6 +728,23 @@ for (const shell of ['bash', 'sh', 'zsh', 'dash', 'env']) {
 assert("CONTROL: a real runner still scopes through the baseRunner escape hatch", ['safeScopedTemplate'], s => {
   const got = s.safeScopedTemplate('pytest {paths}', 'pytest')
   return { ok: got === 'pytest {paths}', detail: `returned ${JSON.stringify(got)}` }
+})
+
+// `String(null)` is `'null'` — a well-formed relative path that safeTestPath
+// accepts and substituteScopedPaths then quotes into a real command. So a
+// malformed reply used to become `pytest 'null' 'undefined' '42'`: a run
+// testing three files that do not exist, reporting whatever that returns.
+// safeRelPathSegments rejects non-strings by type on purpose; the coercion one
+// level up was quietly undoing it.
+assert('partitionTestPaths drops a non-string instead of coercing it into a path', ['partitionTestPaths'], s => {
+  const r = s.partitionTestPaths([null, undefined, 42, 'a/b'])
+  const leaked = r.safe.filter(x => x !== 'a/b')
+  return { ok: leaked.length === 0 && r.safe.length === 1, detail: `safe = ${JSON.stringify(r.safe)}, dropped = ${JSON.stringify(r.dropped)}` }
+})
+
+assert('CONTROL: the non-string is still reported as dropped, not swallowed', ['partitionTestPaths'], s => {
+  const r = s.partitionTestPaths([null, 'a/b'])
+  return { ok: r.dropped.length === 1, detail: `dropped = ${JSON.stringify(r.dropped)} — every caller logs this list` }
 })
 
 // The status ternary must read the resolved value, not the configured one: with

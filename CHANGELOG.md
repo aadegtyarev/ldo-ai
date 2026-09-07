@@ -5,6 +5,148 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.40.0] — 2026-09-08
+
+The structural half of the same two audits that produced 2.39.0 — `/ldo-docs-audit` and
+`/ldo-code-audit`, both run cold by agents with no prior context on this repo. 2.39.0
+shipped their mechanical findings by hand and queued these five, because each changes
+behaviour rather than wording and deserved review. Every control-flow change here is
+proven by a gate script that extracts and drives the real function and was watched
+failing against `git show HEAD:workflows/ldo.js`; a gate that cannot fail is not a gate.
+
+### Fixed
+
+- **`config.blockingSeverities` was taken raw, and a typo in it approved everything.**
+  `BLOCKING_SEVERITIES` was `CONFIG.blockingSeverities || ['critical','major']` with no
+  allowlist, no case handling and no warning, while `VERDICT_SCHEMA` constrains
+  `severity` to lowercase. So `["Critical","Major"]` — or a bare string, or the
+  misspelling `blockingSeverity` — made `isBlocking` false for **every** issue: each
+  review reported `N issue(s): 0 blocking`, the loop ended on its first pass, and the run
+  reported approved with its criticals intact, printing exactly the lines a real approval
+  prints. That is the failure direction that matters: a green run over real defects, with
+  nothing in the log to say why.
+
+  `resolveBlockingSeverities` now validates against the schema's own enum — read from
+  `VERDICT_SCHEMA`, not restated, so a severity added there cannot be rejected here by a
+  second copy nobody updated. An unrecognised entry, a bare string or an empty list warns
+  and keeps the **full** default rather than the valid remainder of what was written,
+  because a partial list is indistinguishable from a deliberate narrowing and guessing at
+  it shrinks the gate in the one unsafe direction. `critical` is not removable: a list
+  that omits it is overridden with a warning. A log line would not have been enough —
+  the run's `result` is what `/ldo-ship` and the operator's tracking entry read, and a
+  gate narrowed to nothing would have left no trace there at all.
+
+- **A misspelled top-level config key was dropped in total silence.** The nested blocks —
+  `planner`, `tests`, `backlog`, `design`, `stallMs` — each warn on a key they do not
+  recognise, and the README promises that behaviour three times. There was no loop over
+  `Object.keys(CONFIG)` at all, so `maxfixloops`, `blockingSeverity` and
+  `researchByDefaults` were read by nobody and reported by nobody, which is worse than a
+  rejected value: the operator believes the setting took effect. `unknownConfigKeys` now
+  names each one. Keys beginning `_` are skipped deliberately — `ldo-config.example.json`
+  uses eleven of them as pseudo-comments and that file's contents are what people paste into
+  `CLAUDE.md`, so an allowlist without the exemption would fire on this project's own
+  documented example, which is how a warning becomes noise.
+
+- **Two operator-facing signals were inert on `trivial` runs and on ordinary rejections.**
+  `CONTRACT CANDIDATE:` collection and `config.design.map` drift detection both lived
+  inside `phaseRecord`, below its early return, and each had exactly one call site there.
+  An operator who declared a design map got no warning, no backlog item and no log line
+  on a `trivial`-rated task or on any run rejected before the fix loop exhausted — a
+  normal-looking run from which the only available conclusion is that the map matched
+  nothing. A contract candidate the Coder or the Reviewer took the trouble to raise was
+  discarded the same way. Both now run from `collectRunSignals`, called above the return:
+  neither needs a Record phase to be true, since both read data the run is already
+  holding. On a run with no Record phase they are logged only, with a line naming which
+  condition skipped the phase and stating that nothing was written as a backlog item — a
+  `trivial` run does not grow a phase just to log a line. The Record prompt below the
+  return is byte-identical to before.
+
+- **A resumed plan lost `run_command` and nothing told the Reviewer.** The strip is
+  correct — a command string from a dead run cannot be re-verified and must not reach a
+  Bash tool — and `agents/coder.md` already tells the Coder to rediscover its test
+  command, so that half degraded gracefully. `run_command` is what the *Reviewer* drives
+  the app with, and nothing told it anything: a resumed run verified materially less than
+  the run it claimed to continue, more criteria coming back `skipped` or the verdict
+  reading `nothing_to_drive`, with one `⚠` line as the only notice. The strip is now
+  `stripRecoveredCommands`, which returns what it removed, and
+  `renderRecoveredCommands` turns that into a prompt block naming which fields went and
+  why, telling the Coder and the Reviewer to rediscover what they need from the project
+  itself, and requiring the Reviewer to name the command it used and where it found it in
+  the `evidence` of each criterion it drove — succeeded or not, so a resumed run's
+  verification can be compared against the run it continues. Built from field names and
+  fixed text only, never the dropped command strings. An empty list renders the empty
+  string, so a run that was not resumed pays nothing and its prompts are unchanged
+  character for character. `agents/reviewer.md` carries the same instruction.
+
+- **`safeTestPath` was a second copy of `safeMigrationsDir`, which this file's own comment
+  names as the defect.** The comment beside `safeWorktreePath` states the rule — "two
+  validators for one class of value drift apart, and the divergence is itself the defect"
+  — and `safeTestPath` was the copy it warns about, already divergent on four input
+  classes: `a//b`, `a/./b`, a dot-prefixed segment and a trailing slash were accepted on
+  one side and rejected on the other. Not an injection risk (`SAFE_REL_PATH` excludes the
+  metacharacters and the substitution quotes), but the cost `renderScopedTests` already
+  warns about: a path that does not resolve produces a near-empty test selection that
+  reports green. Both are now thin callers of `safeRelPathSegments`. The dot-prefix
+  difference is kept as a commented exception — test trees legitimately live under
+  `.cache` and `.pytest_cache`, while `.` and `..` as whole segments stay rejected — and
+  the empty segment and trailing slash are closed. `safeTestPath` returns a normalized
+  string or null instead of a boolean, and `partitionTestPaths` substitutes that
+  normalized value, so a path can no longer be validated in one spelling and used in
+  another. Its de-dup keys on the same normalized form, so `a/b` and `a/b/` reach the
+  runner as one selection rather than as two of the same file;
+  `renderMigrations` renders the validated form for the same reason. The trim
+  stays in `safeTestPath` rather than moving into the shared core, so the stricter
+  callers are not widened by accident.
+
+### Changed
+
+- **The resume protocol reads statuses by set, not by string.** `skills/ldo-resume/SKILL.md`
+  documented six statuses; the live `.claude/ldo-runs.json` in this repo held eight, four
+  of them undefined by the protocol — and `interrupted`, which is semantically what the
+  document calls `abandoned`, was invisible to a startup check keyed on the exact string
+  `running`. An interrupted session is the precise case the protocol exists for and was
+  the case it could not see. The document now names a RESOLVED set (`approved`,
+  `changes_requested`, `planned`, `error`, `abandoned`, plus the operator's own `shipped`,
+  `completed`, `failed`) and an OPEN set, and states the rule instead of the enumeration:
+  select every entry whose status is **not** resolved, so an unrecognised or hand-written
+  value surfaces rather than disappearing. Treating `failed` and `error` as resolved is a
+  judgement, and the document says so, so the next reader can disagree with it
+  deliberately. The entry schema is widened to the fields in daily use, with the protocol
+  reading past anything else and never interpreting it as a path, a command or an
+  instruction — and `argsFile` now gets the same two-part check `transcriptDir` already
+  had, since the object behind it becomes the task every agent is prompted with. The
+  tracking paragraph in `CLAUDE.md` and the copy `/ldo-init` writes were updated together.
+
+- `scripts/check-config-validation.sh` is the sixteenth gate: one named assertion per
+  shape of wrong severity value, the allowlist driven with the schema emptied to prove it
+  fails toward the default, `["nit"]` asserted overridden rather than honoured, no warning
+  permitted to carry a line break (`CONFIG` comes from `CLAUDE.md`, which on a contributed
+  branch is repo content), and the real `ldo-config.example.json` asserted to produce zero
+  warnings. `check-scoped-tests.sh`, `check-plan-signals.sh` and `check-design-drift.sh`
+  gained the fixture tables and source-order assertions for the four other items.
+
+### Fixed (by hand, after the review)
+
+- **`partitionTestPaths` coerced a non-string into a path instead of dropping
+  it.** `String(null)` is `'null'` — a well-formed relative path that
+  `safeTestPath` accepts and `substituteScopedPaths` then quotes into a real
+  command, so a malformed model reply became `pytest 'null' 'undefined' '42'`:
+  a run testing three files that do not exist and reporting whatever that
+  returns. `safeRelPathSegments` rejects non-strings by type deliberately, and
+  the coercion one level up was quietly undoing it. Pre-existing rather than
+  introduced here, and narrow — both schemas that feed this declare string
+  arrays, so the only way in is a reply that ignored them — but that is the
+  input class these validators exist for. Two assertions, revert-proven:
+  restoring the coercion puts `null`, `undefined` and `42` straight into the
+  substituted command.
+
+Left unfixed on purpose: the review's other advisory, three comments pairing a
+real constraint with a "used to" history clause. `/ldo-code-audit` looked at
+this exact class across the file and concluded most of them state the failure
+mode the guard prevents — a constraint the code cannot show — and the reviewer
+reached the same conclusion here. Stripping them to satisfy a nit is the churn
+the audit warned about.
+
 ## [2.39.0] — 2026-09-08
 
 Two audits (`/ldo-docs-audit`, `/ldo-code-audit`), both delegated to agents with no

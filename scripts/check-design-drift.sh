@@ -80,8 +80,8 @@ const extract = name => {
   return null
 }
 
-const WANTED_CONSTS = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'SAFE_REL_PATH', 'normalizeIssuePath', 'sameFilePath', 'DESIGN_MAP_MAX', 'DESIGN_GLOB_MAX', 'DESIGN_GLOB_WILDCARDS_MAX', 'DESIGN_KEYS', 'DESIGN_ENTRY_KEYS', 'DRIFT_FILES_MAX', 'DRIFT_PATH_MAX']
-const WANTED_FNS = ['safeMigrationsDir', 'resolveDesignMap', 'globMatch', 'detectDesignDrift', 'renderDesignDrift']
+const WANTED_CONSTS = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'SAFE_REL_PATH', 'normalizeIssuePath', 'sameFilePath', 'DESIGN_MAP_MAX', 'DESIGN_GLOB_MAX', 'DESIGN_GLOB_WILDCARDS_MAX', 'DESIGN_KEYS', 'DESIGN_ENTRY_KEYS', 'DRIFT_FILES_MAX', 'DRIFT_PATH_MAX', 'CONTRACT_CANDIDATE_PREFIX']
+const WANTED_FNS = ['safeRelPathSegments', 'safeMigrationsDir', 'resolveDesignMap', 'globMatch', 'detectDesignDrift', 'renderDesignDrift', 'collectContractCandidates', 'collectRunSignals']
 const problems = []
 const sources = {}
 for (const name of [...WANTED_CONSTS, ...WANTED_FNS]) {
@@ -399,6 +399,55 @@ for (const [why, glob, path, want] of GLOBSTAR_CASES) {
   })
 }
 
+// ── collectRunSignals: the drift half, driven through the real detector ──
+//
+// Drift detection used to run inside phaseRecord BELOW its early return, so an
+// operator who declared `config.design.map` got no warning, no backlog item and
+// no log line on a `trivial` run or on any run rejected before the loop
+// exhausted — a normal-looking run from which the only available conclusion is
+// that the map matched nothing. These drive the collector that now runs above
+// that return, with the real resolver feeding the real detector.
+
+assert("collectRunSignals reports drift from a resolved map and the run's changed files", ['collectRunSignals', 'resolveDesignMap'], s => {
+  const { map } = s.resolveDesignMap({ map: [{ glob: 'src/auth/**', doc: 'docs/design/auth.md' }] })
+  const r = s.collectRunSignals(map, { filesChanged: ['src/auth/session.ts'], deviations: [] }, { summary: 'Approved.' })
+  const ok = r.designDrift.length === 1 && r.designDrift[0].doc === 'docs/design/auth.md' && r.designDrift[0].matched.length === 1
+  return { ok, detail: JSON.stringify(r.designDrift) }
+})
+
+assert('CONTROL: a run that touched the document reports no drift', ['collectRunSignals', 'resolveDesignMap'], s => {
+  const { map } = s.resolveDesignMap({ map: [{ glob: 'src/auth/**', doc: 'docs/design/auth.md' }] })
+  const r = s.collectRunSignals(map, { filesChanged: ['src/auth/session.ts', 'docs/design/auth.md'], deviations: [] }, {})
+  return { ok: r.designDrift.length === 0, detail: JSON.stringify(r.designDrift) }
+})
+
+assert('CONTROL: a project that declared no map pays nothing', ['collectRunSignals'], s => {
+  const r = s.collectRunSignals([], { filesChanged: ['src/auth/session.ts'], deviations: [] }, {})
+  return { ok: r.designDrift.length === 0 && r.contractCandidates.length === 0, detail: `${r.designDrift.length} drift, ${r.contractCandidates.length} candidate(s)` }
+})
+
+// It now runs on paths it never ran on — a trivial run and every ordinary
+// rejection — where the Coder may have returned nothing at all. A throw here
+// would land in runOneFeature's catch and turn a merely rejected run into a
+// dead one.
+assert('it is total over the shapes a rejected or trivial run hands it', ['collectRunSignals'], s => {
+  const shapes = [
+    [[], { filesChanged: [], deviations: [] }, {}],
+    [[], undefined, undefined],
+    [undefined, {}, { summary: undefined }],
+    [[{ glob: 'src/**', doc: 'docs/x.md' }], { filesChanged: null }, { summary: null }],
+  ]
+  const broken = shapes.filter(args => {
+    try {
+      const r = s.collectRunSignals(...args)
+      return !Array.isArray(r?.contractCandidates) || !Array.isArray(r?.designDrift)
+    } catch {
+      return true
+    }
+  })
+  return { ok: broken.length === 0, detail: broken.length ? `${broken.length} shape(s) threw or returned a non-array` : `all ${shapes.length} shapes return two arrays` }
+})
+
 // ── source-level: a mechanism nothing invokes is exactly the defect ──
 
 {
@@ -414,9 +463,25 @@ for (const [why, glob, path, want] of GLOBSTAR_CASES) {
   const start = src.indexOf('const recordPrompt =')
   const end = start < 0 ? -1 : src.indexOf('const recordResult =', start)
   const composition = start < 0 ? '' : src.slice(start, end < 0 ? src.length : end)
-  const ok = start >= 0 && composition.includes('designDriftBlock') && /renderDesignDrift\(/.test(src) && /detectDesignDrift\(DESIGN_MAP/.test(src)
-  console.log(`${ok ? '✓' : '✗'} ${label} — ${ok ? 'designDriftBlock is concatenated into the prompt and fed by detectDesignDrift(DESIGN_MAP, …)' : 'renderDesignDrift is resolved and dropped, or detectDesignDrift is never called with the resolved map'}`)
+  const ok = start >= 0 && composition.includes('designDriftBlock') && /renderDesignDrift\(/.test(src) && /collectRunSignals\(DESIGN_MAP/.test(src)
+  console.log(`${ok ? '✓' : '✗'} ${label} — ${ok ? 'designDriftBlock is concatenated into the prompt and fed by collectRunSignals(DESIGN_MAP, …)' : 'renderDesignDrift is resolved and dropped, or collectRunSignals is never called with the resolved map'}`)
   if (!ok) problems.push(`${label}: the block never reaches the Recorder in ${target}.`)
+}
+
+{
+  const label = "the drift collection runs ABOVE phaseRecord's early return"
+  const start = src.indexOf('async function phaseRecord(')
+  const end = start < 0 ? -1 : src.indexOf('\nasync function ', start + 1)
+  const body = start < 0 ? '' : src.slice(start, end < 0 ? src.length : end)
+  const call = body.indexOf('collectRunSignals(DESIGN_MAP')
+  const skip = body.indexOf("recordStatus: 'skipped'")
+  const logged = skip > 0 && /Design doc drift:/.test(body.slice(0, skip))
+  const ok = start >= 0 && call >= 0 && skip >= 0 && call < skip && logged
+  const detail = ok
+    ? 'the map is walked and the drift logged before the phase can skip'
+    : `collectRunSignals(DESIGN_MAP…) at ${call}, the skipped return at ${skip}, drift logged above it: ${logged} — an operator who declared a map learns nothing on a trivial or rejected run`
+  console.log(`${ok ? '✓' : '✗'} ${label} — ${detail}`)
+  if (!ok) problems.push(`${label}: ${detail} in ${target}.`)
 }
 
 if (problems.length) {

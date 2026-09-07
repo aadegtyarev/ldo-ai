@@ -1,5 +1,5 @@
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.39.0 -->
+<!-- ldo:version 2.40.0 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -19,9 +19,11 @@ calling, then record the `runId`, the `transcriptDir` the tool result hands
 back, and that reference in the tracking entry, and update its status when the
 result comes back; resuming needs both the run id and the real args, and the
 tracking entry alone doesn't carry them). At the start of this session, before
-anything else, check that file for entries still marked `running` — an earlier session may have been interrupted mid-run. If any
-exist, follow `/ldo-resume`'s recovery steps rather than leaving them
-unmentioned.
+anything else, check that file for any entry whose status is not one of
+`approved`, `changes_requested`, `planned`, `error`, `abandoned`, `shipped`,
+`completed` or `failed` — `running`, `interrupted` and anything unrecognised all
+mean an earlier session may have been interrupted mid-run. If any exist, follow
+`/ldo-resume`'s recovery steps rather than leaving them unmentioned.
 
 When working inline, keep the discipline: read before editing, write or update a
 test for any behavior change, and update README/CHANGELOG for user-facing changes.
@@ -117,6 +119,12 @@ the list. Offer; don't run either unasked.
 - an Isolate phase creates and proves the worktree before planning; an unproven one fails the run instead of falling back to the working tree
 - the result carries work_location beside a worktree_path verified by the orchestrator, not claimed by the Planner
 - vendor.sh rewrites the ldo:ldo workflow name too, so a vendored run's own advice resolves
+- blockingSeverities is validated against the schema enum and 'critical' cannot be configured away
+- an unknown TOP-LEVEL config key is warned about; `_`-prefixed pseudo-comments are skipped
+- contract-candidate and design-drift signals fire on trivial and rejected runs, logged only
+- resume statuses are two named sets; the recovery filter selects everything not resolved
+- safeTestPath delegates to the one path validator; scoped paths are normalized then de-duped
+- a resumed run tells the Reviewer to rediscover run_command and name it in the evidence
 - a brief that supplies an artifact is reconciled against the contracts and its own prose; each contradiction rides downstream as a conflict to confirm
 - the migration check counts identifiers, not filenames — an up/down pair is no longer a collision
 - /ldo-init preserves the drift log on a re-run: capture, replace, restore, count
