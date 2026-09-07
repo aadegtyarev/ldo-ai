@@ -5,6 +5,40 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.36.1] — 2026-09-07
+
+### Fixed
+
+- **The prescribed migration-collision check no longer false-positives on every
+  up/down migration pair** (issue #21). `num()` extracted the leading digits of
+  every *filename*, so a project shipping one migration as two files —
+  `0153_x.sql` and `0153_x.down.sql` — produced `0153` twice and
+  `sort | uniq -d` flagged it. That is the check's loudest signal: the
+  instructions name an intra-worktree duplicate as "the likeliest collision of
+  all". So the alarm fired on the project's normal, correct state, measured on
+  **4 of 4** migration-bearing runs in one project in 24 hours. Every Reviewer
+  re-derived the same explanation independently and spent a paragraph of
+  `evidence` arguing the positive away; one reported it as a real collision
+  before catching itself. The text also closed the obvious escape off, correctly
+  — deduping earlier would collapse a genuine intra-worktree pair before
+  `uniq -d` could see it — so a Reviewer following it had no sanctioned way to
+  reach a clean result.
+
+  `num()` now counts migration *identifiers* rather than filenames, filtering
+  the companion half (`.down.`, `.rollback.`, `_down.`, `_rollback.`) between
+  the basename and the digit extraction, applied to `BASE` and `NEW` alike so
+  the two stay comparable. Every property the design is careful about survives:
+  two *up* files sharing one number still collide, the baseline subtraction is
+  untouched, and no dedup moved earlier. Verified on four cases driving the real
+  shell function — the reported pair (old flags `0153`, new is clean), two real
+  up files sharing a number (still flagged), `.rollback.`/`_down.` variants
+  (clean), and a guard against over-filtering: `0007_shutdown.sql`,
+  `0009_teardown.sql` and `0010_countdown_timer.sql` all survive, since the
+  pattern requires a separator before `down`. Projects naming down-migrations
+  some other way are told to extend the filter and to say in `evidence` which
+  one they applied — a reader cannot otherwise tell a clean result from an
+  over-filtered one.
+
 ## [2.36.0] — 2026-09-07
 
 ### Added

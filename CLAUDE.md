@@ -101,5 +101,6 @@ the list. Offer; don't run either unasked.
 - the result carries work_location beside a worktree_path verified by the orchestrator, not claimed by the Planner
 - vendor.sh rewrites the ldo:ldo workflow name too, so a vendored run's own advice resolves
 - a brief that supplies an artifact is reconciled against the contracts and its own prose; each contradiction rides downstream as a conflict to confirm
+- the migration check counts identifiers, not filenames — an up/down pair is no longer a collision
 <!-- /ldo:features -->
 <!-- END ldo -->
