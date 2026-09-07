@@ -5,6 +5,67 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.36.0] — 2026-09-07
+
+### Added
+
+- **A supplied artifact is reconciled against the project's contracts and
+  against the brief's own prose, before anything plans from it.** Issue #19
+  reported a `planOnly` run whose brief pasted an operator's DDL — a `chats`
+  table carrying `is_allowed` and `is_media_blind` — while the salvage prose in
+  the same brief said to discard the ACL entirely, and the trust contract the
+  brief itself quoted said there is no allow-list, ever. The Planner carried the
+  columns forward verbatim, into the plan and then into a generated chunk task,
+  where a fresh Planner picked them up with no sight of the prose or the
+  contract that contradicted them. Nothing in the pipeline had failed: nothing
+  in it had ever asked. `agents/planner.md` section 1.5 tells the Planner to
+  *carry* contract wording forward, never to *check* an artifact against it;
+  `PLAN_SCHEMA` had no field a contradiction could travel in; and nothing in
+  `workflows/ldo.js` named a `conflicts` field or handled one — `renderPlan`
+  and `renderConstraints` had nothing to render.
+
+  The Planner now gets a section 1.6 that reconciles in both directions — the
+  artifact against every contract and design document it read, and the artifact
+  against the brief's own prose, which needs no contract at all to detect and is
+  the direction issue #19 actually failed in. Each contradiction comes back as
+  one `conflicts` entry naming both sides, both sources, and the decision the
+  operator has to confirm. The Planner does not stop, does not ask, and does not
+  resolve one by quietly picking a side: dropping the disputed column is exactly
+  as bad as keeping it, because either way the operator never learns a choice
+  existed. A reconciliation that found nothing is reported as a `NONE —` entry,
+  so silence stays distinguishable from a clean result.
+
+  Backed by orchestrator machinery, because this repository now has three field
+  reports of a bare prompt instruction losing on its own — `fullSuiteAt` was a
+  label no prompt carried, the worktree instruction was obeyed by a Planner that
+  never created one, and the contract-carrying instruction had nothing checking
+  it had happened. So: a pure `detectSuppliedArtifact(task)` marker scan injects
+  the reconciliation brief into the Planner prompt *only* when the task actually
+  supplies an artifact — a one-line bug fix matches nothing, renders an empty
+  string, and keeps today's cache prefix byte for byte; `reconciliationStatus`
+  logs "expected but not reported" when the trigger fired and `conflicts` came
+  back empty; `renderConflicts` is wired into both `renderPlan` (Security, first
+  Coder, first Review) and `renderConstraints` (both fix passes), capped as its
+  own list so a plan full of risks cannot push the run's one unresolved decision
+  out past the cap; and a warning beside the split paste says the chunk tasks do
+  not carry conflicts — the exact route this incident travelled.
+
+  The `conflicts` field in `PLAN_SCHEMA` is deliberately bare, with no
+  `description`. Every schema is run through a harness safety classifier with an
+  unpublished ceiling `scripts/check-schema-size.sh` pins at 3400 serialized
+  chars, and a schema past it dies in about 12ms with nothing to debug.
+  `PLAN_SCHEMA` measured 3258 before this change; the bare field costs 55, for
+  3313. The same field carrying a single line of description measures 3407 and
+  breaks every run of the pipeline. All of the prose therefore lives in
+  `agents/planner.md`, where it costs nothing.
+
+  A tenth gate, `scripts/check-artifact-reconciliation.sh`, drives the real
+  extracted functions and is revert-proven against `git show
+  HEAD:workflows/ldo.js`. Its CONTROL_NO_ARTIFACT assertion guards the cost
+  discipline from the other side: three ordinary one-line tasks must match no
+  marker, because a marker list that fires on every bug fix has silently made
+  the brief unconditional.
+
 ## [2.35.0] — 2026-08-30
 
 ### Added

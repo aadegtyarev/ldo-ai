@@ -80,6 +80,12 @@ const PLAN_SCHEMA = {
       required: ['basis'],
     },
     risks: { type: 'array', items: { type: 'string' } },
+    // Deliberately bare. Every other field here earns a `description`; this one
+    // cannot afford 94 chars of it — PLAN_SCHEMA measured 3258 against the 3400
+    // classifier ceiling scripts/check-schema-size.sh holds, and the same field
+    // carrying a one-line description measures 3407. The prose that would live
+    // here is agents/planner.md section 1.6 instead, where it costs nothing.
+    conflicts: { type: 'array', items: { type: 'string' } },
     rollback_plan: { type: 'string' },
     worktree_path: { type: 'string', description: 'Multi-feature mode only: the worktree path you worked in' },
     branch: { type: 'string', description: 'Multi-feature mode only: the branch you worked on' },
@@ -470,10 +476,36 @@ function renderPlan(plan) {
     lines.push('', '### Risks')
     plan.risks.forEach(r => lines.push(`- ${r}`))
   }
+  const conflicts = renderConflicts(plan)
+  if (conflicts) lines.push(conflicts)
   if (plan.rollback_plan) lines.push('', '### Rollback', plan.rollback_plan)
   const migrations = renderMigrations(plan)
   if (migrations) lines.push(migrations)
   return lines.join('\n')
+}
+
+// A conflict is a decision nobody has made yet, so the block says so in its
+// heading and never reads as a resolved instruction. Rendered into renderPlan
+// (Security, first Coder, first Review) AND renderConstraints (both fix passes)
+// because issue #19's contradiction survived exactly as long as nothing
+// downstream was told one existed.
+// Capped and collapsed for the same reason risks are, and the reasoning above
+// renderConstraints applies here word for word: `conflicts` is model-authored
+// text quoted out of a host project's own files, so an entry opening `## ISSUES`
+// would forge a section header in two agents' prompts, and an uncapped block is
+// re-sent on every fix round up to MAX_FIX_LOOPS.
+function renderConflicts(plan) {
+  const conflicts = (Array.isArray(plan?.conflicts) ? plan.conflicts : []).filter(c => String(c ?? '').trim())
+  if (!conflicts.length) return ''
+  const truncated = conflicts.filter(c => String(c ?? '').length > PROMPT_TEXT_MAX).length
+  const dropped = Math.max(0, conflicts.length - RENDER_LIST_MAX)
+  if (truncated || dropped) log(`⚠ Plan conflicts trimmed for the prompts: ${truncated} entry(ies) over ${PROMPT_TEXT_MAX} chars truncated, ${dropped} beyond the first ${RENDER_LIST_MAX} dropped. A conflict entry is meant to fit ${PROMPT_TEXT_MAX} chars — see agents/planner.md section 1.6.`)
+  return [
+    '',
+    '### Conflicts to confirm (unresolved — the operator has not chosen)',
+    ...capList(conflicts.map(c => `- ${collapseLines(c)}`)),
+    'These are decisions nobody has confirmed. Implement the side the plan\'s steps name, never a different one, and never quietly drop the disputed element. If no step says which side it plans from, say so in `deviations` rather than choosing for yourself.',
+  ].join('\n')
 }
 
 // Separate from renderPlan because the fix-pass prompts send the compact plan,
@@ -530,6 +562,11 @@ function renderConstraints(plan) {
     lines.push('', '### Acceptance criteria (from the plan — unchanged by a fix pass)')
     withAcceptance.forEach((s, i) => lines.push(`${i + 1}. ${s.what} — ${s.acceptance}`))
   }
+  // Before the risks block and capped separately, not merged into it: a plan
+  // carrying more than RENDER_LIST_MAX risks would otherwise push the one
+  // unresolved decision in the run out past the cap.
+  const conflicts = renderConflicts(plan)
+  if (conflicts) lines.push(conflicts)
   const risks = plan.risks?.length ? plan.risks : []
   if (risks.length) {
     const truncated = risks.filter(r => String(r ?? '').length > PROMPT_TEXT_MAX).length
@@ -931,8 +968,8 @@ function resumePlanRejection(p) {
   ) {
     return 'codebase_context is missing or malformed'
   }
-  // relevant_files, security_notes, risks, migrations and sizing are every
-  // optional field phasePlan/renderContext/renderMigrations/renderSplitPaste
+  // relevant_files, security_notes, risks, conflicts, migrations and sizing are
+  // every optional field phasePlan/renderContext/renderMigrations/renderConflicts/renderSplitPaste
   // iterate or dereference (.map, .forEach, .join, .label, .task, .slice)
   // with no type guard of their own, because a live Planner call always
   // produces them in schema shape. A recovered object carries no such
@@ -956,6 +993,9 @@ function resumePlanRejection(p) {
   }
   if (p.risks !== undefined && (!Array.isArray(p.risks) || p.risks.some(r => typeof r !== 'string'))) {
     return 'risks is malformed'
+  }
+  if (p.conflicts !== undefined && (!Array.isArray(p.conflicts) || p.conflicts.some(c => typeof c !== 'string'))) {
+    return 'conflicts is malformed'
   }
   if (p.migrations !== undefined) {
     if (!p.migrations || typeof p.migrations !== 'object' || Array.isArray(p.migrations)) return 'migrations is malformed'
@@ -1036,7 +1076,7 @@ function renderResearch(r) {
 // Dependent chunks are listed apart from the paste block rather than sorted
 // into it, because args.tasks runs features in PARALLEL worktrees — a batch
 // whose members depend on each other produces N conflicting worktrees.
-function renderSplitPaste(sizing) {
+function renderSplitPaste(sizing, conflicts = []) {
   if (sizing?.fits_one_run !== false) return []
   const chunks = sizing.suggested_split || []
   // "Several runs" with no runs named is a Planner self-contradiction. Say so
@@ -1055,6 +1095,15 @@ function renderSplitPaste(sizing) {
   if (dependent.length) {
     lines.push('Run these afterwards, in sequence — each depends on a chunk above:')
     dependent.forEach(c => lines.push(`  [${c.label}] after ${c.depends_on.join(', ')}`))
+  }
+  // The exact route issue #19's contradiction travelled: the unreconciled DDL
+  // rode out of the plan into a generated chunk task, and the fresh Planner that
+  // picked that chunk up never saw the plan, the conflict, or the prose that
+  // contradicted it. The chunks above are self-contained by design, which is
+  // precisely why nothing carries a conflict into them.
+  const open = (Array.isArray(conflicts) ? conflicts : []).filter(c => String(c ?? '').trim())
+  if (open.length) {
+    lines.push(`⚠ The ${open.length} unresolved conflict(s) above are NOT carried into these chunk tasks — a fresh Planner never sees this plan. Paste each one into the chunk it belongs to before running it.`)
   }
   return lines
 }
@@ -1451,6 +1500,63 @@ const collapseLines = (x, max = PROMPT_TEXT_MAX) => {
 // to the first newline at depth zero, and a wrapped arrow body ends at the `=>`.
 const RENDER_LIST_MAX = 10
 const capList = (lines, max = RENDER_LIST_MAX) => lines.length > max ? [...lines.slice(0, max), `+${lines.length - max} more`] : lines
+
+// ── supplied-artifact detection ─────────────
+//
+// Issue #19: a brief pasted an operator's DDL, said in its own prose to discard
+// the ACL it carried, and quoted a trust contract forbidding allow-lists. The
+// Planner carried `is_allowed` through into the plan and into a generated chunk
+// task, because nothing anywhere asked it to reconcile the artifact against the
+// two things contradicting it. The reconciliation brief is the fix; this scan
+// decides when to pay for it.
+//
+// The list is deliberately narrow, and each marker names a shape only a brief
+// that SUPPLIES something can have. A task with no artifact — "increase the
+// retry timeout from 30s to 60s" — matches nothing and adds not one byte to the
+// Planner prompt, which is the whole reason detection exists instead of an
+// unconditional block. Widening it is not free: every added pattern moves more
+// ordinary bug fixes onto the paying path, so measure a plain one-liner against
+// it before adding one.
+//
+// Every pattern is linear with no nested and no ambiguous quantifier: this runs
+// over operator-pasted text of unbounded length, and a `[\w.]+\.` style prefix
+// would backtrack quadratically on a long run of punctuation.
+const ARTIFACT_MARKERS = [
+  ['fenced_block', /```/],
+  ['ddl', /\b(?:create|alter|drop)\s+(?:table|index|view|type|schema)\b/i],
+  ['endpoints', /\b(?:GET|POST|PUT|PATCH|DELETE)\s+\//],
+  ['document_reference', /\w\.(?:md|sql|ya?ml|json|toml|proto|graphql|csv|ini)\b/i],
+  ['artifact_keyword', /\b(?:requirements?\s+doc(?:ument)?|design\s+doc(?:ument)?|DDL|schema|OpenAPI|swagger|protobuf|API\s+shape|endpoint\s+list|config\s+block|salvage|legacy\s+client)\b/i],
+]
+
+function detectSuppliedArtifact(task) {
+  const text = String(task ?? '')
+  return ARTIFACT_MARKERS.filter(([, re]) => re.test(text)).map(([name]) => name)
+}
+
+// Three states, not a boolean: "the task supplied nothing to reconcile" and
+// "the task supplied something and the Planner reported no contradiction and no
+// NONE line" are the two the operator most needs to tell apart, and a boolean
+// collapses them into the same silence.
+function reconciliationStatus(task, plan) {
+  if (!detectSuppliedArtifact(task).length) return 'not_triggered'
+  const conflicts = Array.isArray(plan?.conflicts) ? plan.conflicts : []
+  return conflicts.some(c => String(c ?? '').trim()) ? 'reported' : 'expected_not_reported'
+}
+
+function renderReconciliationBrief(markers) {
+  if (!markers?.length) return ''
+  return [
+    '## SUPPLIED ARTIFACT — RECONCILE BEFORE PLANNING',
+    `This brief supplies a concrete artifact — detected: ${markers.join(', ')}. Before you plan from it, reconcile it, as agents/planner.md section 1.6 describes.`,
+    'Both directions are required. Check the artifact against every relevant project contract or design document you read, and check the artifact against the brief\'s own prose — one part of a brief routinely contradicts an artifact pasted into another part, and that needs no contract at all to see.',
+    'Report every contradiction you find as one `conflicts` entry naming both sides and where each came from, plus the decision the operator has to confirm.',
+    'Do not stop, do not ask, and do not resolve a contradiction by quietly picking a side — dropping the disputed element is exactly as bad as keeping it, because the operator has to see that a choice existed. Plan on, and say in the affected step which side you planned from.',
+    'If you reconciled and found nothing, say so as a single entry beginning `NONE —`. An empty `conflicts` on a brief that supplied an artifact is read as not reconciled at all.',
+    '',
+    '',
+  ].join('\n')
+}
 
 // A Reviewer writes `workflows/ldo.js`, `./workflows/ldo.js`,
 // `workflows/ldo.js:120` or the linter/compiler form `workflows/ldo.js:120:5`;
@@ -2149,6 +2255,12 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
       : 'The operator has asked for this to be planned as ONE run — only flag a split if the task is genuinely incoherent as a single run.') +
     ' Fill `sizing` either way; it is advisory and blocks nothing.\n\n'
 
+  // Placed after the sizing brief and before the TASK block on purpose: a task
+  // that supplies nothing renders '' here, so an untriggered run keeps today's
+  // cache prefix byte for byte and pays nothing for a mechanism it never needs.
+  const artifactMarkers = detectSuppliedArtifact(task)
+  const reconciliationBrief = renderReconciliationBrief(artifactMarkers)
+
   // resumePlan is checked ABOVE every guard below (the `if (!plan)` failure
   // guard, the multi-mode worktree guard, safeMigrationsDir) so a recovered
   // plan passes through every gate a Planner-produced plan does. It is
@@ -2177,7 +2289,7 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
 
   if (!plan) {
     plan = await agentWithRetry(
-      worktreeTrigger + renderResearch(researchReport) + sizingBrief + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
+      worktreeTrigger + renderResearch(researchReport) + sizingBrief + reconciliationBrief + `Read the codebase and plan this task.\n\n## TASK\n${task}`,
       { label: ctx.isMulti ? `${ctx.label}:planner` : 'planner', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA, stallMs: STALL_MS.planner }
     )
   }
@@ -2294,6 +2406,17 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
   if (plan.problem_evidence?.basis === 'asserted') {
     log(`${logPrefix}  ⚠ Premise unverified: nothing observed confirms this problem is real — the plan takes the task's word for it.`)
     if (plan.problem_evidence.confirms) log(`${logPrefix}    Would be confirmed by: ${plan.problem_evidence.confirms}`)
+  }
+  // The orchestrator derives this instead of trusting the brief it just sent.
+  // Three field reports in this repo end the same way — fullSuiteAt was a label
+  // no prompt carried, agents/planner.md said to carry contract wording forward
+  // and nothing checked that it had, the worktree instruction was obeyed by a
+  // Planner that never created one — so a prompt-level instruction with no
+  // orchestrator-side reinforcement is a known losing shape here, not a
+  // hypothetical one.
+  capList((Array.isArray(plan.conflicts) ? plan.conflicts : []).filter(c => String(c ?? '').trim()).map(c => `⚠ Conflict to confirm: ${collapseLines(c)}`)).forEach(l => log(`${logPrefix}  ${l}`))
+  if (reconciliationStatus(task, plan) === 'expected_not_reported') {
+    log(`${logPrefix}  ⚠ Reconciliation expected but not reported: this task supplies an artifact (${artifactMarkers.join(', ')}) and the plan carries no conflicts entry — the artifact was either not reconciled against the project's contracts and the brief's own prose, or it was and the Planner did not say so.`)
   }
   log(`${logPrefix}Plan: ${plan.steps.length} step(s), ${plan.codebase_context?.relevant_files?.length || 0} files mapped`)
   plan.steps.forEach(s => log(`${logPrefix}  • ${s.what}`))
@@ -2848,6 +2971,10 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
     branch: plan.branch || null,
     verdict: finalVerdict,
     verification: finalVerdict.verification?.verdict || 'not_run',
+    // Top-level beside unproven, not buried in `plan`: both name something the
+    // run did NOT settle, and a caller reading the outcome has to see an
+    // unconfirmed decision without digging for it.
+    conflicts: plan.conflicts || [],
     unproven: finalVerdict.unproven || [],
     attacks: Array.isArray(finalVerdict.attacks) ? finalVerdict.attacks : [],
     stats: {
@@ -2868,6 +2995,11 @@ function shapeResult(approved, plan, researchReport, securityReport, finalVerdic
       // null, not true, when the Planner returned no sizing block — "unrated"
       // has to stay distinguishable from "rated as fitting".
       fits_one_run: plan.sizing?.fits_one_run ?? null,
+      // 'not_triggered' | 'reported' | 'expected_not_reported' — see
+      // reconciliationStatus. Derived from the task text, not from the plan
+      // alone, so an artifact-bearing brief that came back with nothing is
+      // visible in the result and not only in the log.
+      reconciliation: reconciliationStatus(task, plan),
     },
     plan,
     researchReport,
@@ -2901,7 +3033,13 @@ function shapePlanOnly(plan, researchReport, securityReport, surface, models, ta
       researched: !!researchReport,
       files_mapped: plan.codebase_context?.relevant_files?.length || 0,
       fits_one_run: plan.sizing?.fits_one_run ?? null,
+      // Same field, same derivation as shapeResult's — a plan-only run is where
+      // issue #19 was reported, so this is the one it most needs to carry.
+      reconciliation: reconciliationStatus(task, plan),
     },
+    // Top-level: a plan-only run's whole output is the plan and what it left
+    // undecided, and `suggested_tasks` below deliberately does not carry these.
+    conflicts: plan.conflicts || [],
     suggested_tasks: plan.sizing?.fits_one_run === false
       ? (plan.sizing.suggested_split || []).filter(c => !c.depends_on?.length).map(c => ({ label: c.label, task: c.task }))
       : [],
@@ -2953,7 +3091,7 @@ async function runOneFeature(task, ctx) {
 
     if (PLAN_ONLY) {
       log(`${logPrefix}⏹ Plan-only run — stopped after Plan${securityReport ? ' + Security' : ''} on purpose. No code was written, no review ran, nothing was recorded.`)
-      renderSplitPaste(plan.sizing).forEach(line => log(`${logPrefix}${line}`))
+      renderSplitPaste(plan.sizing, plan.conflicts).forEach(line => log(`${logPrefix}${line}`))
       if (plan.sizing?.fits_one_run !== false) log(`${logPrefix}The Planner rated this as one run — re-issue the same task without planOnly to implement it.`)
       return shapePlanOnly(plan, researchReport, securityReport, surface, models, task, ctx, isolation)
     }
