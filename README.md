@@ -75,7 +75,7 @@ Pick **user** scope when Claude Code asks, unless you're setting this up for a t
 
 ## Getting started
 
-**Skip configuration for now.** The defaults already scale to the task: Haiku handles typos, Sonnet writes real changes, Opus reviews them. See [Configuration](#configuration) when you want to change it.
+**Skip configuration for now.** The defaults are the same at every tier: Opus plans and writes, Sonnet reviews. See [Configuration](#configuration) when you want to change it.
 
 **Make it self-driving.** Run `/ldo-init` once in a project. It writes a short block into `CLAUDE.md` telling Claude to handle trivial edits inline and route real changes through the pipeline, so you stop typing `/ldo:ldo` for every task. The block is plain prose — edit it to taste.
 
@@ -303,7 +303,7 @@ Two places to put settings:
 **Per run — ask for it in the prompt.** Plain English works, because Claude translates it into the call:
 
 ```
-run ldo on "refactor the auth module", with haiku coding and opus reviewing
+run ldo on "refactor the auth module", with opus reviewing instead of sonnet
 ```
 
 ### What you can set
@@ -311,9 +311,9 @@ run ldo on "refactor the auth module", with haiku coding and opus reviewing
 ```json
 {
   "models": {
-    "trivial": { "planner": "opus", "coder": "haiku",  "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "sonnet", "recorder": "sonnet" },
-    "medium":  { "planner": "opus", "coder": "sonnet", "reviewer": "opus",  "reviewerFix": "opus",  "security": "opus", "researcher": "opus",   "recorder": "sonnet" },
-    "complex": { "planner": "opus", "coder": "opus",   "reviewer": "fable", "reviewerFix": "fable", "security": "opus", "researcher": "opus",   "recorder": "sonnet" }
+    "trivial": { "planner": "opus", "coder": "opus", "reviewer": "sonnet", "reviewerFix": "sonnet", "security": "opus", "researcher": "sonnet", "recorder": "sonnet" },
+    "medium":  { "planner": "opus", "coder": "opus", "reviewer": "sonnet", "reviewerFix": "sonnet", "security": "opus", "researcher": "opus",   "recorder": "sonnet" },
+    "complex": { "planner": "opus", "coder": "opus", "reviewer": "sonnet", "reviewerFix": "sonnet", "security": "opus", "researcher": "opus",   "recorder": "sonnet" }
   },
   "maxFixLoops": 3,
   "blockingSeverities": ["critical", "major"],
@@ -334,7 +334,7 @@ run ldo on "refactor the auth module", with haiku coding and opus reviewing
 }
 ```
 
-Those are the defaults, in full — matching `ldo-config.example.json`, the copy-paste source if you want a starting point rather than retyping this. `securityByDefault` is deliberately unset — leave it out and the Planner decides per task; set `true` or `false` to override it everywhere.
+Those are the defaults, in full, with one exception — `design.map` is shown here with an example pair because its default is to be absent. Omit that key unless you actually have such a document. Otherwise this matches `ldo-config.example.json`, the copy-paste source if you want a starting point rather than retyping this. `securityByDefault` is deliberately unset — leave it out and the Planner decides per task; set `true` or `false` to override it everywhere.
 
 `stallMs` is keyed by role, not by tier, because how much an agent generates before its first tool call tracks the *schema* that role fills, not how complex the task is — a trivial task's Reviewer still fills out full verification and attack sections. It sets an undocumented Claude Code option; older or future harnesses that don't recognise the key simply ignore it and fall back to their own 180-second default, same as today. Values are milliseconds with a floor of 1000 — `480` meaning "eight minutes" is rejected with a warning rather than silently aborting that role six times in a row — and a role name LDO doesn't recognise is warned about instead of quietly dropped.
 
@@ -356,13 +356,17 @@ Beside it sits `env_status` (`ok` | `unknown` | `unreproducible`), which qualifi
 
 `cost` is a block, not a scalar, and it sits top-level for the same reason `env_status` does: it qualifies the result rather than counting something about it. `cost.status` is `measured` | `partial` | `unavailable`, `cost.total_output_tokens_delta` is the run's figure, and `cost.entries` is one ordered entry per agent call — ordered, because a retry legitimately produces two entries under the same label and both cost real tokens. Read the unit literally: this is **output tokens only**. The harness exposes no input tokens, no cache reads and no cache writes anywhere, so this figure cannot tell you whether prompt caching is helping — if that is the question, this is not the answer. The token pool is also shared across the whole turn, so a per-phase number is a *delta measured around* that phase, not an attribution of it; under parallel features the per-feature deltas overlap outright, `cost.concurrent` says so, and `unattributed_output_tokens_delta` is allowed to go negative rather than being clamped, because that negative is the evidence of the overlap. When the reading cannot be taken — no `budget` global, a counter that throws or moves backwards — the block reports `unavailable` or `partial` with a reason and a `null` total. It never reports `0`: a run that could not be measured is not a run that was free, and the run log says so in those words.
 
-`coder` and `reviewer` move between tiers — deliberate, not an oversight. `planner` is Opus everywhere because complexity is *its own output*: nothing can gate the Planner's model on a rating it hasn't produced yet, and its value — surfacing what the task didn't ask about, not just executing what it did — doesn't get cheaper just because the resulting plan turns out short. `reviewer` is Opus on `trivial`/`medium` and Fable on `complex` (falling back to Sonnet when Fable isn't on your route), because its entire premise is not sharing the Coder's blind spot and a cheap model doesn't reliably know when to stop and ask instead of writing confident, made-up prose about work it didn't verify — exactly the failure mode a cheap Reviewer is worst-positioned to catch. Complex work has the most surface to miss, so it gets the strongest reviewer; Sonnet is the floor, because a weaker review still catches things and no review doesn't. `coder` is where the tier does real work — haiku/sonnet/opus — because executing a plan's *width* (not the underlying code's difficulty) is what actually scales with `trivial`/`medium`/`complex`.
+**The table is flat: the same seven models at every tier.** It did not used to be. The old shape put a cheap model on the Coder and the strongest one on the Reviewer, on the theory that catching what the Coder missed is the whole premise of the protocol. Weeks of daily runs said otherwise, and the cost model explains why. A run's cost tracks **turns**, not agents — measured at 2.4-3.2k output tokens per tool call, stable across five runs of very different shape — and the number of turns is set by the number of review rounds. A weak Coder buys rounds, and every extra round is a full Coder *and* Reviewer pass. Paying Opus once is cheaper than paying Sonnet three times and reviewing three times, and the code it produces is what every later pass reasons about. So the strong model goes where the work is; checking a diff against a named list is the more mechanical half.
+
+`planner` is Opus for a separate reason: complexity is *its own output*, so nothing can gate the Planner's model on a rating it hasn't produced yet. `security` stays Opus because an authorization hole missed at plan time is not the kind of thing a later round recovers — unlike a style issue, nothing downstream is looking for it.
+
+The honest caveat on the Reviewer: this is a real trade, not a free one. A weaker Reviewer catches less, and `config.models` is how you take the trade back — `{"models": {"complex": {"reviewer": "opus"}}}` restores the old shape for the tier where it matters most.
 
 Security is Opus at every tier. When the Planner has decided a change can be attacked, that's not where to save money.
 
-`reviewerFix` routes review rounds 2 and later — the fix passes. It ships set to the same model as `reviewer` in every tier, so out of the box nothing about today's behaviour changes. The case for lowering it is genuine: round 1 is an open-ended search for defects nobody has named, while a fix pass is bounded verification of a list the previous round already wrote down, and that is the easier job. The case against it is also genuine, and measured: in one run, round 4 found a real new `major` that rounds 1-3 had missed. So the saving is a trade rather than free, and LDO doesn't take it on your behalf — setting `reviewerFix` is how *you* buy cheaper fix rounds knowing what they can cost. It falls back the same way `reviewer` does (Fable to Sonnet), and the post-plan log line names both models so you can see an override took effect.
+`reviewerFix` routes review rounds 2 and later — the fix passes. It ships set to the same model as `reviewer` in every tier, so out of the box nothing about today's behaviour changes. The case for lowering it is genuine: round 1 is an open-ended search for defects nobody has named, while a fix pass is bounded verification of a list the previous round already wrote down, and that is the easier job. The case against it is also genuine, and measured: in one run, round 4 found a real new `major` that rounds 1-3 had missed. So the saving is a trade rather than free, and LDO doesn't take it on your behalf — setting `reviewerFix` is how *you* buy cheaper fix rounds knowing what they can cost. The post-plan log line names both models so you can see an override took effect.
 
-An override is merged per **role**, not per tier: `{"models": {"medium": {"coder": "haiku"}}}` changes the medium Coder and leaves the other six medium roles at their defaults. A tier name, role name or model value LDO doesn't recognise is warned about in the run log and ignored — an unusable model name is never forwarded to the harness, where it would fail with your typo nowhere in sight.
+An override is merged per **role**, not per tier: `{"models": {"medium": {"reviewer": "opus"}}}` changes the medium Reviewer and leaves the other six medium roles at their defaults. A tier name, role name or model value LDO doesn't recognise is warned about in the run log and ignored — an unusable model name is never forwarded to the harness, where it would fail with your typo nowhere in sight.
 
 Model names mean whatever your setup routes them to; the pipeline assumes nothing about which is stronger. Agent files declare no model of their own, so this is the only thing that decides routing.
 
@@ -412,7 +416,7 @@ When a teammate opens the repo, Claude Code prompts them to install everything l
 
 The plugin install assumes a separate install step somewhere before the pipeline runs — fine on a machine you control, wrong for a repo worked on purely through a cloud session that clones it and has no such step of its own. It's also only as reliable as the marketplace cache behind it: that cache can lag the real source for reasons outside LDO's control, silently, with no error — just an old version quietly running. Claude Code has a project-native path that sidesteps both problems: files placed directly under a repo's `.claude/agents/`, `.claude/skills/`, `.claude/workflows/` are picked up automatically the moment the repo is opened, locally or in the cloud — no install, no marketplace, no cache to go stale.
 
-`scripts/vendor.sh <target-project-dir>` copies LDO into that shape — a real script, not instructions for a model to re-derive by hand each time. It isn't a plain file copy: the workflow script calls every pipeline agent through a plugin-scoped reference (`ldo:planner`, `ldo:coder`, …) that only resolves inside an actual plugin install, so the script strips that prefix from the six agent references — and **verifies** the result before writing it, refusing to proceed if anything's left half-transformed — plus rewrites every `/ldo:ldo` mention in the skills' own prose to bare `/ldo` (project-level workflows use their name directly, no plugin prefix). Run it from anywhere inside an LDO checkout; it finds the source root and the target on its own, and warns on agent-name collisions rather than silently overwriting.
+`scripts/vendor.sh <target-project-dir>` copies LDO into that shape — a real script, not instructions for a model to re-derive by hand each time. It isn't a plain file copy: the workflow script calls every pipeline agent through a plugin-scoped reference (`ldo:planner`, `ldo:coder`, …) that only resolves inside an actual plugin install, so the script strips that prefix from the seven agent references — and **verifies** the result, refusing to proceed if anything is left half-transformed — plus rewrites every `/ldo:ldo` mention in the skills' own prose to bare `/ldo` (project-level workflows use their name directly, no plugin prefix). Run it from anywhere inside an LDO checkout; it finds the source root and the target on its own, and warns on agent-name collisions rather than silently overwriting.
 
 ```
 scripts/vendor.sh /path/to/target-project
@@ -470,7 +474,7 @@ agents/                      # Prompts live here
 ├── security.md
 ├── researcher.md
 └── recorder.md
-skills/                      # One slash-command per role, plus bootstrap, config, init,
+skills/                      # One slash-command per pipeline role invocable on its own (planner, coder, reviewer, security, researcher — Isolator and Recorder run only inside the pipeline), plus bootstrap, config, init, contract, note, feedback, docs-audit, code-audit, resume, vendor, ship, tui, agent-ux
 │                             # contract, note, docs-audit, code-audit, resume, vendor, ship, tui, agent-ux
 └── <name>/SKILL.md
 scripts/vendor.sh            # The actual vendoring mechanism — see /ldo-vendor

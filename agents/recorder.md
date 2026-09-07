@@ -71,6 +71,13 @@ Write your report into the file you claimed. If all nine are taken, add a numeri
 ## Security findings (if any)
 
 - [high] input_validation: trusting X-Forwarded-For → now reads the real peer address behind the proxy
+
+## Cost
+
+<the `## COST` block from your prompt, verbatim: its note sentence, the total, and one
+line per agent call. Copy the figures exactly — write "not measured" wherever the block
+says so, never a zero, never an estimate, and never a price. A run whose cost could not
+be read must not come back looking like a free one.>
 ```
 
 The evidence columns are the point. A reader six months later should be able to see exactly what was proven and how, not just that someone said "it works."

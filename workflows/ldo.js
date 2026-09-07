@@ -1193,32 +1193,44 @@ function renderSplitPaste(sizing, conflicts = []) {
 // only its call under the 'medium' row is ever actually read (see
 // prePlanModels below), which is also why trivial/complex.planner exist here
 // only for shape consistency, not because they take effect independently.
-// reviewer is 'opus' in trivial/medium and 'fable' in complex, with 'sonnet' as
-// the fallback when fable isn't on the proxy route (see REVIEWER_FALLBACK).
-// Catching what the Coder missed is the entire premise of the protocol — a
-// cheap Reviewer that trusts the Coder is an expensive no-op, not a real review.
-// Complex work has the most surface to miss, so it gets the strongest reviewer;
-// sonnet is the floor: a weaker review still catches things, and no review is
-// what a run can't recover from.
-// reviewerFix routes rounds 2+ and defaults to the SAME model as reviewer in
-// every tier, so out of the box nothing changes. The temptation is to cheapen
-// it — round 1 is an open-ended search for unknown defects, a fix pass is
-// bounded verification of a named list — but round 4 of a measured run found a
-// genuine new major that the earlier rounds missed. It's a lever the operator
-// pulls knowing that, not a saving taken on their behalf.
-// recorder is deliberately NOT haiku, and that is a workaround rather than a
-// judgment about the role: every haiku sub-agent this project has run died on
-// `400 clear_thinking_20251015 strategy requires thinking to be enabled` — 6 of
-// 6, against 0 of 47 on every other model, always on the second request, the
-// first one carrying a prior thinking block back in its history. Nothing about
-// the Recorder's prompt causes it (its input is ~25k of a 200k window), so
-// trimming or splitting the input would not have helped. See issue #4. If that
-// mismatch is fixed upstream, this can go back to haiku — the work really is
-// formatting, not judgment.
+// coder is 'opus' in every tier, and that inverts what this table used to say.
+// The old shape put the cheap model on the Coder and the strong one on the
+// Reviewer, on the theory that catching what the Coder missed is the premise of
+// the protocol. Field experience across weeks of daily runs says otherwise, and
+// the measured cost model explains why: a run's cost tracks TURNS, not agents —
+// 2.4-3.2k output tokens per tool call, stable across five runs of different
+// shape — and the number of turns is set by the number of review rounds. A weak
+// Coder buys rounds, and every round is a full Coder AND Reviewer pass. Paying
+// opus once is cheaper than paying sonnet three times plus three reviews, and
+// the code that comes out is the thing every later pass is reasoning about. Put
+// the strong model where the work is; verification against a named list is the
+// more mechanical half.
+// reviewer and reviewerFix are 'sonnet' in every tier for the same reason, and
+// reviewerFix stays equal to reviewer so lowering one does not silently
+// desynchronise the pair. The honest caveat: a weaker Reviewer is a real trade,
+// not a free one. Round 1 is an open-ended search for unknown defects, and a
+// measured run once found a genuine new major on round 4. This table takes that
+// trade deliberately; `config.models` is how an operator takes it back.
+// planner is 'opus' in every tier deliberately — see the note above about it
+// structurally not being able to gate its own model.
+// No 'fable' anywhere, and no 'haiku' anywhere. Both were removed as defaults
+// rather than as judgments about the models. `fable` is not on every proxy
+// route, and REVIEWER_FALLBACK quietly rewrote it to 'sonnet' for anyone
+// without one — so the declared default and the effective one had already
+// drifted apart, and only the Reviewer has a fallback at all: a Coder routed to
+// an unavailable model fails the run rather than degrading. `haiku` was the
+// trivial Coder while every haiku sub-agent this project ran died on `400
+// clear_thinking_20251015 strategy requires thinking to be enabled` — 6 of 6,
+// against 0 of 47 on every other model, always on the second request, the first
+// carrying a prior thinking block back in its history. Nothing about the prompt
+// causes it (~25k of a 200k window), so trimming the input would not have
+// helped. See issue #4. Either model is one `config.models` line away for an
+// operator who has the route and wants it; neither is something to hand every
+// project by default.
 const DEFAULT_MODELS = {
-  trivial: { planner: 'opus', coder: 'haiku',  reviewer: 'opus',  reviewerFix: 'opus',  security: 'opus', researcher: 'sonnet', recorder: 'sonnet' },
-  medium:  { planner: 'opus', coder: 'sonnet', reviewer: 'opus',  reviewerFix: 'opus',  security: 'opus', researcher: 'opus',   recorder: 'sonnet' },
-  complex: { planner: 'opus', coder: 'opus',   reviewer: 'fable', reviewerFix: 'fable', security: 'opus', researcher: 'opus',   recorder: 'sonnet' },
+  trivial: { planner: 'opus', coder: 'opus', reviewer: 'sonnet', reviewerFix: 'sonnet', security: 'opus', researcher: 'sonnet', recorder: 'sonnet' },
+  medium:  { planner: 'opus', coder: 'opus', reviewer: 'sonnet', reviewerFix: 'sonnet', security: 'opus', researcher: 'opus',   recorder: 'sonnet' },
+  complex: { planner: 'opus', coder: 'opus', reviewer: 'sonnet', reviewerFix: 'sonnet', security: 'opus', researcher: 'opus',   recorder: 'sonnet' },
 }
 
 // Merges per ROLE, not per tier: an operator overriding one role must not
@@ -2237,7 +2249,7 @@ function renderCost(cost) {
 // Nothing here reads or branches on the stamp — the stamp is a hint to re-run
 // /ldo-init, never a check, because an agent-written marker in a repo file
 // proves nothing about what surrounds it.
-const LDO_VERSION = '2.38.0'
+const LDO_VERSION = '2.39.0'
 
 // ═══════════════════════════════════════════
 // CONFIG
@@ -2654,10 +2666,11 @@ MODEL_WARNINGS.forEach(w => log(`⚠ ${w}`))
 // exists yet when that call needs its budget. A tier-keyed map (trivial/
 // medium/complex) would also collide with the row regex scripts/check-model-
 // table.sh matches across four files; a role-keyed one doesn't.
-// recorder is left at 180000, the harness default, on purpose — it runs on
-// haiku and writes through tools, so tool_use events keep resetting its clock
-// naturally. Blanket-raising every role regardless of whether it needs it is
-// the thing not to do here.
+// recorder is left at 180000, the harness default, on purpose — it writes
+// through tools, so tool_use events keep resetting its clock naturally. (It runs
+// on sonnet, not haiku; the model is not what makes 180000 enough here.)
+// Blanket-raising every role regardless of whether it needs it is the thing
+// not to do here.
 // The cost of getting this wrong the other way: the harness retries a
 // genuinely stalled agent 5 times (6 attempts total), so planner/reviewer at
 // 480000 means a real hang now costs up to 48 minutes instead of 18. That's
@@ -2772,8 +2785,9 @@ async function phaseIsolate(task, ctx, logStage, logPrefix) {
     // and this role has nothing an operator would want to tune. Not haiku —
     // every haiku sub-agent in this pipeline died on a thinking/context_management
     // 400, which is how the Record phase silently wrote nothing for four releases.
-    // No stallMs for the same reason the Recorder has none: it works through tool
-    // calls, so the watchdog's clock keeps resetting on its own.
+    // No stallMs: the Isolator is nothing but tool calls, so the watchdog's clock
+    // keeps resetting on its own. (The Recorder DOES take one — STALL_MS.recorder,
+    // left at the harness default — because an operator may need to raise it.)
     { label: `${ctx.label}:isolator`, phase: 'Isolate', model: 'sonnet', agentType: 'ldo:isolator', schema: ISOLATION_SCHEMA, ledger: ctx.ledger }
   )
 
@@ -3384,7 +3398,7 @@ async function phaseCodeReview(plan, models, ctx, WORKTREE_BLOCK, CTX, SECURITY_
 
 // ── phaseRecord ────────────────────────────
 
-// The Recorder runs on the weakest model in the pipeline (Haiku), and a prompt
+// The Recorder runs on the cheapest model in the pipeline, and a prompt
 // instruction with no reinforcement loses on it — the field-report symptom was a
 // review report landing in the main checkout mid-run and getting swept into a
 // neighbouring feature's commit, with nothing catching it until merge. This
@@ -3401,7 +3415,7 @@ function verifyRecordLocation(recordResult, plan, ctx) {
   })
 }
 
-// A formatting agent (Haiku) writes these files rather than the workflow
+// A formatting agent writes these files rather than the workflow
 // script itself, because the script has no filesystem access — only agents
 // it spawns can read/write, so persisting anything to disk has to go through
 // an agent call even when the "work" is just rendering already-known data.

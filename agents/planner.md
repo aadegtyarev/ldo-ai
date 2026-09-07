@@ -183,6 +183,7 @@ If the prompt has no `## ISOLATION` block, ignore this section entirely — you'
   ],
   "sizing": {"fits_one_run": true, "reason": "One layer, 5 steps, no migration", "suggested_split": [{"label": "schema", "task": "self-contained task text", "depends_on": []}, {"label": "api", "task": "self-contained task text", "depends_on": ["schema"]}]},
   "migrations": {"count": 2, "directory": "db/migrate", "identifiers": ["0075", "0076"], "note": "range handed out in the task"},
+  "problem_evidence": {"basis": "measured | reported | inspected | asserted", "evidence": "The observation itself — the failing test, the timing, the log line. Empty when basis is asserted", "confirms": "The observable measurement that would show the change worked"},
   "risks": ["Side effect or edge case the Coder should watch for"],
   "conflicts": ["ARTIFACT: <what it says> (<source>) vs <what the other side says> (<source>) — DECISION: <what the operator must confirm>"],
   "rollback_plan": "How to revert if this goes wrong (complex tasks)",
