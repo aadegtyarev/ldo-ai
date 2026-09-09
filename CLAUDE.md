@@ -1,5 +1,5 @@
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.41.0 -->
+<!-- ldo:version 2.41.1 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -144,5 +144,6 @@ the list. Offer; don't run either unasked.
 - CONTRACT OVER LIMIT measures entries, not lines — a wrapped contract no longer hides
 - the routing sentence in the /ldo-init block is held to DEFAULT_MODELS, not just the tables
 - scripts/ldo-cost.sh reports what a run actually cost, cache included — the run result cannot
+- subagentPromptCacheTtl 1h is documented: the fix loop's cold starts are a 5-minute TTL expiring
 <!-- /ldo:features -->
 <!-- END ldo -->

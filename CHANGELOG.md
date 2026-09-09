@@ -5,6 +5,28 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.41.1] — 2026-09-09
+
+### Changed
+
+- **Documented `subagentPromptCacheTtl`, and corrected an answer that was wrong
+  in the expensive direction** (issue #31). Asked whether roles could share a
+  cached prefix, this project answered that the runtime has no such mechanism.
+  It does, and it is documented: two agents with the same model, effort, agent
+  type, tools, output schema and working directory build the same prefix, and a
+  later one reads the earlier one's cache. Different roles never match — so the
+  cross-role half of the answer held — but the *fix loop* does: a Coder fix pass
+  has the same agent type, model, tools and schema as the pass before it.
+
+  Why it still cold-starts, measured by the reporter and explained by the docs:
+  a workflow agent's cache holds five minutes by default, and fix rounds are 40
+  to 78 minutes apart. The cold starts are that mechanism timing out, not its
+  absence. `subagentPromptCacheTtl: "1h"` is the lever, now documented in README
+  and `/ldo-config` — with the caveats stated rather than buried: it is a Claude
+  Code setting LDO cannot set, the docs say 1-hour cache writes bill higher, and
+  an hour still does not span a run whose last round starts 2h35m in. No saving
+  is claimed; `scripts/ldo-cost.sh` from 2.41.0 is how to find out.
+
 ## [2.41.0] — 2026-09-09
 
 ### Added
