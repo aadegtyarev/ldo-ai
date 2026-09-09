@@ -5,6 +5,41 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.40.3] — 2026-09-09
+
+### Fixed
+
+- **The routing sentence an operator reads every session was a release behind
+  the table it describes.** 2.40.0 inverted the model defaults and updated the
+  four machine copies — `DEFAULT_MODELS`, `README.md`, `ldo-config.example.json`
+  and `/ldo-config`'s table — and missed the prose: the block `/ldo-init` writes
+  still said "Haiku codes trivial work, Sonnet writes + Opus reviews for medium,
+  Opus writes + Fable reviews for complex". Every project that ran `/ldo-init`
+  therefore got a description contradicting what it installed, naming two models
+  the defaults no longer contain, and it loaded into every session of this
+  repository too.
+
+  Both gates stayed green throughout, because both check machine-readable copies
+  — a JSON block and a table — and nothing held the sentence. So
+  `check-config-defaults.sh` now reads the distinct model names out of
+  `DEFAULT_MODELS` and requires the routing paragraph to name exactly those and
+  no others, in `skills/ldo-init/SKILL.md` and in this repository's own
+  `CLAUDE.md`. Revert-proven: restoring the old sentence fails with
+  `haiku(prose=1,table=0)`.
+
+  The general lesson is the one this project keeps relearning from a new angle:
+  a duplicate that a gate cannot parse is the copy that drifts, and prose is
+  where the duplicate hides from a checker built for structure.
+
+### Changed
+
+- One `.claude/ldo-runs.json` entry — an August run killed mid-Planner by a host
+  power failure — is marked `abandoned` rather than left `interrupted`. Nothing
+  about it is recoverable and its findings shipped long ago; it was surfacing in
+  every session's startup check with no action available. This is exactly the
+  case 2.40.0's widened recovery filter was built to make visible, and having
+  seen it, the right answer is to resolve it.
+
 ## [2.40.2] — 2026-09-08
 
 ### Fixed

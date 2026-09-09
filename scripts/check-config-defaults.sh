@@ -72,6 +72,36 @@ else
   done
 fi
 
+# The routing PROSE, not the table. check-model-table.sh holds the four machine
+# copies to the source; the sentence an operator actually reads every session —
+# "Models route automatically: ..." in the block /ldo-init writes — was not held
+# to anything, and drifted a whole release behind the table it describes while
+# every other check stayed green. A project running /ldo-init then gets a
+# description that contradicts what it installs.
+ROUTING_FILES="skills/ldo-init/SKILL.md CLAUDE.md"
+ALL_MODELS="opus sonnet haiku fable"
+IN_TABLE="$(printf '%s' "$STALL_LINE" >/dev/null; grep -A4 '^const DEFAULT_MODELS' "$SRC" | grep -oE "'(opus|sonnet|haiku|fable)'" | tr -d "'" | sort -u)"
+
+for f in $ROUTING_FILES; do
+  [ -f "$ROOT/$f" ] || continue
+  para="$(grep -A3 'Models route automatically' "$ROOT/$f" || true)"
+  if [ -z "$para" ]; then
+    fail "$f names the routing in prose" 'the "Models route automatically" sentence is gone — this gate is stale, or the block is'
+    continue
+  fi
+  bad=""
+  for m in $ALL_MODELS; do
+    named=0; printf '%s' "$para" | grep -qiF "$m" && named=1
+    listed=0; printf '%s\n' "$IN_TABLE" | grep -qxF "$m" && listed=1
+    [ "$named" != "$listed" ] && bad="$bad $m(prose=$named,table=$listed)"
+  done
+  if [ -z "$bad" ]; then
+    pass "$f's routing sentence names exactly the models the table routes" "$(printf '%s' "$IN_TABLE" | tr '\n' ' ')"
+  else
+    fail "$f's routing sentence disagrees with DEFAULT_MODELS" "mismatched:$bad"
+  fi
+done
+
 echo
 if [ "$FAILED" = "0" ]; then
   echo "✓ Every documented default still matches workflows/ldo.js."

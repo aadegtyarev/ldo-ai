@@ -31,7 +31,7 @@ Drop an LDO instruction block into the project's `CLAUDE.md` so Claude self-rout
 
 ```markdown
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.40.2 -->
+<!-- ldo:version 2.40.3 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -69,12 +69,13 @@ or structural rules, read the relevant file before planning — see `/ldo-contra
 Decision history lives in `docs/DECISIONS.md` — check it before re-litigating a
 past call, don't read it automatically. See `/ldo-note`.
 
-Models route automatically: Haiku codes trivial work, Sonnet writes + Opus
-reviews for medium, Opus writes + Fable reviews for complex (Sonnet fallback).
-To change that, pass the routing on the call —
-`Workflow({ name: "ldo:ldo", args: { task: "...", config: { models: { medium: {
-coder: "haiku", reviewer: "opus" } } } } })`. Keep any project-specific routing
-in this block so it's applied on every run.
+Models route automatically, the same at every tier: Opus plans, writes and
+threat-models; Sonnet reviews. A weak Coder buys review rounds, and a round
+costs a full Coder and Reviewer pass — so the strong model goes where the work
+is. To change that, pass the routing on the call —
+`Workflow({ name: "ldo:ldo", args: { task: "...", config: { models: { complex: {
+reviewer: "opus" } } } } })`. Keep any project-specific routing in this block so
+it's applied on every run.
 
 A single-task run edits the working tree directly by default — no commit, no
 branch. Pass `isolate: true` on the call to run it in a separate worktree instead
