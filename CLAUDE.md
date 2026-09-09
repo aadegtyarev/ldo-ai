@@ -1,5 +1,5 @@
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.41.1 -->
+<!-- ldo:version 2.42.0 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -145,5 +145,6 @@ the list. Offer; don't run either unasked.
 - the routing sentence in the /ldo-init block is held to DEFAULT_MODELS, not just the tables
 - scripts/ldo-cost.sh reports what a run actually cost, cache included — the run result cannot
 - subagentPromptCacheTtl 1h is documented: the fix loop's cold starts are a 5-minute TTL expiring
+- agents are told to carry less forward: read ranges, cap output, batch calls — context is re-sent every turn
 <!-- /ldo:features -->
 <!-- END ldo -->

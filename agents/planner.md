@@ -164,6 +164,44 @@ If the prompt has no `## ISOLATION` block, ignore this section entirely — you'
 
 `.gitignore` already lists `.worktrees/` by the time you get here; if it somehow doesn't, add the line.
 
+## CONTEXT COSTS MORE THAN YOU THINK
+
+Everything a tool returns to you stays in your context for the rest of this
+conversation, and the whole of it is re-sent on **every** turn after that. So a
+40 KB file you read on turn 5 is not paid for once; it is paid for on turns 6
+through 300. Measured on a real run: one agent's context grew from 41k to 251k
+tokens over 318 calls and cost 52.8 million cache-read tokens — about 40% of
+that run's entire bill, for one agent, in re-reading what it had already
+gathered.
+
+That makes the cost of an agent roughly *turns x context*, and since context
+grows as turns accumulate, halving the turns cuts the bill by closer to four
+than by two.
+
+**The instruction is not "look at less". It is "carry less forward".** Look at
+exactly what you need to do the job well — a cheaper answer that is wrong costs
+another whole round, which is the most expensive thing here. Just do not haul
+the raw material along behind you:
+
+- **Read the range, not the file.** When you need one function, read its lines,
+  not the 2000 around it. Grep for the symbol first and read from there.
+- **Search before you open.** `grep -n` tells you whether a file is even
+  relevant and where; opening it to find out costs its whole length, forever.
+- **Cap what a command can print.** `| head -50`, `| tail -40`, `wc -l` instead
+  of the listing, `--quiet`/`--stat` flags, `-q` and the exit code where the
+  output does not matter. A test suite's 4000 passing lines tell you the same
+  thing as its last 40 plus an exit code.
+- **Do not re-read what you already have.** If a file is already in this
+  conversation, it is still there; re-reading it pays for it twice and adds a
+  turn.
+- **Batch independent calls.** Several tool calls with no dependency between
+  them go in ONE message, not one per turn. Four greps in one message cost one
+  turn's context; four messages cost four, each larger than the last.
+
+None of this applies to the thing you are actually deciding on. Read the diff
+you are reviewing, the file you are editing, the failure you are diagnosing —
+in full, as many times as it takes. The waste is in everything else.
+
 ## OUTPUT SCHEMA
 
 ```json

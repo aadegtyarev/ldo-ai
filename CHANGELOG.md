@@ -5,6 +5,42 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.42.0] — 2026-09-09
+
+### Changed
+
+- **The Planner, Coder and Reviewer are told what context costs.** Everything a
+  tool returns stays in an agent's context and is re-sent on every later turn,
+  so a 40 KB file read on turn 5 is paid for on turns 6 through 300. Measured on
+  a real run: one agent's context grew 41k → 251k tokens over 318 calls and cost
+  **52.8 million cache-read tokens — about 40% of that run's entire bill**, for
+  one agent, re-reading what it had already gathered. Cost is roughly
+  `turns × context`, and because context grows as turns accumulate, halving the
+  turns cuts the bill closer to fourfold than twofold.
+
+  The three heavy agent definitions said nothing about this. They now carry one
+  section, and its framing is the load-bearing part: **not "look at less" but
+  "carry less forward".** Read the range rather than the file, grep before
+  opening, cap what a command prints, do not re-read what is already in the
+  conversation, and put independent tool calls in one message rather than one
+  per turn. With the exception stated as plainly as the rule — the diff being
+  reviewed, the file being edited, the failure being diagnosed are read in full,
+  as often as needed, because a cheap wrong answer costs a whole round, which is
+  the most expensive thing in this pipeline.
+
+  No gate for this one, deliberately. A check asserting a paragraph exists would
+  pass forever and prove nothing, which is the failure mode this project spent
+  the week removing. The measurement is the check: `scripts/ldo-cost.sh` on
+  comparable runs before and after.
+
+  Two honesties. The section costs about 540 tokens on every turn of every agent
+  that carries it — roughly $0.26 of cache reads on a 318-turn agent, against a
+  read bill of $79 on the run measured, so it pays for itself if it changes
+  behaviour at all. And it is a behavioural instruction with a real failure
+  mode: "smaller output" shades easily into "looked at less", which shows up as
+  review quality rather than as a number. The wording resists that as hard as
+  prose can; the next comparable run is what will say whether it worked.
+
 ## [2.41.1] — 2026-09-09
 
 ### Changed
