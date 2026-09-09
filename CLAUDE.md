@@ -1,5 +1,5 @@
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.40.3 -->
+<!-- ldo:version 2.41.0 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -143,5 +143,6 @@ the list. Offer; don't run either unasked.
 - check-config-defaults.sh holds every documented default to the source, not just the model table
 - CONTRACT OVER LIMIT measures entries, not lines — a wrapped contract no longer hides
 - the routing sentence in the /ldo-init block is held to DEFAULT_MODELS, not just the tables
+- scripts/ldo-cost.sh reports what a run actually cost, cache included — the run result cannot
 <!-- /ldo:features -->
 <!-- END ldo -->
