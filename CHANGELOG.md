@@ -5,6 +5,45 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.41.0] — 2026-09-09
+
+### Added
+
+- **`scripts/ldo-cost.sh` — what a run actually cost, cache included** (issue
+  #31). The `cost` block on a run result reports output tokens only and says so
+  in its own note, which is honest and is also the problem: on the run that
+  prompted the issue, output was 380k tokens against **119.7 million cache
+  reads**, so the one cost signal the pipeline surfaced was roughly 0.2% of the
+  bill. Answering "what did the last feature cost" meant parsing transcripts by
+  hand.
+
+  Why the run cannot report it itself, stated plainly rather than left as a
+  gap: a workflow script is handed `budget.spent()` and nothing else, and that
+  is output tokens. The cache figures exist only in the per-agent transcripts
+  the harness writes. So this reads them back — `agent-*.jsonl` for `usage`,
+  `agent-*.meta.json` for the role and model — and reports per role and in
+  total, with the uncached counterfactual beside it. `COST_NOTE` now points at
+  it, so the block that cannot answer the question names the thing that can.
+
+  Measured on this repository's own run `wf_1cbb583c-44f`: 32.6M cache reads
+  against 2,530 fresh input tokens — 94.3% of all input — $99.53 at list
+  against $519.52 had every read been fresh, and 234,825 output tokens, which
+  is the only figure the result carried.
+
+  Two refusals are deliberate. It never prints a zero it could not read: a
+  directory with no transcripts, or transcripts whose `usage` shape has changed,
+  fails loudly, because a cost report quietly saying `$0.00` for a run that cost
+  real money is the same defect class as everything else fixed this week. And it
+  does not pretend its prices are authoritative — they are list rates stated as
+  an assumption, overridable with `--price`, and the report says so every time.
+  An unrecognised model suppresses the total rather than guessing at it.
+
+  `scripts/check-cost-report.sh` is the eighteenth gate. Its load-bearing
+  assertions are the negative ones — no transcripts, no `usage` field, unknown
+  model — since a tool reading harness internals is exactly the kind that goes
+  quietly wrong. The fixture uses round hand-chosen numbers so every figure it
+  checks can be recomputed on paper.
+
 ## [2.40.3] — 2026-09-09
 
 ### Fixed
