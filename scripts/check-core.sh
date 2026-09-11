@@ -11,15 +11,15 @@ import { buildCodexPrompt, buildPrompt } from './core/prompts.mjs'
 
 const runner = readFileSync('./scripts/ldo-run.mjs', 'utf8')
 const expectedModels = {
-  planner: 'gpt-5.6-sol', coder: 'gpt-5.6-sol', security: 'gpt-5.6-sol',
+  planner: 'gpt-5.6-terra', coder: 'gpt-5.6-sol', security: 'gpt-5.6-sol',
   reviewer: 'gpt-5.6-terra', researcher: 'gpt-5.6-terra', recorder: 'gpt-5.6-luna',
 }
 for (const [role, model] of Object.entries(expectedModels)) {
-  if (!runner.includes(`${role}: '${model}'`) || !runner.includes(`options.${role}Model || options.model || CODEX_DEFAULT_MODELS.${role}`)) {
+  if (!runner.includes(model) || !runner.includes('options[`${role}Model`] || options.model')) {
     throw new Error(`Codex default or override precedence missing for ${role}`)
   }
 }
-console.log('✓ Codex model defaults use Sol for build-critical roles, Terra for checks, and Luna for records')
+console.log('✓ Codex model defaults reserve Sol for complex/elevated coding and Security, with Terra planning/review and Luna recording')
 
 const handoff = {
   plan: { summary: 'plan', complexity: 'medium', security_surface: 'elevated', steps: [{ what: 'change', files: ['src/a.js'], acceptance: 'test', user_facing: true }], risks: [], codebase_context: { stack: 'node', conventions: 'small modules', relevant_files: [{ path: 'src/a.js', role: 'primary', note: 'target' }], test_command: 'npm test', run_command: 'npm run dev' } },
@@ -69,6 +69,43 @@ if (planned.mode !== 'plan-only' || planOnlyCalls.join(',') !== 'planner') {
   throw new Error(`unexpected plan-only pipeline: mode=${planned.mode} roles=${planOnlyCalls.join(',')}`)
 }
 console.log('✓ plan-only stops after the planner')
+
+const approvedPlanCalls = []
+const approvedPlanPipeline = createPipeline({
+  adapter: {
+    async run(options) {
+      approvedPlanCalls.push(options.role)
+      if (options.role === 'coder') return { value: { summary: 'implemented' }, raw: '{}' }
+      return { value: { status: 'approved', summary: 'reviewed' }, raw: '{}' }
+    },
+  },
+  schemas: { planner: 'plan', security: 'security', coder: 'code', reviewer: 'review' },
+  prompt: ({ role }) => role,
+  retries: 0,
+})
+const resumed = await approvedPlanPipeline({
+  task: 'approved task', cwd: process.cwd(),
+  approvedPlan: { complexity: 'medium', security_surface: 'elevated', summary: 'approved plan' },
+  approvedSecurity: { status: 'clean', findings: [], summary: 'approved security' },
+})
+if (approvedPlanCalls.join(',') !== 'coder,reviewer' || !resumed.approved || resumed.plan.resumed !== true || resumed.security.resumed !== true) {
+  throw new Error(`approved plan was not reused: ${approvedPlanCalls.join(',')}`)
+}
+console.log('✓ an approved saved plan reuses its Security result and continues at Code without another Planner call')
+
+const resumeCalls = []
+const resumePipeline = createPipeline({
+  adapter: { async run(options) { resumeCalls.push(options.role); return { value: { status: 'approved', summary: 'reviewed' }, raw: '{}' } } },
+  schemas: { planner: 'plan', coder: 'code', reviewer: 'review' },
+  prompt: ({ role }) => role, retries: 0,
+})
+const afterCoder = await resumePipeline({
+  task: 'resume review', cwd: process.cwd(),
+  approvedPlan: { complexity: 'medium', security_surface: 'none', summary: 'approved plan' },
+  completed: { coder: { summary: 'already implemented' } },
+})
+if (resumeCalls.join(',') !== 'reviewer' || !afterCoder.coder.resumed || !afterCoder.approved) throw new Error(`Coder checkpoint did not resume at Reviewer: ${resumeCalls.join(',')}`)
+console.log('✓ a run checkpoint after Coder resumes directly at Reviewer')
 
 const securityCalls = []
 const securityPipeline = createPipeline({
@@ -131,6 +168,24 @@ if (recordCalls.map(c => c.role).join(',') !== 'planner,coder,reviewer,recorder'
   throw new Error(`record phase did not persist after an approved medium plan: ${recordCalls.map(c => c.role).join(',')}`)
 }
 console.log('✓ medium approved runs persist a recorder report')
+
+const scopedContexts = []
+const scopedPipeline = createPipeline({
+  adapter: {
+    async run(options) {
+      if (options.role === 'planner') return { value: { complexity: 'medium', security_surface: 'none', summary: 'plan', steps: [{ files: ['src/a.js'] }], codebase_context: { relevant_files: [{ path: 'test/a.test.js', role: 'test' }], test_command: 'npm test', test_command_scoped: 'npm test -- {paths}' } }, raw: '{}' }
+      if (options.role === 'coder') return { value: { summary: 'code' }, raw: '{}' }
+      return { value: { status: 'approved' }, raw: '{}' }
+    },
+  },
+  schemas: { planner: 'plan', coder: 'code', reviewer: 'review' },
+  prompt: ({ role, context }) => { scopedContexts.push({ role, context }); return role },
+  scopedTests: true, retries: 0,
+})
+await scopedPipeline({ task: 'scoped', cwd: process.cwd() })
+const scopedRoles = scopedContexts.filter(item => ['coder', 'reviewer'].includes(item.role))
+if (scopedRoles.length !== 2 || scopedRoles.some(item => item.context.scopedTests.command !== 'npm test -- test/a.test.js')) throw new Error('safe scoped test was not handed to Coder and Reviewer')
+console.log('✓ Codex scoped tests expand only validated repository-relative paths')
 NODE
 
 LDO_ISOLATION_WORK="$(mktemp -d)"
@@ -144,6 +199,7 @@ LDO_ISOLATION_WORK="$LDO_ISOLATION_WORK" node --input-type=module <<'NODE'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createIsolatedWorktree } from './core/isolation.mjs'
+import { checkpointRun, createRunCheckpoint, finishRunCheckpoint, loadApprovedPlan, loadRunCheckpoint, saveApprovedPlan } from './core/plan-store.mjs'
 
 const root = process.env.LDO_ISOLATION_WORK
 const isolated = await createIsolatedWorktree({ cwd: root, task: 'A safe isolated test' })
@@ -152,4 +208,16 @@ if (!isolated.path.startsWith(`${root}/.worktrees/`) || isolated.branch !== 'ldo
   throw new Error(`unexpected isolation result: ${JSON.stringify(isolated)}`)
 }
 console.log('✓ deterministic isolation creates and verifies a fresh worktree')
+
+const plan = { complexity: 'medium', security_surface: 'none', summary: 'saved plan', steps: [], risks: [], codebase_context: { stack: 'node', conventions: '', relevant_files: [], test_command: 'npm test', test_command_scoped: null, run_command: '' } }
+const saved = await saveApprovedPlan({ cwd: root, task: 'checkpoint test', plan, security: null })
+const approved = await loadApprovedPlan({ cwd: root, reference: saved.id })
+const run = await createRunCheckpoint({ cwd: root, approved })
+await checkpointRun({ state: run, checkpoint: 'coder', value: { summary: 'done' } })
+const resumed = await loadRunCheckpoint({ cwd: root, reference: 'latest' })
+if (resumed.completed.coder.summary !== 'done' || resumed.status !== 'running') throw new Error('run checkpoint did not preserve the completed Coder phase')
+await finishRunCheckpoint({ state: resumed, result: { approved: true, record: { value: { backlog: { destination: 'file', file: 'docs/BACKLOG.md', count: 1 } } } } })
+const completed = JSON.parse(await readFile(resumed.path, 'utf8'))
+if (completed.status !== 'completed' || completed.backlog.count !== 1) throw new Error('terminal checkpoint did not preserve backlog outcome')
+console.log('✓ plan artifacts and terminal run checkpoints preserve resume and backlog state')
 NODE

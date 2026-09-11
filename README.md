@@ -92,9 +92,17 @@ block to `AGENTS.md`, preserving its existing instructions. `--ignore-codex`
 also adds `.codex/` to the target's `.gitignore`; use it when LDO is a local
 per-developer tool alongside Claude Code. Without the flag, the installer never
 changes the target's `.gitignore`. On the next Codex session, ordinary
-non-trivial implementation requests automatically run the LDO planner → coder
-→ reviewer pipeline in the current workspace. One-file mechanical edits and
-direct questions stay direct.
+non-trivial implementation requests first run LDO Planner (and Security where
+needed). By default LDO stops for discussion only for complex or elevated
+plans; `--review-plan always|never` lets the orchestrator override that policy.
+The plan is stored locally under
+`.codex/ldo/plans/`; once the user approves it, Codex runs
+`--continue-plan latest`, validates that `HEAD` has not moved, and continues at
+Coder → Reviewer without reconstructing the plan. Completed phases are saved
+under `.codex/ldo/runs/`, so `--resume-run latest` restarts at the first
+unfinished role after a crash. Recorder writes unresolved items to
+`docs/BACKLOG.md`, and the terminal checkpoint records that backlog outcome.
+One-file mechanical edits and direct questions stay direct.
 
 Codex's normal `workspace-write` sandbox can write project files but may refuse
 the shared `.git/refs` update required by `git worktree add`. The automatic
@@ -112,8 +120,10 @@ The Codex defaults use the GPT-5.6 line by role:
 
 | Role | Model | Why |
 |---|---|---|
-| Planner, Coder, Security | `gpt-5.6-sol` | Architecture, implementation, and threat modelling carry the highest cost of being wrong. |
-| Reviewer, Researcher | `gpt-5.6-terra` | Independent review and scoped research are strong but bounded checks. |
+| Planner | `gpt-5.6-terra` | Classifies and bounds the task before expensive implementation is selected. |
+| Coder | `gpt-5.6-terra` normally; `gpt-5.6-sol` for complex/elevated plans | Uses the strongest model only where the plan justifies it. |
+| Security | `gpt-5.6-sol` | Runs automatically only for elevated plans. |
+| Reviewer, Researcher | `gpt-5.6-terra` | Independent review and scoped research are bounded checks. |
 | Recorder | `gpt-5.6-luna` | It only writes a structured record from already-produced results. |
 
 `--model` replaces all six defaults; `--reviewer-model`, `--coder-model`, and
@@ -126,6 +136,11 @@ context, so it receives only the prior data it can act on. In particular, a
 fix Coder receives the plan, security findings and review issues, not its own
 previous report. This does not change the Claude Code workflow or portable
 `--runtime claude` prompts.
+
+Planner may also provide a safe `test_command_scoped` template. Codex expands
+it only with validated repository-relative paths and sends the narrow command
+to Coder and Reviewer before broader verification, reducing test time and
+context without allowing arbitrary shell composition.
 
 **After a plugin update, re-run `/ldo-init` in each project that has the block.** The block `/ldo-init` writes into `CLAUDE.md` is a snapshot of the version that wrote it — its first line carries an `<!-- ldo:version X -->` stamp, and every pipeline run logs its own version. When the two disagree the block is stale: it is describing flags and behaviour that have since moved. The re-run replaces the block in place and carries your drift log across unchanged, so it costs nothing to do. The stamp is a hint for you, not a check — nothing in the pipeline reads it.
 

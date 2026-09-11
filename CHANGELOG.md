@@ -5,6 +5,26 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.46.0] — 2026-09-11
+
+### Added
+
+- **Codex plans are now reusable artifacts with stage-level crash recovery.**
+  The orchestrator can decide whether to discuss a plan, continue an approved
+  plan without replanning, and resume at Reviewer (or another first unfinished
+  phase) after a later failure. Successful runs leave a terminal checkpoint
+  containing the Recorder backlog outcome.
+- **Codex uses bounded scoped test commands and dynamic GPT-5.6 routing.** Terra
+  plans and handles normal coding, Sol is reserved for complex/elevated coding
+  and elevated Security, and Luna records the result. Claude Code behavior and
+  marketplace installation remain unchanged.
+
+### Changed
+
+- **Codex handoffs explicitly require Recorder to update `docs/BACKLOG.md` for
+  unresolved work.** The installed orchestrator instructions require every
+  completed pipeline to report both its terminal checkpoint and backlog result.
+
 ## [2.45.0] — 2026-09-11
 
 ### Fixed

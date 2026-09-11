@@ -5,14 +5,13 @@ import { createCodexCliAdapter } from '../adapters/codex-cli.mjs'
 import { createPipeline } from '../core/pipeline.mjs'
 import { buildCodexPrompt, buildPrompt } from '../core/prompts.mjs'
 import { createIsolatedWorktree } from '../core/isolation.mjs'
+import { checkpointRun, createRunCheckpoint, finishRunCheckpoint, loadApprovedPlan, loadRunCheckpoint, saveApprovedPlan } from '../core/plan-store.mjs'
 
-// The portable runtime has no complexity tier before Planner returns, so route
-// by the nature of the role. Sol protects the high-consequence decisions and
-// the source code; Terra is sufficient for bounded verification and research;
-// Luna only writes the structured run record. CLI flags below always win.
+// Planner is Terra until it has classified the task; Sol is reserved for
+// elevated/complex implementation and Security. CLI flags always win.
 const CODEX_DEFAULT_MODELS = {
-  planner: 'gpt-5.6-sol',
-  coder: 'gpt-5.6-sol',
+  planner: 'gpt-5.6-terra',
+  coder: plan => plan?.complexity === 'complex' || plan?.security_surface === 'elevated' ? 'gpt-5.6-sol' : 'gpt-5.6-terra',
   security: 'gpt-5.6-sol',
   reviewer: 'gpt-5.6-terra',
   researcher: 'gpt-5.6-terra',
@@ -20,15 +19,15 @@ const CODEX_DEFAULT_MODELS = {
 }
 
 function usage() {
-  console.error('Usage: node scripts/ldo-run.mjs --runtime codex|claude [--model MODEL] [--planner-model MODEL] [--researcher-model MODEL] [--coder-model MODEL] [--reviewer-model MODEL] [--security-model MODEL] [--recorder-model MODEL] [--research] [--plan-only] [--isolate] [--no-record] [--security auto|true|false] [--task "task"]... "task"')
+  console.error('Usage: node scripts/ldo-run.mjs --runtime codex|claude [--model MODEL] [--planner-model MODEL] [--researcher-model MODEL] [--coder-model MODEL] [--reviewer-model MODEL] [--security-model MODEL] [--recorder-model MODEL] [--research] [--plan-only] [--review-plan auto|always|never] [--continue-plan ID|latest] [--resume-run ID|latest] [--isolate] [--no-record] [--security auto|true|false] [--task "task"]... "task"')
   process.exit(2)
 }
 
 const args = process.argv.slice(2)
-const options = { planOnly: false, isolate: false, research: false, record: true, security: 'auto' }
+const options = { planOnly: false, isolate: false, research: false, record: true, security: 'auto', reviewPlan: 'auto' }
 const taskParts = []
 const tasks = []
-const valueFlags = new Set(['--runtime', '--model', '--planner-model', '--researcher-model', '--coder-model', '--reviewer-model', '--security-model', '--recorder-model', '--security', '--task'])
+const valueFlags = new Set(['--runtime', '--model', '--planner-model', '--researcher-model', '--coder-model', '--reviewer-model', '--security-model', '--recorder-model', '--security', '--task', '--continue-plan', '--resume-run', '--review-plan'])
 for (let index = 0; index < args.length; index++) {
   const arg = args[index]
   if (arg === '--no-record') {
@@ -47,47 +46,69 @@ for (let index = 0; index < args.length; index++) {
 const runtime = options.runtime
 const positionalTask = taskParts.join(' ').trim()
 if (positionalTask) tasks.push(positionalTask)
-if (!runtime || !tasks.length || !['codex', 'claude'].includes(runtime)) usage()
-if (!['auto', 'true', 'false'].includes(options.security)) usage()
+if (!runtime || (!tasks.length && !options.continuePlan && !options.resumeRun) || !['codex', 'claude'].includes(runtime)) usage()
+if (!['auto', 'true', 'false'].includes(options.security) || !['auto', 'always', 'never'].includes(options.reviewPlan)) usage()
+if ((options.continuePlan || options.resumeRun) && (runtime !== 'codex' || tasks.length || options.planOnly || options.isolate)) usage()
+if (options.continuePlan && options.resumeRun) usage()
 
 const root = resolve(new URL('..', import.meta.url).pathname)
 const schemas = Object.fromEntries(['researcher', 'planner', 'security', 'coder', 'reviewer', 'recorder'].map(role => [role, resolve(root, 'schemas', `${role}.json`)]))
 const adapter = runtime === 'codex' ? createCodexCliAdapter() : createClaudeCliAdapter()
+let activeRun = null
 const pipeline = createPipeline({
   adapter,
   // Claude retains its existing prompt exactly. Codex gets role-specific,
   // bounded handoffs because every phase is a fresh CLI context.
   prompt: runtime === 'codex' ? buildCodexPrompt : buildPrompt,
   schemas,
-  models: {
-    planner: options.plannerModel || options.model || CODEX_DEFAULT_MODELS.planner,
-    researcher: options.researcherModel || options.model || CODEX_DEFAULT_MODELS.researcher,
-    coder: options.coderModel || options.model || CODEX_DEFAULT_MODELS.coder,
-    reviewer: options.reviewerModel || options.model || CODEX_DEFAULT_MODELS.reviewer,
-    security: options.securityModel || options.model || CODEX_DEFAULT_MODELS.security,
-    recorder: options.recorderModel || options.model || CODEX_DEFAULT_MODELS.recorder,
+  models: Object.fromEntries(['planner', 'researcher', 'coder', 'reviewer', 'security', 'recorder'].map(role => {
+    const override = options[`${role}Model`] || options.model
+    if (override || runtime !== 'codex') return [role, override]
+    return [role, CODEX_DEFAULT_MODELS[role]]
+  })),
+  async onEvent(event) {
+    console.error(`[${event.role}] ${event.type}`)
+    if (event.type === 'agent_finished' && activeRun && event.checkpoint) await checkpointRun({ state: activeRun, checkpoint: event.checkpoint, value: event.result.value })
   },
-  onEvent(event) { console.error(`[${event.role}] ${event.type}`) },
+  scopedTests: runtime === 'codex',
 })
 
 const originalCwd = process.cwd()
 const multi = tasks.length > 1
 const security = options.security === 'auto' ? 'auto' : options.security === 'true'
 
-async function runTask(task, isolation) {
+async function runTask(task, isolation, approved = null, completed = {}, planOnly = options.planOnly) {
   const result = await pipeline({
     task,
     cwd: isolation?.path || originalCwd,
-    planOnly: options.planOnly,
+    planOnly,
     research: options.research,
     record: options.record,
     isolation,
     security,
+    approvedPlan: approved?.plan || null,
+    approvedSecurity: approved?.security || null,
+    completed,
   })
-  return { ...result, isolation }
+  const planArtifact = runtime === 'codex' && planOnly
+    ? await saveApprovedPlan({ cwd: isolation?.path || originalCwd, task, plan: result.plan.value, security: result.security?.value })
+    : null
+  if (activeRun && !planOnly) await finishRunCheckpoint({ state: activeRun, result })
+  return { ...result, isolation, planArtifact, runCheckpoint: activeRun?.path || null }
 }
 
 async function main() {
+  if (options.resumeRun) {
+    activeRun = await loadRunCheckpoint({ cwd: originalCwd, reference: options.resumeRun })
+    console.error(`[resume] continuing ${activeRun.id} from ${Object.keys(activeRun.completed).join(', ') || 'the first incomplete phase'}`)
+    return runTask(activeRun.task, null, activeRun, activeRun.completed)
+  }
+  if (options.continuePlan) {
+    const approved = await loadApprovedPlan({ cwd: originalCwd, reference: options.continuePlan })
+    console.error(`[plan] continuing ${approved.id} validated against ${approved.baseHead}`)
+    activeRun = await createRunCheckpoint({ cwd: originalCwd, approved })
+    return runTask(approved.task, null, approved)
+  }
   // Worktree creation is serial on purpose: each `git worktree add` is fast,
   // while creating `.worktrees/` and its .gitignore rule concurrently is a
   // filesystem race. Agent phases below still execute in parallel.
@@ -100,7 +121,16 @@ async function main() {
     }
   }
 
-  const results = await Promise.all(tasks.map((task, index) => runTask(task, isolations[index] || null)))
+  const runFresh = async (task, isolation) => {
+    if (runtime !== 'codex' || tasks.length > 1) return runTask(task, isolation)
+    const planned = await runTask(task, isolation, null, {}, true)
+    const pause = options.planOnly || options.reviewPlan === 'always' || (options.reviewPlan === 'auto' && (planned.plan.value.complexity === 'complex' || planned.plan.value.security_surface === 'elevated'))
+    if (pause) return { ...planned, mode: 'plan-review', plan_review_recommended: options.planOnly ? 'requested' : planned.plan.value.security_surface === 'elevated' ? 'elevated security surface' : 'complex plan' }
+    const approved = await loadApprovedPlan({ cwd: isolation?.path || originalCwd, reference: planned.planArtifact.id })
+    activeRun = await createRunCheckpoint({ cwd: isolation?.path || originalCwd, approved })
+    return { ...(await runTask(task, isolation, approved)), planArtifact: planned.planArtifact }
+  }
+  const results = await Promise.all(tasks.map((task, index) => runFresh(task, isolations[index] || null)))
   if (!multi) return results[0]
   const approved = results.filter(result => result.approved).length
   const planned = results.filter(result => result.mode === 'plan-only').length
@@ -109,7 +139,7 @@ async function main() {
 
 main().then(result => {
   console.log(JSON.stringify(result, null, 2))
-  process.exitCode = result.mode === 'plan-only' || result.mode === 'multi-plan-only' || result.approved ? 0 : 1
+  process.exitCode = result.mode === 'plan-only' || result.mode === 'plan-review' || result.mode === 'multi-plan-only' || result.approved ? 0 : 1
 }).catch(error => {
   console.error(`LDO failed: ${error.message}`)
   process.exitCode = 1

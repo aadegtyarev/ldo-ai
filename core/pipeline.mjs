@@ -9,62 +9,88 @@ function contextOf(values) {
   return entries.length ? Object.fromEntries(entries) : undefined
 }
 
-export function createPipeline({ adapter, prompt, schemas, models = {}, retries = 1, onEvent }) {
+function scopedTestOf(plan) {
+  const template = plan?.codebase_context?.test_command_scoped
+  if (typeof template !== 'string' || template.length > 500 || template.split('{paths}').length !== 2) return null
+  const shellFree = template.replace('{paths}', '')
+  if (/[|&;<>`$(){}?\n\r]/.test(shellFree)) return null
+  const broad = String(plan?.codebase_context?.test_command || '').trim().split(/\s+/)[0]
+  const command = shellFree.trim().split(/\s+/)[0]
+  const allowed = new Set(['npm', 'npx', 'yarn', 'pnpm', 'pytest', 'python', 'python3', 'go', 'cargo', 'mvn', 'gradle', 'dotnet', 'rspec', 'bundle', 'phpunit', 'jest', 'vitest', 'ctest', 'make', 'tox', 'deno', 'bun', 'node'])
+  if (!allowed.has(command) && command !== broad) return null
+  const candidates = (plan.codebase_context.relevant_files || []).filter(file => /test|spec/i.test(`${file.role} ${file.path}`)).map(file => file.path)
+  const fallback = (plan.steps || []).flatMap(step => step.files || [])
+  const paths = [...new Set(candidates.length ? candidates : fallback)].filter(path => typeof path === 'string' && path.length <= 300 && !path.startsWith('-') && !path.startsWith('/') && !path.split('/').includes('..') && /^[A-Za-z0-9_./-]+$/.test(path)).slice(0, 20)
+  if (!paths.length) return null
+  return { command: template.replace('{paths}', paths.join(' ')), paths }
+}
+
+export function createPipeline({ adapter, prompt, schemas, models = {}, retries = 1, onEvent, scopedTests = false }) {
   if (typeof prompt !== 'function') throw new TypeError('prompt({ role, task, context }) is required')
   if (!schemas?.planner || !schemas?.coder || !schemas?.reviewer) throw new TypeError('planner, coder and reviewer schemas are required')
 
   const runAgent = createAgentRunner(adapter, { retries, onEvent })
+  const modelFor = (role, plan = null) => typeof models[role] === 'function' ? models[role](plan) : models[role]
 
-  return async function run({ task, cwd, planOnly = false, security = 'auto', research = false, record = true, isolation = null }) {
+  return async function run({ task, cwd, planOnly = false, security = 'auto', research = false, record = true, isolation = null, approvedPlan = null, approvedSecurity = null, completed = {} }) {
     const execution = isolation ? { isolation } : {}
-    const researchReport = research && schemas.researcher
+    const researchReport = !approvedPlan && research && schemas.researcher
       ? await runAgent({
-        role: 'researcher', cwd, model: models.researcher, schema: schemas.researcher, search: true,
+        role: 'researcher', cwd, model: modelFor('researcher'), schema: schemas.researcher, search: true,
         prompt: prompt({ role: 'researcher', task, context: contextOf(execution) }),
       })
       : null
 
-    const plan = await runAgent({
-      role: 'planner', cwd, model: models.planner, schema: schemas.planner,
+    const plan = approvedPlan ? { value: approvedPlan, raw: JSON.stringify(approvedPlan), role: 'planner', attempt: 0, resumed: true } : await runAgent({
+      checkpoint: 'planner',
+      role: 'planner', cwd, model: modelFor('planner'), schema: schemas.planner,
       prompt: prompt({ role: 'planner', task, context: contextOf({ ...execution, research: researchReport?.value }) }),
     })
 
     const shouldRunSecurity = schemas.security && (security === true || (security === 'auto' && plan.value.security_surface === 'elevated'))
-    const securityReport = shouldRunSecurity
+    const securityReport = approvedSecurity ? { value: approvedSecurity, raw: JSON.stringify(approvedSecurity), role: 'security', attempt: 0, resumed: true } : shouldRunSecurity
       ? await runAgent({
-        role: 'security', cwd, model: models.security, schema: schemas.security,
+        checkpoint: 'security',
+        role: 'security', cwd, model: modelFor('security', plan.value), schema: schemas.security,
         prompt: prompt({ role: 'security', task, context: contextOf({ ...execution, plan: plan.value }) }),
       })
       : null
 
     if (planOnly) return { task, mode: 'plan-only', research: researchReport, plan, security: securityReport }
 
-    let coder = await runAgent({
-      role: 'coder', cwd, model: models.coder, schema: schemas.coder,
-      writable: true, prompt: prompt({ role: 'coder', task, context: contextOf({ ...execution, plan: plan.value, security: securityReport?.value }) }),
+    const scopedTest = scopedTests ? scopedTestOf(plan.value) : null
+
+    let coder = completed.coder ? { value: completed.coder, raw: JSON.stringify(completed.coder), role: 'coder', attempt: 0, resumed: true } : await runAgent({
+      checkpoint: 'coder',
+      role: 'coder', cwd, model: modelFor('coder', plan.value), schema: schemas.coder,
+      writable: true, prompt: prompt({ role: 'coder', task, context: contextOf({ ...execution, scopedTests: scopedTest, plan: plan.value, security: securityReport?.value }) }),
     })
 
-    let review = await runAgent({
-      role: 'reviewer', cwd, model: models.reviewer, schema: schemas.reviewer,
-      prompt: prompt({ role: 'reviewer', task, context: contextOf({ ...execution, plan: plan.value, security: securityReport?.value, coder: coder.value }) }),
+    let review = completed.reviewer1 ? { value: completed.reviewer1, raw: JSON.stringify(completed.reviewer1), role: 'reviewer', attempt: 0, resumed: true } : await runAgent({
+      checkpoint: 'reviewer1',
+      role: 'reviewer', cwd, model: modelFor('reviewer', plan.value), schema: schemas.reviewer,
+      prompt: prompt({ role: 'reviewer', task, context: contextOf({ ...execution, scopedTests: scopedTest, plan: plan.value, security: securityReport?.value, coder: coder.value }) }),
     })
 
     if (review.value.status === 'changes_requested') {
-      coder = await runAgent({
-        role: 'coder', cwd, model: models.coder, schema: schemas.coder,
-        writable: true, prompt: prompt({ role: 'coder', task, context: contextOf({ ...execution, plan: plan.value, security: securityReport?.value, coder: coder.value, review: review.value }) }),
+      coder = completed.coderFix1 ? { value: completed.coderFix1, raw: JSON.stringify(completed.coderFix1), role: 'coder', attempt: 0, resumed: true } : await runAgent({
+        checkpoint: 'coderFix1',
+        role: 'coder', cwd, model: modelFor('coder', plan.value), schema: schemas.coder,
+        writable: true, prompt: prompt({ role: 'coder', task, context: contextOf({ ...execution, scopedTests: scopedTest, plan: plan.value, security: securityReport?.value, coder: coder.value, review: review.value }) }),
       })
-      review = await runAgent({
-        role: 'reviewer', cwd, model: models.reviewer, schema: schemas.reviewer,
-        prompt: prompt({ role: 'reviewer', task, context: contextOf({ ...execution, plan: plan.value, security: securityReport?.value, coder: coder.value, previousReview: review.value }) }),
+      review = completed.reviewer2 ? { value: completed.reviewer2, raw: JSON.stringify(completed.reviewer2), role: 'reviewer', attempt: 0, resumed: true } : await runAgent({
+        checkpoint: 'reviewer2',
+        role: 'reviewer', cwd, model: modelFor('reviewer', plan.value), schema: schemas.reviewer,
+        prompt: prompt({ role: 'reviewer', task, context: contextOf({ ...execution, scopedTests: scopedTest, plan: plan.value, security: securityReport?.value, coder: coder.value, previousReview: review.value }) }),
       })
     }
 
     const approved = review.value.status === 'approved'
     const shouldRecord = record && schemas.recorder && (plan.value.complexity !== 'trivial' || !approved)
-    const recordReport = shouldRecord
+    const recordReport = completed.recorder ? { value: completed.recorder, raw: JSON.stringify(completed.recorder), role: 'recorder', attempt: 0, resumed: true } : shouldRecord
       ? await runAgent({
-        role: 'recorder', cwd, model: models.recorder, schema: schemas.recorder, writable: true,
+        checkpoint: 'recorder',
+        role: 'recorder', cwd, model: modelFor('recorder', plan.value), schema: schemas.recorder, writable: true,
         prompt: prompt({ role: 'recorder', task, context: contextOf({ ...execution, plan: plan.value, security: securityReport?.value, coder: coder.value, review: review.value }) }),
       })
       : null

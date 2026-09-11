@@ -20,9 +20,15 @@ export function buildPrompt({ role, task, context }) {
     '## TASK',
     task,
   ]
-  const { isolation, ...prior } = context || {}
+  const { isolation, scopedTests, backlogDestination, ...prior } = context || {}
   if (isolation?.path && isolation?.branch) {
     sections.push('', '## ISOLATION', `Your worktree is \`${isolation.path}\` on branch \`${isolation.branch}\`. Work only there; verify it with \`git rev-parse --show-toplevel\` before writing.`)
+  }
+  if (scopedTests?.command) {
+    sections.push('', '## SCOPED TEST RUN', `Start verification with this planner-approved narrow command: \`${scopedTests.command}\`. Run broader tests afterward when the change warrants them.`)
+  }
+  if (backlogDestination) {
+    sections.push('', '## BACKLOG DESTINATION', `${backlogDestination.type}: ${backlogDestination.path}`, backlogDestination.instruction)
   }
   if (Object.keys(prior).length) {
     sections.push('', '## PRIOR PHASE RESULTS', JSON.stringify(prior, null, 2))
@@ -66,7 +72,7 @@ function planHandoff(plan) {
     codebase_context: {
       stack: text(codebase.stack), conventions: text(codebase.conventions),
       relevant_files: list(codebase.relevant_files, file => ({ path: text(file?.path, 300), role: text(file?.role, 120), note: text(file?.note, 500) })),
-      test_command: text(codebase.test_command, 500), run_command: text(codebase.run_command, 500),
+      test_command: text(codebase.test_command, 500), test_command_scoped: text(codebase.test_command_scoped, 500), run_command: text(codebase.run_command, 500),
     },
   }
 }
@@ -115,7 +121,7 @@ function researchHandoff(report) {
 }
 
 export function compactCodexContext(role, context) {
-  const { isolation, research, plan, security, coder, review, previousReview } = context || {}
+  const { isolation, scopedTests, research, plan, security, coder, review, previousReview } = context || {}
   const compact = isolation ? { isolation } : {}
   if (role === 'planner' && research) compact.research = researchHandoff(research)
   if (['security', 'coder', 'reviewer', 'recorder'].includes(role) && plan) compact.plan = planHandoff(plan)
@@ -124,9 +130,18 @@ export function compactCodexContext(role, context) {
   if (role === 'coder' && review) compact.review = reviewHandoff(review)
   if (role === 'reviewer' && previousReview) compact.previousReview = reviewHandoff(previousReview)
   if (role === 'recorder' && review) compact.review = reviewHandoff(review)
+  if (['coder', 'reviewer'].includes(role) && scopedTests) compact.scopedTests = scopedTests
   return compact
 }
 
 export function buildCodexPrompt({ role, task, context }) {
-  return buildPrompt({ role, task, context: compactCodexContext(role, context) })
+  const compact = compactCodexContext(role, context)
+  if (role === 'recorder') {
+    const label = compact.isolation?.branch?.replace(/^ldo\//, '')
+    compact.backlogDestination = {
+      type: 'FILE', path: label ? `docs/backlog/${label}.md` : 'docs/BACKLOG.md',
+      instruction: 'Write every unresolved actionable issue to this file. Do not silently omit backlog updates; report destination, file, and count in the structured result.',
+    }
+  }
+  return buildPrompt({ role, task, context: compact })
 }

@@ -38,9 +38,10 @@
           }
         },
         "test_command": { "type": "string" },
+        "test_command_scoped": { "type": ["string", "null"] },
         "run_command": { "type": "string" }
       },
-      "required": ["stack", "conventions", "relevant_files", "test_command", "run_command"],
+      "required": ["stack", "conventions", "relevant_files", "test_command", "test_command_scoped", "run_command"],
       "additionalProperties": false
     }
   },
