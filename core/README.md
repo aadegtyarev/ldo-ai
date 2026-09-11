@@ -33,3 +33,8 @@ node scripts/ldo-run.mjs --runtime codex \
   --planner-model <model> --coder-model <model> --reviewer-model <model> \
   --plan-only "plan an API migration"
 ```
+
+Pass `--isolate` to create and verify a fresh `.worktrees/<task>` checkout on
+an `ldo/<task>` branch before any phase runs. The core verifies the linked
+worktree root, branch and base commit itself; it never falls back to the main
+checkout when isolation fails.

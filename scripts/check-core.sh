@@ -62,3 +62,24 @@ if (securityCalls.map(c => c.role).join(',') !== 'planner,security' || securedPl
 }
 console.log('✓ elevated plans run Security before plan-only returns')
 NODE
+
+LDO_ISOLATION_WORK="$(mktemp -d)"
+trap 'rm -rf "$LDO_ISOLATION_WORK"' EXIT
+git -C "$LDO_ISOLATION_WORK" init -q
+git -C "$LDO_ISOLATION_WORK" config user.email ldo-test@example.invalid
+git -C "$LDO_ISOLATION_WORK" config user.name 'LDO core test'
+git -C "$LDO_ISOLATION_WORK" commit --allow-empty -qm 'initial'
+
+LDO_ISOLATION_WORK="$LDO_ISOLATION_WORK" node --input-type=module <<'NODE'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { createIsolatedWorktree } from './core/isolation.mjs'
+
+const root = process.env.LDO_ISOLATION_WORK
+const isolated = await createIsolatedWorktree({ cwd: root, task: 'A safe isolated test' })
+const ignored = await readFile(join(root, '.gitignore'), 'utf8')
+if (!isolated.path.startsWith(`${root}/.worktrees/`) || isolated.branch !== 'ldo/a-safe-isolated-test' || !ignored.includes('.worktrees/')) {
+  throw new Error(`unexpected isolation result: ${JSON.stringify(isolated)}`)
+}
+console.log('✓ deterministic isolation creates and verifies a fresh worktree')
+NODE
