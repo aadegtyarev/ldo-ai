@@ -11,6 +11,7 @@ export function roleInstructions(role) {
 export function buildPrompt({ role, task, context }) {
   const sections = [
     `You are LDO's ${role}.`,
+    'You are an LDO subagent. Do not invoke the LDO orchestrator or start another LDO pipeline; complete only this assigned role.',
     'Follow the role instructions below. Work only in the current repository.',
     '',
     '## ROLE INSTRUCTIONS',

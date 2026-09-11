@@ -77,9 +77,25 @@ needed for the Claude Code path.
 
 For the portable path from an installed Claude plugin, use
 `/ldo-runtime "<task>"`; it invokes the same core through the local Claude
-CLI. In Codex, run `node scripts/ldo-run.mjs --runtime codex "<task>"` from an
-LDO checkout. `/ldo` remains the current full Claude workflow during the
-migration.
+CLI. `/ldo` remains the current full Claude workflow during the migration.
+
+### Codex
+
+From an LDO checkout, install into the project you want Codex to orchestrate:
+
+```sh
+scripts/install-codex.sh /path/to/target-project
+```
+
+This copies the small runtime to `.codex/ldo/` and adds a delimited routing
+block to the target's `AGENTS.md`, preserving its existing instructions. On
+the next Codex session in that project, ordinary non-trivial implementation
+requests automatically run the LDO planner → coder → reviewer pipeline in an
+isolated worktree. One-file mechanical edits and direct questions stay direct.
+
+The install uses the existing authenticated `codex` CLI; it needs no API key,
+marketplace entry, or global Node package. Re-run the same command from a newer
+LDO checkout to update the project-local runtime.
 
 **After a plugin update, re-run `/ldo-init` in each project that has the block.** The block `/ldo-init` writes into `CLAUDE.md` is a snapshot of the version that wrote it — its first line carries an `<!-- ldo:version X -->` stamp, and every pipeline run logs its own version. When the two disagree the block is stale: it is describing flags and behaviour that have since moved. The re-run replaces the block in place and carries your drift log across unchanged, so it costs nothing to do. The stamp is a hint for you, not a check — nothing in the pipeline reads it.
 
