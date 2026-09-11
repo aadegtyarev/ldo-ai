@@ -21,7 +21,10 @@ export function createCodexCliAdapter({ binary = 'codex', sandbox = 'read-only' 
         child.stderr.on('data', chunk => { stderr += chunk })
         child.on('error', reject)
         child.on('close', code => {
-          if (code !== 0) return reject(new Error(`codex exec exited ${code}: ${stderr.trim()}`))
+          if (code !== 0) {
+            const diagnostic = [stderr.trim(), stdout.trim()].filter(Boolean).join('\n').slice(-8000)
+            return reject(new Error(`codex exec exited ${code}: ${diagnostic || 'no diagnostic output'}`))
+          }
           const messages = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
           const final = [...messages].reverse().find(event => event.type === 'item.completed' && event.item?.type === 'agent_message')
           if (!final?.item?.text) return reject(new Error('Codex returned no final agent message'))

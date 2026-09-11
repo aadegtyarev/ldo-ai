@@ -12,12 +12,18 @@ export function roleInstructions(role) {
 // the strict JSON Schema separately, so sending its large example again costs
 // input tokens without adding a constraint. Frontmatter is plugin metadata,
 // not agent guidance. Keep one shared source while stripping both at render.
-export function compiledRoleInstructions(role) {
-  return roleInstructions(role)
+export function compiledRoleInstructions(role, { profile = 'full' } = {}) {
+  let instructions = roleInstructions(role)
     .replace(/^---\n[\s\S]*?\n---\n+/, '')
     .replace(/\n## OUTPUT SCHEMA\n+```json\n[\s\S]*?\n```\n?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  if (role === 'reviewer' && profile === 'trivial') {
+    instructions = instructions
+      .replace(/\n### When the suite outlives one tool call[\s\S]*?(?=\n### 2\.5\.)/, '\n')
+      .replace(/\n### 2\.5\. Migration numbering gate[\s\S]*?(?=\n### 3\.)/, '\n')
+      .replace(/\n## CONTEXT COSTS MORE THAN YOU THINK[\s\S]*?(?=\n## SEVERITY)/, '\n## CONTEXT DISCIPLINE\nSearch before reading, read only relevant ranges, cap command output, do not re-read available context, and batch independent calls. Do not reduce scrutiny of the changed code or acceptance evidence. Evidence is mandatory: pass a criterion only with captured output; otherwise mark it skipped with the reason.\n')
+  }
+  return instructions.trim()
 }
 
 export function buildPrompt({ role, task, context }) {
@@ -26,12 +32,12 @@ export function buildPrompt({ role, task, context }) {
     'Work only in the current repository.',
     '',
     '## ROLE INSTRUCTIONS',
-    compiledRoleInstructions(role),
+    compiledRoleInstructions(role, { profile: context?.promptProfile }),
     '',
     '## TASK',
     task,
   ]
-  const { isolation, scopedTests, backlogDestination, ...prior } = context || {}
+  const { isolation, scopedTests, backlogDestination, promptProfile, ...prior } = context || {}
   if (isolation?.path && isolation?.branch) {
     sections.push('', '## ISOLATION', `Your worktree is \`${isolation.path}\` on branch \`${isolation.branch}\`. Work only there; verify it with \`git rev-parse --show-toplevel\` before writing.`)
   }
@@ -153,9 +159,11 @@ function researchHandoff(report) {
 }
 
 export function compactCodexContext(role, context) {
-  const { isolation, scopedTests, research, plan, security, coder, review, previousReview } = context || {}
+  const { isolation, scopedTests, research, plan, draftPlan, refinement, security, coder, review, previousReview } = context || {}
   const compact = isolation ? { isolation } : {}
   if (role === 'planner' && research) compact.research = researchHandoff(research)
+  if (role === 'planner' && draftPlan) compact.draftPlan = planHandoff(draftPlan)
+  if (role === 'planner' && refinement) compact.refinement = refinement
   if (['security', 'coder'].includes(role) && plan) compact.plan = planHandoff(plan)
   if (role === 'reviewer' && plan) compact.plan = reviewerPlanHandoff(plan)
   if (role === 'recorder' && plan) compact.plan = recorderPlanHandoff(plan)
@@ -166,6 +174,7 @@ export function compactCodexContext(role, context) {
   if (role === 'reviewer' && previousReview) compact.previousReview = reviewHandoff(previousReview)
   if (role === 'recorder' && review) compact.review = recorderReviewHandoff(review)
   if (['coder', 'reviewer'].includes(role) && scopedTests) compact.scopedTests = scopedTests
+  if (role === 'reviewer' && plan?.complexity === 'trivial') compact.promptProfile = 'trivial'
   return compact
 }
 

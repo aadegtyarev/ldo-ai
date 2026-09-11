@@ -19,13 +19,13 @@ function scopedTestOf(plan) {
   const allowed = new Set(['npm', 'npx', 'yarn', 'pnpm', 'pytest', 'python', 'python3', 'go', 'cargo', 'mvn', 'gradle', 'dotnet', 'rspec', 'bundle', 'phpunit', 'jest', 'vitest', 'ctest', 'make', 'tox', 'deno', 'bun', 'node'])
   if (!allowed.has(command) && command !== broad) return null
   const candidates = (plan.codebase_context.relevant_files || []).filter(file => /test|spec/i.test(`${file.role} ${file.path}`)).map(file => file.path)
-  const fallback = (plan.steps || []).flatMap(step => step.files || [])
+  const fallback = (plan.steps || []).flatMap(step => step.files || []).filter(path => /(^|[/_.-])(test|tests|spec|specs)([/_.-]|$)/i.test(path))
   const paths = [...new Set(candidates.length ? candidates : fallback)].filter(path => typeof path === 'string' && path.length <= 300 && !path.startsWith('-') && !path.startsWith('/') && !path.split('/').includes('..') && /^[A-Za-z0-9_./-]+$/.test(path)).slice(0, 20)
   if (!paths.length) return null
   return { command: template.replace('{paths}', paths.join(' ')), paths }
 }
 
-export function createPipeline({ adapter, prompt, schemas, models = {}, retries = 1, onEvent, scopedTests = false }) {
+export function createPipeline({ adapter, prompt, schemas, models = {}, retries = 1, onEvent, scopedTests = false, cascadePlanning = false }) {
   if (typeof prompt !== 'function') throw new TypeError('prompt({ role, task, context }) is required')
   if (!schemas?.planner || !schemas?.coder || !schemas?.reviewer) throw new TypeError('planner, coder and reviewer schemas are required')
 
@@ -41,11 +41,19 @@ export function createPipeline({ adapter, prompt, schemas, models = {}, retries 
       })
       : null
 
-    const plan = approvedPlan ? { value: approvedPlan, raw: JSON.stringify(approvedPlan), role: 'planner', attempt: 0, resumed: true } : await runAgent({
+    let plan = approvedPlan ? { value: approvedPlan, raw: JSON.stringify(approvedPlan), role: 'planner', attempt: 0, resumed: true } : await runAgent({
       checkpoint: 'planner',
       role: 'planner', cwd, model: modelFor('planner'), schema: schemas.planner,
       prompt: prompt({ role: 'planner', task, context: contextOf({ ...execution, research: researchReport?.value }) }),
     })
+    if (!approvedPlan && cascadePlanning && (plan.value.complexity === 'complex' || plan.value.security_surface === 'elevated')) {
+      const draftPlan = plan.value
+      plan = await runAgent({
+        checkpoint: 'plannerRefiner',
+        role: 'planner', cwd, model: modelFor('plannerRefiner', draftPlan), schema: schemas.planner,
+        prompt: prompt({ role: 'planner', task, context: contextOf({ ...execution, research: researchReport?.value, draftPlan, refinement: 'Validate the draft against the repository, correct architectural or security mistakes, narrow unresolved choices, and return the complete final plan.' }) }),
+      })
+    }
 
     const shouldRunSecurity = schemas.security && (security === true || (security === 'auto' && plan.value.security_surface === 'elevated'))
     const securityReport = approvedSecurity ? { value: approvedSecurity, raw: JSON.stringify(approvedSecurity), role: 'security', attempt: 0, resumed: true } : shouldRunSecurity

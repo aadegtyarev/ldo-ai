@@ -11,6 +11,16 @@ import { buildCodexPrompt, buildPrompt, compiledRoleInstructions, roleInstructio
 import { summarizeTokenUsage } from './core/token-usage.mjs'
 
 const runner = readFileSync('./scripts/ldo-run.mjs', 'utf8')
+function assertStrictObjects(schema, path = '$') {
+  if (!schema || typeof schema !== 'object') return
+  if (schema.type === 'object' && schema.properties) {
+    const missing = Object.keys(schema.properties).filter(key => !schema.required?.includes(key))
+    if (missing.length) throw new Error(`${path} omits strict required properties: ${missing.join(', ')}`)
+  }
+  for (const [key, value] of Object.entries(schema)) assertStrictObjects(value, `${path}.${key}`)
+}
+for (const role of ['researcher', 'planner', 'security', 'coder', 'reviewer', 'recorder']) assertStrictObjects(JSON.parse(readFileSync(`./schemas/${role}.json`, 'utf8')), role)
+console.log('✓ every portable output schema satisfies Codex strict required-property rules')
 const claudeAdapter = readFileSync('./adapters/claude-cli.mjs', 'utf8')
 if (claudeAdapter.includes('--permission-prompts') || !claudeAdapter.includes("permissionMode = 'auto'") || claudeAdapter.includes("writable ? 'acceptEdits'")) throw new Error('Claude adapter uses removed or non-automating permission modes')
 console.log('✓ portable Claude adapter uses current auto permission mode for non-interactive edits and verification')
@@ -35,6 +45,13 @@ for (const role of ['researcher', 'planner', 'security', 'coder', 'reviewer', 'r
 if (compiledBytes >= sourceBytes * 0.92) throw new Error(`role prompt compaction saved too little: ${sourceBytes} -> ${compiledBytes}`)
 if (!compiledRoleInstructions('reviewer').includes('Evidence is mandatory') || !compiledRoleInstructions('recorder').includes('## BACKLOG DESTINATION')) throw new Error('prompt compaction removed a required behavioral invariant')
 console.log(`✓ shared role prompts drop duplicate schemas and metadata (${sourceBytes} → ${compiledBytes} bytes) while retaining behavioral rules`)
+const fullReviewer = compiledRoleInstructions('reviewer')
+const trivialReviewer = compiledRoleInstructions('reviewer', { profile: 'trivial' })
+if (trivialReviewer.length >= fullReviewer.length * 0.75 || !trivialReviewer.includes('Evidence is mandatory') || trivialReviewer.includes('When the suite outlives one tool call') || trivialReviewer.includes('Migration numbering gate')) throw new Error('trivial Reviewer profile is not safely compacted')
+const claudeTrivial = buildPrompt({ role: 'reviewer', task: 'task', context: { plan: { complexity: 'trivial' } } })
+const codexTrivial = buildCodexPrompt({ role: 'reviewer', task: 'task', context: { plan: { complexity: 'trivial', steps: [] } } })
+if (!claudeTrivial.includes('When the suite outlives one tool call') || codexTrivial.includes('When the suite outlives one tool call')) throw new Error('trivial Reviewer profile leaked into Claude or failed to activate for Codex')
+console.log(`✓ only Codex trivial Reviewer uses the compact profile (${fullReviewer.length} → ${trivialReviewer.length} chars)`)
 
 const handoff = {
   plan: { summary: 'plan', complexity: 'medium', security_surface: 'elevated', steps: [{ what: 'change', files: ['src/a.js'], acceptance: 'test', user_facing: true }], risks: [], codebase_context: { stack: 'node', conventions: 'small modules', relevant_files: [{ path: 'src/a.js', role: 'primary', note: 'target' }], test_command: 'npm test', run_command: 'npm run dev' } },
@@ -104,6 +121,17 @@ if (planned.mode !== 'plan-only' || planOnlyCalls.join(',') !== 'planner') {
   throw new Error(`unexpected plan-only pipeline: mode=${planned.mode} roles=${planOnlyCalls.join(',')}`)
 }
 console.log('✓ plan-only stops after the planner')
+
+const cascadeCalls = []
+const cascade = createPipeline({
+  adapter: { async run(options) { cascadeCalls.push(options); return { value: cascadeCalls.length === 1 ? { summary: 'draft', complexity: 'complex', security_surface: 'none' } : { summary: 'refined', complexity: 'complex', security_surface: 'none' }, raw: '{}', usage: null } } },
+  schemas: { planner: 'plan', coder: 'code', reviewer: 'review' },
+  models: { planner: 'terra', plannerRefiner: 'sol' },
+  prompt: ({ role, context }) => JSON.stringify({ role, context }), cascadePlanning: true, retries: 0,
+})
+const cascaded = await cascade({ task: 'complex task', cwd: process.cwd(), planOnly: true })
+if (cascadeCalls.length !== 2 || cascadeCalls[0].model !== 'terra' || cascadeCalls[1].model !== 'sol' || !cascadeCalls[1].prompt.includes('draftPlan') || cascaded.plan.value.summary !== 'refined') throw new Error('complex planning did not cascade from Terra draft to Sol refinement')
+console.log('✓ complex/elevated Codex planning can cascade from Terra classification to Sol refinement')
 
 const approvedPlanCalls = []
 const approvedPlanPipeline = createPipeline({
@@ -221,6 +249,21 @@ await scopedPipeline({ task: 'scoped', cwd: process.cwd() })
 const scopedRoles = scopedContexts.filter(item => ['coder', 'reviewer'].includes(item.role))
 if (scopedRoles.length !== 2 || scopedRoles.some(item => item.context.scopedTests.command !== 'npm test -- test/a.test.js')) throw new Error('safe scoped test was not handed to Coder and Reviewer')
 console.log('✓ Codex scoped tests expand only validated repository-relative paths')
+
+const noTestContexts = []
+const noTestPipeline = createPipeline({
+  adapter: { async run(options) {
+    if (options.role === 'planner') return { value: { complexity: 'trivial', security_surface: 'none', steps: [{ files: ['package.json', 'src/a.js'] }], codebase_context: { relevant_files: [{ path: 'package.json', role: 'config' }], test_command: 'node --test', test_command_scoped: 'node --test {paths}' } }, raw: '{}' }
+    if (options.role === 'coder') return { value: {}, raw: '{}' }
+    return { value: { status: 'approved' }, raw: '{}' }
+  } },
+  schemas: { planner: 'plan', coder: 'code', reviewer: 'review' },
+  prompt: ({ context }) => { noTestContexts.push(context); return 'prompt' },
+  scopedTests: true, retries: 0,
+})
+await noTestPipeline({ task: 'no test path', cwd: process.cwd() })
+if (noTestContexts.some(context => context?.scopedTests)) throw new Error('scoped test fallback accepted a config or source file as a test target')
+console.log('✓ scoped tests fall back to the full suite instead of passing non-test files')
 NODE
 
 LDO_ISOLATION_WORK="$(mktemp -d)"
@@ -250,7 +293,7 @@ const approved = await loadApprovedPlan({ cwd: root, reference: saved.id })
 const run = await createRunCheckpoint({ cwd: root, approved })
 await checkpointRun({ state: run, checkpoint: 'coder', value: { summary: 'done' } })
 const resumed = await loadRunCheckpoint({ cwd: root, reference: 'latest' })
-if (resumed.completed.coder.summary !== 'done' || resumed.status !== 'running') throw new Error('run checkpoint did not preserve the completed Coder phase')
+if (resumed.completed.coder.summary !== 'done' || resumed.status !== 'running' || resumed.tokenUsage.status !== 'unavailable') throw new Error('run checkpoint did not preserve completed phase and incremental token totals')
 await finishRunCheckpoint({ state: resumed, result: { approved: true, record: { value: { backlog: { destination: 'file', file: 'docs/BACKLOG.md', count: 1 } } } } })
 const completed = JSON.parse(await readFile(resumed.path, 'utf8'))
 if (completed.status !== 'completed' || completed.backlog.count !== 1) throw new Error('terminal checkpoint did not preserve backlog outcome')

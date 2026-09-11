@@ -12,6 +12,7 @@ import { summarizeTokenUsage } from '../core/token-usage.mjs'
 // elevated/complex implementation and Security. CLI flags always win.
 const CODEX_DEFAULT_MODELS = {
   planner: 'gpt-5.6-terra',
+  plannerRefiner: 'gpt-5.6-sol',
   coder: plan => plan?.complexity === 'complex' || plan?.security_surface === 'elevated' ? 'gpt-5.6-sol' : 'gpt-5.6-terra',
   security: 'gpt-5.6-sol',
   reviewer: 'gpt-5.6-terra',
@@ -57,6 +58,12 @@ const schemas = Object.fromEntries(['researcher', 'planner', 'security', 'coder'
 const adapter = runtime === 'codex' ? createCodexCliAdapter() : createClaudeCliAdapter()
 let activeRun = null
 let usageEntries = []
+const roleModels = Object.fromEntries(['planner', 'researcher', 'coder', 'reviewer', 'security', 'recorder'].map(role => {
+  const override = options[`${role}Model`] || options.model
+  if (override || runtime !== 'codex') return [role, override]
+  return [role, CODEX_DEFAULT_MODELS[role]]
+}))
+roleModels.plannerRefiner = options.plannerModel || options.model || (runtime === 'codex' ? CODEX_DEFAULT_MODELS.plannerRefiner : undefined)
 
 const pipeline = createPipeline({
   adapter,
@@ -64,11 +71,7 @@ const pipeline = createPipeline({
   // bounded handoffs because every phase is a fresh CLI context.
   prompt: runtime === 'codex' ? buildCodexPrompt : buildPrompt,
   schemas,
-  models: Object.fromEntries(['planner', 'researcher', 'coder', 'reviewer', 'security', 'recorder'].map(role => {
-    const override = options[`${role}Model`] || options.model
-    if (override || runtime !== 'codex') return [role, override]
-    return [role, CODEX_DEFAULT_MODELS[role]]
-  })),
+  models: roleModels,
   async onEvent(event) {
     console.error(`[${event.role}] ${event.type}`)
     if (event.type === 'agent_finished') {
@@ -78,6 +81,7 @@ const pipeline = createPipeline({
     }
   },
   scopedTests: runtime === 'codex',
+  cascadePlanning: runtime === 'codex',
 })
 
 const originalCwd = process.cwd()

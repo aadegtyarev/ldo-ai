@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { summarizeTokenUsage } from './token-usage.mjs'
 
 const PLAN_ID = /^[a-z0-9][a-z0-9-]{0,95}$/
 
@@ -84,6 +85,7 @@ export async function checkpointRun({ state, checkpoint, value, usage = null, mo
   state.completed[checkpoint] = value
   state.usage ||= []
   state.usage.push({ stage: checkpoint, model, usage })
+  state.tokenUsage = summarizeTokenUsage(state.usage)
   await writeFile(state.path, `${JSON.stringify({ ...state, path: undefined }, null, 2)}\n`, 'utf8')
 }
 

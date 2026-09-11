@@ -5,6 +5,27 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.50.0] — 2026-09-11
+
+### Added
+
+- **Codex planning now cascades by risk.** Terra creates the initial plan;
+  complex or elevated drafts receive one Sol refinement pass before Security,
+  discussion, or implementation. Claude Code planning is unchanged.
+
+### Changed
+
+- **Trivial Codex reviews use a smaller instruction profile.** Core diff,
+  acceptance, test, contract, evidence, and edge-case gates remain, while
+  inapplicable migration and long-suite procedures are omitted. Claude Code
+  keeps the full Reviewer prompt.
+- **Running checkpoints now contain incremental token totals.** A crash after
+  Coder leaves both raw usage and an immediately readable aggregate; Recorder
+  output remains absent until that phase actually completes.
+- **Scoped test fallback no longer substitutes config/source files.** If no
+  test-like path is available, Codex uses the full suite instead of producing
+  commands such as `node --test package.json`.
+
 ## [2.49.0] — 2026-09-11
 
 ### Fixed
