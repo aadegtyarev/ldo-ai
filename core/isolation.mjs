@@ -54,7 +54,6 @@ export async function createIsolatedWorktree({ cwd, task, attempts = 5 }) {
   const worktreesRoot = resolve(root, '.worktrees')
   if (!isSafeChild(root, worktreesRoot)) throw new Error('refusing worktree path outside repository')
   await mkdir(worktreesRoot, { recursive: true })
-  const ignored = await ignoreWorktrees(root)
 
   let lastError
   for (let number = 1; number <= attempts; number++) {
@@ -81,10 +80,14 @@ export async function createIsolatedWorktree({ cwd, task, attempts = 5 }) {
       if (verifiedRoot !== path || verifiedHead !== baseHead || verifiedBranch !== branch) {
         throw new Error(`worktree verification failed: root=${verifiedRoot} head=${verifiedHead} branch=${verifiedBranch}`)
       }
-      return { path, branch, root, baseHead, ignored }
     } catch (error) {
       throw new Error(`worktree was created but could not be verified; refusing to create another: ${error.message}`)
     }
+
+    // Do not edit the caller's tree until the linked worktree has been proven.
+    // A failed `git worktree add` must not leave an unrelated .gitignore diff.
+    const ignored = await ignoreWorktrees(root)
+    return { path, branch, root, baseHead, ignored }
   }
   throw new Error(`could not create a verified isolated worktree after ${attempts} attempts: ${lastError?.message || 'all candidate paths already exist'}`)
 }
