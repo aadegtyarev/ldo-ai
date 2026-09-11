@@ -15,7 +15,8 @@ for path in core/pipeline.mjs adapters/codex-cli.mjs schemas/planner.json agents
 done
 grep -q 'Keep this line.' "$TARGET/AGENTS.md"
 grep -q '<!-- BEGIN ldo-codex -->' "$TARGET/AGENTS.md"
-grep -q 'node .codex/ldo/scripts/ldo-run.mjs --runtime codex --isolate' "$TARGET/AGENTS.md"
+grep -q 'node .codex/ldo/scripts/ldo-run.mjs --runtime codex "<the user request>"' "$TARGET/AGENTS.md"
+grep -q 'Do not add `--isolate` in a normal `workspace-write` Codex session' "$TARGET/AGENTS.md"
 grep -q 'You are an LDO subagent' "$TARGET/AGENTS.md"
 grep -Fxq '.codex/' "$TARGET/.gitignore"
 

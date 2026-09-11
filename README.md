@@ -93,8 +93,16 @@ also adds `.codex/` to the target's `.gitignore`; use it when LDO is a local
 per-developer tool alongside Claude Code. Without the flag, the installer never
 changes the target's `.gitignore`. On the next Codex session, ordinary
 non-trivial implementation requests automatically run the LDO planner → coder
-→ reviewer pipeline in an isolated worktree. One-file mechanical edits and
+→ reviewer pipeline in the current workspace. One-file mechanical edits and
 direct questions stay direct.
+
+Codex's normal `workspace-write` sandbox can write project files but may refuse
+the shared `.git/refs` update required by `git worktree add`. The automatic
+Codex route therefore does **not** pass `--isolate`; it works without disabling
+the sandbox. Use `--isolate` only from a host that explicitly permits Git
+metadata writes (such as an externally sandboxed bypass session), and run
+independent normal-sandbox tasks sequentially rather than with multiple
+`--task` flags.
 
 The install uses the existing authenticated `codex` CLI; it needs no API key,
 marketplace entry, or global Node package. Re-run the same command from a newer

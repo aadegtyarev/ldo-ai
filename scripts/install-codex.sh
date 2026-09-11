@@ -68,10 +68,10 @@ printf '%s\n' \
   'Use LDO for a non-trivial implementation request: a change spanning multiple files, a feature, a refactor, a bug whose cause is not already clear, or anything requiring a review. First tell the user that LDO is starting, then run:' \
   '' \
   '```sh' \
-  'node .codex/ldo/scripts/ldo-run.mjs --runtime codex --isolate "<the user request>"' \
+  'node .codex/ldo/scripts/ldo-run.mjs --runtime codex "<the user request>"' \
   '```' \
   '' \
-  'Use `--plan-only` for a request to plan without editing, `--research` when current external facts are required, and omit `--isolate` only when the task must deliberately modify the current working tree. For independent requests, pass each one as a separate `--task` flag.' \
+  'Use `--plan-only` for a request to plan without editing and `--research` when current external facts are required. Do not add `--isolate` in a normal `workspace-write` Codex session: Git worktree creation writes shared `.git/refs`, which that sandbox may forbid. Use `--isolate` only when the host explicitly permits Git metadata writes (for example, an externally sandboxed bypass session). Run independent tasks sequentially in the normal Codex path.' \
   '' \
   'If the prompt begins with `You are LDO'"'"'s` or says `You are an LDO subagent`, you are already a pipeline worker: do not invoke LDO again. Perform only the assigned role and return the requested JSON.' \
   '' \

@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.45.0] — 2026-09-11
+
+### Fixed
+
+- **The automatic Codex router no longer requires a sandbox bypass before it
+  can begin work.** It previously always passed `--isolate`, whose `git
+  worktree add` writes shared `.git/refs` metadata that a normal
+  `workspace-write` sandbox can deny even when the project tree itself is
+  writable. The normal Codex route now works in its current workspace;
+  isolation is explicit opt-in for hosts that deliberately permit Git metadata
+  writes. Claude Code's workflow and routing remain unchanged.
+
 ## [2.44.0] — 2026-09-11
 
 ### Changed
