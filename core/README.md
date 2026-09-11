@@ -40,3 +40,7 @@ Pass `--isolate` to create and verify a fresh `.worktrees/<task>` checkout on
 an `ldo/<task>` branch before any phase runs. The core verifies the linked
 worktree root, branch and base commit itself; it never falls back to the main
 checkout when isolation fails.
+
+Repeat `--task` to run independent features in parallel. LDO creates each
+feature's worktree serially first, then runs their agent phases concurrently;
+multi-task mode always isolates each feature.

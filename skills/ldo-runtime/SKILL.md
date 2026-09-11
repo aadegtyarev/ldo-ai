@@ -18,5 +18,9 @@ only when they request a separate worktree; it creates and proves a fresh
 that needs external evidence. The runtime prints one JSON result covering all
 phases; report its final approval status and any incomplete verification.
 
+For several independent features, repeat `--task "..."`. That mode creates an
+isolated worktree for every task before its phases run concurrently; do not
+batch dependent tasks.
+
 This is additive. `/ldo` continues to use the existing Claude workflow while
 the shared runtime is being migrated feature by feature.
