@@ -6,14 +6,14 @@ import { createPipeline } from '../core/pipeline.mjs'
 import { buildPrompt } from '../core/prompts.mjs'
 
 function usage() {
-  console.error('Usage: node scripts/ldo-run.mjs --runtime codex|claude [--model MODEL] [--planner-model MODEL] [--coder-model MODEL] [--reviewer-model MODEL] [--plan-only] "task"')
+  console.error('Usage: node scripts/ldo-run.mjs --runtime codex|claude [--model MODEL] [--planner-model MODEL] [--coder-model MODEL] [--reviewer-model MODEL] [--security-model MODEL] [--plan-only] [--security auto|true|false] "task"')
   process.exit(2)
 }
 
 const args = process.argv.slice(2)
-const options = { planOnly: false }
+const options = { planOnly: false, security: 'auto' }
 const taskParts = []
-const valueFlags = new Set(['--runtime', '--model', '--planner-model', '--coder-model', '--reviewer-model'])
+const valueFlags = new Set(['--runtime', '--model', '--planner-model', '--coder-model', '--reviewer-model', '--security-model', '--security'])
 for (let index = 0; index < args.length; index++) {
   const arg = args[index]
   if (arg === '--plan-only') {
@@ -29,9 +29,10 @@ for (let index = 0; index < args.length; index++) {
 const runtime = options.runtime
 const task = taskParts.join(' ').trim()
 if (!runtime || !task || !['codex', 'claude'].includes(runtime)) usage()
+if (!['auto', 'true', 'false'].includes(options.security)) usage()
 
 const root = resolve(new URL('..', import.meta.url).pathname)
-const schemas = Object.fromEntries(['planner', 'coder', 'reviewer'].map(role => [role, resolve(root, 'schemas', `${role}.json`)]))
+const schemas = Object.fromEntries(['planner', 'security', 'coder', 'reviewer'].map(role => [role, resolve(root, 'schemas', `${role}.json`)]))
 const adapter = runtime === 'codex' ? createCodexCliAdapter() : createClaudeCliAdapter()
 const pipeline = createPipeline({
   adapter,
@@ -41,11 +42,12 @@ const pipeline = createPipeline({
     planner: options.plannerModel || options.model,
     coder: options.coderModel || options.model,
     reviewer: options.reviewerModel || options.model,
+    security: options.securityModel || options.model,
   },
   onEvent(event) { console.error(`[${event.role}] ${event.type}`) },
 })
 
-pipeline({ task, cwd: process.cwd(), planOnly: options.planOnly }).then(result => {
+pipeline({ task, cwd: process.cwd(), planOnly: options.planOnly, security: options.security === 'auto' ? 'auto' : options.security === 'true' }).then(result => {
   console.log(JSON.stringify(result, null, 2))
   process.exitCode = result.mode === 'plan-only' || result.approved ? 0 : 1
 }).catch(error => {

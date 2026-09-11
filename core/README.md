@@ -22,8 +22,9 @@ node scripts/ldo-run.mjs --runtime codex "add rate limiting"
 node scripts/ldo-run.mjs --runtime claude "add rate limiting"
 ```
 
-Both use the same pipeline, prompts, schemas and review policy. This lets us
-move the remaining Claude-only features here incrementally.
+Both use the same Plan → Security (when elevated) → Code → Review policy,
+prompts and schemas. This lets us move the remaining Claude-only features here
+incrementally.
 
 Use `--plan-only` to stop after the Planner, or route roles independently:
 

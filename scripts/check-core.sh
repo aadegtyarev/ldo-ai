@@ -42,4 +42,23 @@ if (planned.mode !== 'plan-only' || planOnlyCalls.join(',') !== 'planner') {
   throw new Error(`unexpected plan-only pipeline: mode=${planned.mode} roles=${planOnlyCalls.join(',')}`)
 }
 console.log('✓ plan-only stops after the planner')
+
+const securityCalls = []
+const securityPipeline = createPipeline({
+  adapter: {
+    async run(options) {
+      securityCalls.push(options)
+      if (options.role === 'planner') return { value: { summary: 'plan', security_surface: 'elevated' }, raw: '{}' }
+      return { value: { status: 'clean', summary: 'threat model', findings: [], threat_model_notes: null }, raw: '{}' }
+    },
+  },
+  schemas: { planner: 'plan', security: 'security', coder: 'code', reviewer: 'review' },
+  prompt: ({ role }) => role,
+  retries: 0,
+})
+const securedPlan = await securityPipeline({ task: 'test', cwd: process.cwd(), planOnly: true })
+if (securityCalls.map(c => c.role).join(',') !== 'planner,security' || securedPlan.security?.value.status !== 'clean') {
+  throw new Error(`security phase did not follow elevated plan: ${securityCalls.map(c => c.role).join(',')}`)
+}
+console.log('✓ elevated plans run Security before plan-only returns')
 NODE
