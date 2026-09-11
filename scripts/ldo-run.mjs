@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { createClaudeCliAdapter } from '../adapters/claude-cli.mjs'
 import { createCodexCliAdapter } from '../adapters/codex-cli.mjs'
 import { createPipeline } from '../core/pipeline.mjs'
-import { buildPrompt } from '../core/prompts.mjs'
+import { buildCodexPrompt, buildPrompt } from '../core/prompts.mjs'
 import { createIsolatedWorktree } from '../core/isolation.mjs'
 
 // The portable runtime has no complexity tier before Planner returns, so route
@@ -55,7 +55,9 @@ const schemas = Object.fromEntries(['researcher', 'planner', 'security', 'coder'
 const adapter = runtime === 'codex' ? createCodexCliAdapter() : createClaudeCliAdapter()
 const pipeline = createPipeline({
   adapter,
-  prompt: buildPrompt,
+  // Claude retains its existing prompt exactly. Codex gets role-specific,
+  // bounded handoffs because every phase is a fresh CLI context.
+  prompt: runtime === 'codex' ? buildCodexPrompt : buildPrompt,
   schemas,
   models: {
     planner: options.plannerModel || options.model || CODEX_DEFAULT_MODELS.planner,

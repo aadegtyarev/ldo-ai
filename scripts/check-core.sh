@@ -7,6 +7,7 @@ cd "$ROOT"
 node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs'
 import { createPipeline } from './core/pipeline.mjs'
+import { buildCodexPrompt, buildPrompt } from './core/prompts.mjs'
 
 const runner = readFileSync('./scripts/ldo-run.mjs', 'utf8')
 const expectedModels = {
@@ -19,6 +20,19 @@ for (const [role, model] of Object.entries(expectedModels)) {
   }
 }
 console.log('✓ Codex model defaults use Sol for build-critical roles, Terra for checks, and Luna for records')
+
+const handoff = {
+  plan: { summary: 'plan', complexity: 'medium', security_surface: 'elevated', steps: [{ what: 'change', files: ['src/a.js'], acceptance: 'test', user_facing: true }], risks: [], codebase_context: { stack: 'node', conventions: 'small modules', relevant_files: [{ path: 'src/a.js', role: 'primary', note: 'target' }], test_command: 'npm test', run_command: 'npm run dev' } },
+  security: { status: 'findings', summary: 'secure', findings: [], threat_model_notes: null },
+  coder: { summary: 'FIRST-CODER-REPORT-MUST-NOT-REACH-FIX', files_changed: ['src/a.js'], tests: { result: 'passed', command: 'npm test' }, docs_updated: [], deviations: [] },
+  review: { status: 'changes_requested', summary: 'fix this', issues: [{ file: 'src/a.js', severity: 'major', what: 'missing case', suggestion: 'cover it' }], verification: { verdict: 'failed', criteria: [], blockers: [] }, attacks: [] },
+}
+const claudeFix = buildPrompt({ role: 'coder', task: 'task', context: handoff })
+const codexFix = buildCodexPrompt({ role: 'coder', task: 'task', context: handoff })
+if (!claudeFix.includes('FIRST-CODER-REPORT-MUST-NOT-REACH-FIX') || codexFix.includes('FIRST-CODER-REPORT-MUST-NOT-REACH-FIX') || !codexFix.includes('missing case') || !codexFix.includes('src/a.js')) {
+  throw new Error('Codex handoff did not retain plan/review while dropping the previous Coder report')
+}
+console.log('✓ Codex fix handoff retains actionable plan and review data but drops the previous Coder report; Claude prompt is unchanged')
 
 const calls = []
 const adapter = {

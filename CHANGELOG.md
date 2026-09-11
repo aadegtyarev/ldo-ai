@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.44.0] — 2026-09-11
+
+### Changed
+
+- **Codex phase handoffs now carry only actionable context.** Every Codex role
+  starts in a fresh CLI context, so the shared runtime projects previous phase
+  output by recipient and bounds lists and free-form text. A fix Coder gets the
+  plan, security report and review findings, but not its own prior report;
+  Reviewer and Recorder receive the corresponding compact evidence. The legacy
+  Claude Code workflow and portable `--runtime claude` prompt builder are
+  unchanged.
+
 ## [2.43.0] — 2026-09-11
 
 ### Added
