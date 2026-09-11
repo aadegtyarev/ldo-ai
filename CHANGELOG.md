@@ -5,6 +5,29 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.43.0] — 2026-09-11
+
+### Added
+
+- **Codex is now a first-class LDO runtime.** `scripts/install-codex.sh` installs
+  the project-local shared runtime under `.codex/ldo/` and adds a delimited,
+  idempotent router to `AGENTS.md`, preserving existing project instructions.
+  Non-trivial Codex implementation requests now run planner → coder → reviewer
+  in a verified isolated worktree; LDO workers are marked so they cannot
+  recursively re-enter the router. The same portable pipeline remains available
+  to Claude Code through the existing plugin and vendored install paths.
+
+- **Codex roles default to GPT-5.6 by responsibility:** Sol for planning,
+  implementation and security; Terra for research and review; Luna for the
+  structured recorder. `--model` and per-role `--*-model` flags override that
+  policy without editing project files.
+
+### Fixed
+
+- **Portable worktree setup no longer changes `.gitignore` before it has proved
+  the worktree exists.** A failed `git worktree add` therefore leaves no
+  unrelated source-tree diff behind.
+
 ## [2.42.0] — 2026-09-09
 
 ### Changed
