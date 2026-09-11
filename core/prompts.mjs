@@ -19,8 +19,12 @@ export function buildPrompt({ role, task, context }) {
     '## TASK',
     task,
   ]
-  if (context && Object.keys(context).length) {
-    sections.push('', '## PRIOR PHASE RESULTS', JSON.stringify(context, null, 2))
+  const { isolation, ...prior } = context || {}
+  if (isolation?.path && isolation?.branch) {
+    sections.push('', '## ISOLATION', `Your worktree is \`${isolation.path}\` on branch \`${isolation.branch}\`. Work only there; verify it with \`git rev-parse --show-toplevel\` before writing.`)
+  }
+  if (Object.keys(prior).length) {
+    sections.push('', '## PRIOR PHASE RESULTS', JSON.stringify(prior, null, 2))
   }
   sections.push('', 'Return only JSON that conforms to the supplied output schema. Do not wrap it in Markdown.')
   return sections.join('\n')

@@ -23,9 +23,10 @@ node scripts/ldo-run.mjs --runtime claude "add rate limiting"
 ```
 
 Both use the same optional Research → Plan → Security (when elevated) → Code
-→ Review policy, prompts and schemas. `--research` opts into external research
-before planning. This lets us move the remaining Claude-only features here
-incrementally.
+→ Review → Record policy, prompts and schemas. `--research` opts into external
+research before planning. Record persists review evidence for medium/complex
+or unapproved runs; pass `--no-record` to suppress it. This lets us move the
+remaining Claude-only features here incrementally.
 
 Use `--plan-only` to stop after the Planner, or route roles independently:
 

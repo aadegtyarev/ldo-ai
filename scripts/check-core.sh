@@ -80,6 +80,30 @@ if (researchCalls.map(c => c.role).join(',') !== 'researcher,planner' || researc
   throw new Error(`research phase was not carried into planning: ${researchCalls.map(c => c.role).join(',')}`)
 }
 console.log('✓ opt-in research runs before planning and is carried forward')
+
+const recordCalls = []
+const recordPipeline = createPipeline({
+  adapter: {
+    async run(options) {
+      recordCalls.push(options)
+      const values = {
+        planner: { complexity: 'medium', summary: 'plan', security_surface: 'none' },
+        coder: { summary: 'code' },
+        reviewer: { status: 'approved', summary: 'review' },
+        recorder: { worktree_root: process.cwd(), files_written: ['docs/reviews/test.md'], backlog: { destination: 'none', file: null, count: 0 }, notes: '' },
+      }
+      return { value: values[options.role], raw: '{}' }
+    },
+  },
+  schemas: { planner: 'plan', coder: 'code', reviewer: 'review', recorder: 'record' },
+  prompt: ({ role }) => role,
+  retries: 0,
+})
+const recorded = await recordPipeline({ task: 'test', cwd: process.cwd() })
+if (recordCalls.map(c => c.role).join(',') !== 'planner,coder,reviewer,recorder' || recordCalls.at(-1).writable !== true || recorded.record?.value.files_written.length !== 1) {
+  throw new Error(`record phase did not persist after an approved medium plan: ${recordCalls.map(c => c.role).join(',')}`)
+}
+console.log('✓ medium approved runs persist a recorder report')
 NODE
 
 LDO_ISOLATION_WORK="$(mktemp -d)"
