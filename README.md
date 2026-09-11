@@ -75,6 +75,12 @@ pipeline is also available to Codex through `node scripts/ldo-run.mjs --runtime
 codex "<task>"`. No second package manager, API key, or plugin install is
 needed for the Claude Code path.
 
+For the portable path from an installed Claude plugin, use
+`/ldo-runtime "<task>"`; it invokes the same core through the local Claude
+CLI. In Codex, run `node scripts/ldo-run.mjs --runtime codex "<task>"` from an
+LDO checkout. `/ldo` remains the current full Claude workflow during the
+migration.
+
 **After a plugin update, re-run `/ldo-init` in each project that has the block.** The block `/ldo-init` writes into `CLAUDE.md` is a snapshot of the version that wrote it — its first line carries an `<!-- ldo:version X -->` stamp, and every pipeline run logs its own version. When the two disagree the block is stale: it is describing flags and behaviour that have since moved. The re-run replaces the block in place and carries your drift log across unchanged, so it costs nothing to do. The stamp is a hint for you, not a check — nothing in the pipeline reads it.
 
 **Working purely in a cloud session that just clones a repo, with no plugin-install step of its own?** See [Vendoring LDO into a project](#vendoring-ldo-into-a-project) below — a project-native install with no plugin required.
