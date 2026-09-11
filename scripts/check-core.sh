@@ -5,7 +5,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs'
 import { createPipeline } from './core/pipeline.mjs'
+
+const runner = readFileSync('./scripts/ldo-run.mjs', 'utf8')
+const expectedModels = {
+  planner: 'gpt-5.6-sol', coder: 'gpt-5.6-sol', security: 'gpt-5.6-sol',
+  reviewer: 'gpt-5.6-terra', researcher: 'gpt-5.6-terra', recorder: 'gpt-5.6-luna',
+}
+for (const [role, model] of Object.entries(expectedModels)) {
+  if (!runner.includes(`${role}: '${model}'`) || !runner.includes(`options.${role}Model || options.model || CODEX_DEFAULT_MODELS.${role}`)) {
+    throw new Error(`Codex default or override precedence missing for ${role}`)
+  }
+}
+console.log('✓ Codex model defaults use Sol for build-critical roles, Terra for checks, and Luna for records')
 
 const calls = []
 const adapter = {

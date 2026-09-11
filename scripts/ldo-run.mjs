@@ -6,6 +6,19 @@ import { createPipeline } from '../core/pipeline.mjs'
 import { buildPrompt } from '../core/prompts.mjs'
 import { createIsolatedWorktree } from '../core/isolation.mjs'
 
+// The portable runtime has no complexity tier before Planner returns, so route
+// by the nature of the role. Sol protects the high-consequence decisions and
+// the source code; Terra is sufficient for bounded verification and research;
+// Luna only writes the structured run record. CLI flags below always win.
+const CODEX_DEFAULT_MODELS = {
+  planner: 'gpt-5.6-sol',
+  coder: 'gpt-5.6-sol',
+  security: 'gpt-5.6-sol',
+  reviewer: 'gpt-5.6-terra',
+  researcher: 'gpt-5.6-terra',
+  recorder: 'gpt-5.6-luna',
+}
+
 function usage() {
   console.error('Usage: node scripts/ldo-run.mjs --runtime codex|claude [--model MODEL] [--planner-model MODEL] [--researcher-model MODEL] [--coder-model MODEL] [--reviewer-model MODEL] [--security-model MODEL] [--recorder-model MODEL] [--research] [--plan-only] [--isolate] [--no-record] [--security auto|true|false] [--task "task"]... "task"')
   process.exit(2)
@@ -45,12 +58,12 @@ const pipeline = createPipeline({
   prompt: buildPrompt,
   schemas,
   models: {
-    planner: options.plannerModel || options.model,
-    researcher: options.researcherModel || options.model,
-    coder: options.coderModel || options.model,
-    reviewer: options.reviewerModel || options.model,
-    security: options.securityModel || options.model,
-    recorder: options.recorderModel || options.model,
+    planner: options.plannerModel || options.model || CODEX_DEFAULT_MODELS.planner,
+    researcher: options.researcherModel || options.model || CODEX_DEFAULT_MODELS.researcher,
+    coder: options.coderModel || options.model || CODEX_DEFAULT_MODELS.coder,
+    reviewer: options.reviewerModel || options.model || CODEX_DEFAULT_MODELS.reviewer,
+    security: options.securityModel || options.model || CODEX_DEFAULT_MODELS.security,
+    recorder: options.recorderModel || options.model || CODEX_DEFAULT_MODELS.recorder,
   },
   onEvent(event) { console.error(`[${event.role}] ${event.type}`) },
 })

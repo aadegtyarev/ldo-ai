@@ -97,6 +97,19 @@ The install uses the existing authenticated `codex` CLI; it needs no API key,
 marketplace entry, or global Node package. Re-run the same command from a newer
 LDO checkout to update the project-local runtime.
 
+The Codex defaults use the GPT-5.6 line by role:
+
+| Role | Model | Why |
+|---|---|---|
+| Planner, Coder, Security | `gpt-5.6-sol` | Architecture, implementation, and threat modelling carry the highest cost of being wrong. |
+| Reviewer, Researcher | `gpt-5.6-terra` | Independent review and scoped research are strong but bounded checks. |
+| Recorder | `gpt-5.6-luna` | It only writes a structured record from already-produced results. |
+
+`--model` replaces all six defaults; `--reviewer-model`, `--coder-model`, and
+the other role flags replace only that role. For example, use
+`--reviewer-model gpt-5.6-sol` when a change needs the strongest independent
+review.
+
 **After a plugin update, re-run `/ldo-init` in each project that has the block.** The block `/ldo-init` writes into `CLAUDE.md` is a snapshot of the version that wrote it — its first line carries an `<!-- ldo:version X -->` stamp, and every pipeline run logs its own version. When the two disagree the block is stale: it is describing flags and behaviour that have since moved. The re-run replaces the block in place and carries your drift log across unchanged, so it costs nothing to do. The stamp is a hint for you, not a check — nothing in the pipeline reads it.
 
 **Working purely in a cloud session that just clones a repo, with no plugin-install step of its own?** See [Vendoring LDO into a project](#vendoring-ldo-into-a-project) below — a project-native install with no plugin required.
