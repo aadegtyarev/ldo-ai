@@ -2,15 +2,14 @@ import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 /** Execution adapter for Claude Code's non-interactive CLI mode. */
-export function createClaudeCliAdapter({ binary = 'claude', permissionMode = 'dontAsk' } = {}) {
+export function createClaudeCliAdapter({ binary = 'claude', permissionMode = 'auto' } = {}) {
   return {
-    async run({ prompt, cwd, model, schema, writable = false }) {
+    async run({ prompt, cwd, model, schema }) {
       const jsonSchema = typeof schema === 'string' ? JSON.parse(readFileSync(schema, 'utf8')) : schema
       const args = [
         '--print', '--output-format', 'json',
         '--json-schema', JSON.stringify(jsonSchema),
-        '--permission-mode', writable ? 'acceptEdits' : permissionMode,
-        '--permission-prompts', 'none',
+        '--permission-mode', permissionMode,
       ]
       if (model) args.push('--model', model)
       args.push(prompt)

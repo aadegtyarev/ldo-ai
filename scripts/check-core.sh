@@ -11,6 +11,9 @@ import { buildCodexPrompt, buildPrompt, compiledRoleInstructions, roleInstructio
 import { summarizeTokenUsage } from './core/token-usage.mjs'
 
 const runner = readFileSync('./scripts/ldo-run.mjs', 'utf8')
+const claudeAdapter = readFileSync('./adapters/claude-cli.mjs', 'utf8')
+if (claudeAdapter.includes('--permission-prompts') || !claudeAdapter.includes("permissionMode = 'auto'") || claudeAdapter.includes("writable ? 'acceptEdits'")) throw new Error('Claude adapter uses removed or non-automating permission modes')
+console.log('✓ portable Claude adapter uses current auto permission mode for non-interactive edits and verification')
 const expectedModels = {
   planner: 'gpt-5.6-terra', coder: 'gpt-5.6-sol', security: 'gpt-5.6-sol',
   reviewer: 'gpt-5.6-terra', researcher: 'gpt-5.6-terra', recorder: 'gpt-5.6-luna',
@@ -58,10 +61,10 @@ if (!recorderPrompt.includes('final verdict') || !recorderPrompt.includes('UNRES
 console.log('✓ Reviewer and Recorder receive narrow role-specific Codex handoffs')
 
 const usage = summarizeTokenUsage([
-  { stage: 'planner', model: 'terra', usage: { input_tokens: 100, cached_input_tokens: 60, output_tokens: 20, total_tokens: 120 } },
-  { stage: 'coder', model: 'sol', usage: { input_tokens: 200, cached_input_tokens: 150, output_tokens: 40, total_tokens: 240 } },
+  { stage: 'planner', model: 'terra', usage: { input_tokens: 100, cache_creation_input_tokens: 10, cache_read_input_tokens: 60, output_tokens: 20 } },
+  { stage: 'coder', model: 'sol', usage: { input_tokens: 200, cache_creation_input_tokens: 20, cache_read_input_tokens: 150, output_tokens: 40 } },
 ])
-if (usage.status !== 'measured' || usage.input_tokens !== 300 || usage.cached_input_tokens !== 210 || usage.output_tokens !== 60 || usage.stages[1].model !== 'sol') throw new Error('per-stage token usage was not aggregated accurately')
+if (usage.status !== 'measured' || usage.input_tokens !== 300 || usage.cache_creation_input_tokens !== 30 || usage.cached_input_tokens !== 210 || usage.output_tokens !== 60 || usage.total_tokens !== 600 || usage.stages[1].model !== 'sol') throw new Error('per-stage token usage was not aggregated accurately')
 const unavailableUsage = summarizeTokenUsage([{ stage: 'reviewer', model: 'terra', usage: null }])
 if (unavailableUsage.status !== 'unavailable' || unavailableUsage.input_tokens !== null) throw new Error('missing CLI usage must not be reported as zero')
 console.log('✓ Codex token usage reports real per-stage counters and never turns missing data into zero')

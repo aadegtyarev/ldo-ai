@@ -5,6 +5,21 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.49.0] — 2026-09-11
+
+### Fixed
+
+- **The portable Claude runtime works with current Claude Code releases.** A
+  real CLI smoke test found that `--permission-prompts`, removed from Claude
+  Code 2.1.236, prevented Planner from starting. The old `dontAsk`/`acceptEdits`
+  split also denied every test command in non-interactive runs. The adapter now
+  uses the supported `--permission-mode auto`, which a live smoke test proved
+  can edit and run verification without prompts; the legacy plugin workflow is
+  unaffected.
+- **Claude cache usage is normalized in portable token reports.**
+  `cache_read_input_tokens` and `cache_creation_input_tokens` now contribute to
+  per-stage and total measurements instead of appearing unavailable.
+
 ## [2.48.0] — 2026-09-11
 
 ### Changed

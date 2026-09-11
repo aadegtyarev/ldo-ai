@@ -146,7 +146,7 @@ Reviewer receives only acceptance criteria plus changed-file and test evidence,
 rather than the full implementation plan. Recorder receives the final verdict,
 unresolved issues, changed-file evidence, and only the small plan metadata
 needed for persistent documentation. Each Codex result includes `tokenUsage`
-with input, cached-input, output, and total token counters per stage and in
+with input, cache-creation, cached-input, output, and total token counters per stage and in
 aggregate. Counters unavailable from the CLI remain `null`, never a misleading
 zero; plan artifacts and run checkpoints preserve the measurements across
 approval pauses and crash recovery.
