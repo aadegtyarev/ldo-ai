@@ -6,6 +6,7 @@ import { createPipeline } from '../core/pipeline.mjs'
 import { buildCodexPrompt, buildPrompt } from '../core/prompts.mjs'
 import { createIsolatedWorktree } from '../core/isolation.mjs'
 import { checkpointRun, createRunCheckpoint, finishRunCheckpoint, loadApprovedPlan, loadRunCheckpoint, saveApprovedPlan } from '../core/plan-store.mjs'
+import { summarizeTokenUsage } from '../core/token-usage.mjs'
 
 // Planner is Terra until it has classified the task; Sol is reserved for
 // elevated/complex implementation and Security. CLI flags always win.
@@ -55,6 +56,8 @@ const root = resolve(new URL('..', import.meta.url).pathname)
 const schemas = Object.fromEntries(['researcher', 'planner', 'security', 'coder', 'reviewer', 'recorder'].map(role => [role, resolve(root, 'schemas', `${role}.json`)]))
 const adapter = runtime === 'codex' ? createCodexCliAdapter() : createClaudeCliAdapter()
 let activeRun = null
+let usageEntries = []
+
 const pipeline = createPipeline({
   adapter,
   // Claude retains its existing prompt exactly. Codex gets role-specific,
@@ -68,7 +71,11 @@ const pipeline = createPipeline({
   })),
   async onEvent(event) {
     console.error(`[${event.role}] ${event.type}`)
-    if (event.type === 'agent_finished' && activeRun && event.checkpoint) await checkpointRun({ state: activeRun, checkpoint: event.checkpoint, value: event.result.value })
+    if (event.type === 'agent_finished') {
+      const entry = { stage: event.checkpoint || event.role, model: event.model || null, usage: event.result.usage || null }
+      usageEntries.push(entry)
+      if (activeRun && event.checkpoint) await checkpointRun({ state: activeRun, checkpoint: event.checkpoint, value: event.result.value, usage: entry.usage, model: entry.model })
+    }
   },
   scopedTests: runtime === 'codex',
 })
@@ -90,21 +97,25 @@ async function runTask(task, isolation, approved = null, completed = {}, planOnl
     approvedSecurity: approved?.security || null,
     completed,
   })
+  const tokenUsage = summarizeTokenUsage(usageEntries)
+  const enriched = { ...result, tokenUsage }
   const planArtifact = runtime === 'codex' && planOnly
-    ? await saveApprovedPlan({ cwd: isolation?.path || originalCwd, task, plan: result.plan.value, security: result.security?.value })
+    ? await saveApprovedPlan({ cwd: isolation?.path || originalCwd, task, plan: result.plan.value, security: result.security?.value, usage: usageEntries })
     : null
-  if (activeRun && !planOnly) await finishRunCheckpoint({ state: activeRun, result })
-  return { ...result, isolation, planArtifact, runCheckpoint: activeRun?.path || null }
+  if (activeRun && !planOnly) await finishRunCheckpoint({ state: activeRun, result: enriched })
+  return { ...enriched, isolation, planArtifact, runCheckpoint: activeRun?.path || null }
 }
 
 async function main() {
   if (options.resumeRun) {
     activeRun = await loadRunCheckpoint({ cwd: originalCwd, reference: options.resumeRun })
+    usageEntries = [...(activeRun.usage || [])]
     console.error(`[resume] continuing ${activeRun.id} from ${Object.keys(activeRun.completed).join(', ') || 'the first incomplete phase'}`)
     return runTask(activeRun.task, null, activeRun, activeRun.completed)
   }
   if (options.continuePlan) {
     const approved = await loadApprovedPlan({ cwd: originalCwd, reference: options.continuePlan })
+    usageEntries = [...(approved.usage || [])]
     console.error(`[plan] continuing ${approved.id} validated against ${approved.baseHead}`)
     activeRun = await createRunCheckpoint({ cwd: originalCwd, approved })
     return runTask(approved.task, null, approved)

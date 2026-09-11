@@ -33,7 +33,7 @@ async function rootOf(cwd) { return git(['rev-parse', '--show-toplevel'], cwd) }
 async function planDirectory(cwd) { return join(await rootOf(cwd), '.codex', 'ldo', 'plans') }
 async function runDirectory(cwd) { return join(await rootOf(cwd), '.codex', 'ldo', 'runs') }
 
-export async function saveApprovedPlan({ cwd, task, plan, security }) {
+export async function saveApprovedPlan({ cwd, task, plan, security, usage = [] }) {
   if (!isPlan(plan) || !isSecurity(security)) throw new Error('refusing to save malformed plan artifact')
   const root = await rootOf(cwd)
   const baseHead = await git(['rev-parse', 'HEAD'], root)
@@ -41,7 +41,7 @@ export async function saveApprovedPlan({ cwd, task, plan, security }) {
   await mkdir(directory, { recursive: true })
   const id = `${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 17)}-${slug(task)}-${randomBytes(3).toString('hex')}`
   const path = join(directory, `${id}.json`)
-  const artifact = { version: 1, id, root, baseHead, createdAt: new Date().toISOString(), task, plan, security: security || null }
+  const artifact = { version: 1, id, root, baseHead, createdAt: new Date().toISOString(), task, plan, security: security || null, usage }
   await writeFile(path, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8')
   return { id, path, baseHead, createdAt: artifact.createdAt }
 }
@@ -74,14 +74,16 @@ export async function createRunCheckpoint({ cwd, approved }) {
   await mkdir(directory, { recursive: true })
   const id = approved.id
   const path = join(directory, `${id}.json`)
-  const state = { version: 1, id, root: approved.root, baseHead: approved.baseHead, task: approved.task, plan: approved.plan, security: approved.security, status: 'running', startedAt: new Date().toISOString(), completed: {} }
+  const state = { version: 1, id, root: approved.root, baseHead: approved.baseHead, task: approved.task, plan: approved.plan, security: approved.security, status: 'running', startedAt: new Date().toISOString(), usage: approved.usage || [], completed: {} }
   await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
   return { ...state, path }
 }
 
-export async function checkpointRun({ state, checkpoint, value }) {
+export async function checkpointRun({ state, checkpoint, value, usage = null, model = null }) {
   if (!state || !PLAN_ID.test(state.id) || typeof checkpoint !== 'string') throw new Error('invalid run checkpoint')
   state.completed[checkpoint] = value
+  state.usage ||= []
+  state.usage.push({ stage: checkpoint, model, usage })
   await writeFile(state.path, `${JSON.stringify({ ...state, path: undefined }, null, 2)}\n`, 'utf8')
 }
 
@@ -91,6 +93,7 @@ export async function finishRunCheckpoint({ state, result }) {
   state.completedAt = new Date().toISOString()
   state.approved = result.approved === true
   state.backlog = result.record?.value?.backlog || { destination: 'none', file: null, count: 0 }
+  state.tokenUsage = result.tokenUsage || null
   await writeFile(state.path, `${JSON.stringify({ ...state, path: undefined }, null, 2)}\n`, 'utf8')
 }
 

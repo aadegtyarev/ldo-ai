@@ -2383,7 +2383,7 @@ function renderCost(cost) {
 // Nothing here reads or branches on the stamp — the stamp is a hint to re-run
 // /ldo-init, never a check, because an agent-written marker in a repo file
 // proves nothing about what surrounds it.
-const LDO_VERSION = '2.46.0'
+const LDO_VERSION = '2.47.0'
 
 // ═══════════════════════════════════════════
 // CONFIG

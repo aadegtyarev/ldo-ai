@@ -142,6 +142,15 @@ it only with validated repository-relative paths and sends the narrow command
 to Coder and Reviewer before broader verification, reducing test time and
 context without allowing arbitrary shell composition.
 
+Reviewer receives only acceptance criteria plus changed-file and test evidence,
+rather than the full implementation plan. Recorder receives the final verdict,
+unresolved issues, changed-file evidence, and only the small plan metadata
+needed for persistent documentation. Each Codex result includes `tokenUsage`
+with input, cached-input, output, and total token counters per stage and in
+aggregate. Counters unavailable from the CLI remain `null`, never a misleading
+zero; plan artifacts and run checkpoints preserve the measurements across
+approval pauses and crash recovery.
+
 **After a plugin update, re-run `/ldo-init` in each project that has the block.** The block `/ldo-init` writes into `CLAUDE.md` is a snapshot of the version that wrote it — its first line carries an `<!-- ldo:version X -->` stamp, and every pipeline run logs its own version. When the two disagree the block is stale: it is describing flags and behaviour that have since moved. The re-run replaces the block in place and carries your drift log across unchanged, so it costs nothing to do. The stamp is a hint for you, not a check — nothing in the pipeline reads it.
 
 **Working purely in a cloud session that just clones a repo, with no plugin-install step of its own?** See [Vendoring LDO into a project](#vendoring-ldo-into-a-project) below — a project-native install with no plugin required.

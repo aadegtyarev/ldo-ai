@@ -8,6 +8,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs'
 import { createPipeline } from './core/pipeline.mjs'
 import { buildCodexPrompt, buildPrompt } from './core/prompts.mjs'
+import { summarizeTokenUsage } from './core/token-usage.mjs'
 
 const runner = readFileSync('./scripts/ldo-run.mjs', 'utf8')
 const expectedModels = {
@@ -33,6 +34,26 @@ if (!claudeFix.includes('FIRST-CODER-REPORT-MUST-NOT-REACH-FIX') || codexFix.inc
   throw new Error('Codex handoff did not retain plan/review while dropping the previous Coder report')
 }
 console.log('✓ Codex fix handoff retains actionable plan and review data but drops the previous Coder report; Claude prompt is unchanged')
+
+const narrowContext = {
+  plan: { summary: 'FULL-PLAN-SUMMARY-SENTINEL', complexity: 'complex', security_surface: 'none', risks: ['PLAN-RISK-SENTINEL'], steps: [{ what: 'IMPLEMENTATION-DETAIL-SENTINEL', files: ['src/a.js'], acceptance: 'returns the expected value' }], codebase_context: { stack: 'node', relevant_files: [] } },
+  coder: { summary: 'CODER-NARRATIVE-SENTINEL', files_changed: ['src/a.js'], tests: { command: 'npm test', result: 'passed' }, docs_updated: [], deviations: [] },
+  review: { status: 'changes_requested', summary: 'final verdict', issues: [{ file: 'src/a.js', severity: 'major', what: 'UNRESOLVED-SENTINEL', suggestion: 'fix it' }], verification: { verdict: 'failed', criteria: [{ criterion: 'x', status: 'failed', evidence: 'VERIFICATION-EVIDENCE-SENTINEL', note: '' }], blockers: [] }, attacks: [] },
+}
+const reviewerPrompt = buildCodexPrompt({ role: 'reviewer', task: 'task', context: narrowContext })
+if (!reviewerPrompt.includes('returns the expected value') || !reviewerPrompt.includes('src/a.js') || reviewerPrompt.includes('FULL-PLAN-SUMMARY-SENTINEL') || reviewerPrompt.includes('PLAN-RISK-SENTINEL') || reviewerPrompt.includes('IMPLEMENTATION-DETAIL-SENTINEL')) throw new Error('Reviewer received more than acceptance criteria and changed-file evidence')
+const recorderPrompt = buildCodexPrompt({ role: 'recorder', task: 'task', context: narrowContext })
+if (!recorderPrompt.includes('final verdict') || !recorderPrompt.includes('UNRESOLVED-SENTINEL') || recorderPrompt.includes('VERIFICATION-EVIDENCE-SENTINEL') || recorderPrompt.includes('IMPLEMENTATION-DETAIL-SENTINEL') || recorderPrompt.includes('CODER-NARRATIVE-SENTINEL')) throw new Error('Recorder handoff was not reduced to verdict, unresolved work, and compact run metadata')
+console.log('✓ Reviewer and Recorder receive narrow role-specific Codex handoffs')
+
+const usage = summarizeTokenUsage([
+  { stage: 'planner', model: 'terra', usage: { input_tokens: 100, cached_input_tokens: 60, output_tokens: 20, total_tokens: 120 } },
+  { stage: 'coder', model: 'sol', usage: { input_tokens: 200, cached_input_tokens: 150, output_tokens: 40, total_tokens: 240 } },
+])
+if (usage.status !== 'measured' || usage.input_tokens !== 300 || usage.cached_input_tokens !== 210 || usage.output_tokens !== 60 || usage.stages[1].model !== 'sol') throw new Error('per-stage token usage was not aggregated accurately')
+const unavailableUsage = summarizeTokenUsage([{ stage: 'reviewer', model: 'terra', usage: null }])
+if (unavailableUsage.status !== 'unavailable' || unavailableUsage.input_tokens !== null) throw new Error('missing CLI usage must not be reported as zero')
+console.log('✓ Codex token usage reports real per-stage counters and never turns missing data into zero')
 
 const calls = []
 const adapter = {

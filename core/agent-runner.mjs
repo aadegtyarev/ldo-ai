@@ -14,19 +14,19 @@ export function createAgentRunner(adapter, { retries = 1, onEvent = () => {} } =
   return async function runAgent(options) {
     let lastError
     for (let attempt = 0; attempt <= retries; attempt++) {
-      await onEvent({ type: 'agent_started', role: options.role, checkpoint: options.checkpoint, attempt: attempt + 1 })
+      await onEvent({ type: 'agent_started', role: options.role, checkpoint: options.checkpoint, model: options.model, attempt: attempt + 1 })
       try {
         const result = await adapter.run(options)
         if (!result || typeof result !== 'object') throw new Error('Adapter returned no result')
         try {
-          await onEvent({ type: 'agent_finished', role: options.role, checkpoint: options.checkpoint, attempt: attempt + 1, result })
+          await onEvent({ type: 'agent_finished', role: options.role, checkpoint: options.checkpoint, model: options.model, attempt: attempt + 1, result })
         } catch (error) {
           throw new Error(`agent finished but its checkpoint could not be saved: ${error.message}`)
         }
         return { ...result, role: options.role, attempt: attempt + 1 }
       } catch (error) {
         lastError = error
-        await onEvent({ type: 'agent_failed', role: options.role, checkpoint: options.checkpoint, attempt: attempt + 1, error })
+        await onEvent({ type: 'agent_failed', role: options.role, checkpoint: options.checkpoint, model: options.model, attempt: attempt + 1, error })
         if (error.message.startsWith('agent finished but its checkpoint could not be saved:')) break
         if (attempt < retries) continue
       }

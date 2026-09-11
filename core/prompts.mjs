@@ -77,6 +77,27 @@ function planHandoff(plan) {
   }
 }
 
+function reviewerPlanHandoff(plan) {
+  if (!plan || typeof plan !== 'object') return plan
+  return {
+    acceptance_criteria: list(plan.steps, step => ({ acceptance: text(step?.acceptance), files: list(step?.files, file => text(file, 300)) })),
+  }
+}
+
+function recorderPlanHandoff(plan) {
+  if (!plan || typeof plan !== 'object') return plan
+  const codebase = plan.codebase_context || {}
+  return {
+    complexity: plan.complexity, security_surface: plan.security_surface, summary: text(plan.summary, 600),
+    architecture: { stack: text(codebase.stack, 300), relevant_files: list(codebase.relevant_files, file => ({ path: text(file?.path, 300), role: text(file?.role, 120) })) },
+  }
+}
+
+function recorderReviewHandoff(report) {
+  if (!report || typeof report !== 'object') return report
+  return { status: report.status, summary: text(report.summary, 600), unresolved_issues: list(report.issues, issue => ({ file: text(issue?.file, 300), severity: issue?.severity, what: text(issue?.what), suggestion: text(issue?.suggestion) })) }
+}
+
 function securityHandoff(report) {
   if (!report || typeof report !== 'object') return report
   return {
@@ -124,12 +145,15 @@ export function compactCodexContext(role, context) {
   const { isolation, scopedTests, research, plan, security, coder, review, previousReview } = context || {}
   const compact = isolation ? { isolation } : {}
   if (role === 'planner' && research) compact.research = researchHandoff(research)
-  if (['security', 'coder', 'reviewer', 'recorder'].includes(role) && plan) compact.plan = planHandoff(plan)
+  if (['security', 'coder'].includes(role) && plan) compact.plan = planHandoff(plan)
+  if (role === 'reviewer' && plan) compact.plan = reviewerPlanHandoff(plan)
+  if (role === 'recorder' && plan) compact.plan = recorderPlanHandoff(plan)
   if (['coder', 'reviewer', 'recorder'].includes(role) && security) compact.security = securityHandoff(security)
-  if (['reviewer', 'recorder'].includes(role) && coder) compact.coder = coderHandoff(coder)
+  if (role === 'reviewer' && coder) compact.coder = coderHandoff(coder)
+  if (role === 'recorder' && coder) compact.coder = { files_changed: list(coder.files_changed, file => text(file, 300)), tests: coder.tests, docs_updated: list(coder.docs_updated, file => text(file, 300)) }
   if (role === 'coder' && review) compact.review = reviewHandoff(review)
   if (role === 'reviewer' && previousReview) compact.previousReview = reviewHandoff(previousReview)
-  if (role === 'recorder' && review) compact.review = reviewHandoff(review)
+  if (role === 'recorder' && review) compact.review = recorderReviewHandoff(review)
   if (['coder', 'reviewer'].includes(role) && scopedTests) compact.scopedTests = scopedTests
   return compact
 }

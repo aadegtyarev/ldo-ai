@@ -31,7 +31,7 @@ Drop an LDO instruction block into the project's `CLAUDE.md` so Claude self-rout
 
 ```markdown
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.46.0 -->
+<!-- ldo:version 2.47.0 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for

@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.47.0] — 2026-09-11
+
+### Changed
+
+- **Codex Reviewer and Recorder handoffs are narrower.** Reviewer receives
+  acceptance criteria and changed-file evidence instead of the full plan;
+  Recorder receives the verdict, unresolved work, and compact documentation
+  metadata. The Claude Code workflow remains unchanged.
+- **Codex reports measured token usage per pipeline stage.** Input, cached
+  input, output, and total counters are aggregated, persisted across plan
+  approval and crash resume, and left null when the CLI does not expose them.
+  The installed orchestrator must print a concise operator report after every
+  completed pipeline, including usage, checkpoint, and backlog results.
+
 ## [2.46.0] — 2026-09-11
 
 ### Added
