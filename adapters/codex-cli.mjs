@@ -4,12 +4,13 @@ import { spawn } from 'node:child_process'
 /** Execution adapter for the installed `codex exec` CLI. */
 export function createCodexCliAdapter({ binary = 'codex', sandbox = 'read-only' } = {}) {
   return {
-    async run({ prompt, cwd, model, schema, writable = false }) {
+    async run({ prompt, cwd, model, schema, writable = false, search = false }) {
       const args = [
         '--ask-for-approval', 'never', '--sandbox', writable ? 'workspace-write' : sandbox,
         'exec', '--ephemeral', '--skip-git-repo-check',
         '--output-schema', schema, '--json', '-C', cwd, prompt,
       ]
+      if (search) args.splice(0, 0, '--search')
       if (model) args.splice(0, 0, '--model', model)
 
       return new Promise((resolve, reject) => {

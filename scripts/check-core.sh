@@ -61,6 +61,25 @@ if (securityCalls.map(c => c.role).join(',') !== 'planner,security' || securedPl
   throw new Error(`security phase did not follow elevated plan: ${securityCalls.map(c => c.role).join(',')}`)
 }
 console.log('✓ elevated plans run Security before plan-only returns')
+
+const researchCalls = []
+const researchPipeline = createPipeline({
+  adapter: {
+    async run(options) {
+      researchCalls.push(options)
+      if (options.role === 'researcher') return { value: { summary: 'research' }, raw: '{}' }
+      return { value: { summary: 'plan', security_surface: 'none' }, raw: '{}' }
+    },
+  },
+  schemas: { researcher: 'research', planner: 'plan', coder: 'code', reviewer: 'review' },
+  prompt: ({ role }) => role,
+  retries: 0,
+})
+const researchedPlan = await researchPipeline({ task: 'test', cwd: process.cwd(), research: true, planOnly: true })
+if (researchCalls.map(c => c.role).join(',') !== 'researcher,planner' || researchCalls[0].search !== true || researchedPlan.research?.value.summary !== 'research') {
+  throw new Error(`research phase was not carried into planning: ${researchCalls.map(c => c.role).join(',')}`)
+}
+console.log('✓ opt-in research runs before planning and is carried forward')
 NODE
 
 LDO_ISOLATION_WORK="$(mktemp -d)"

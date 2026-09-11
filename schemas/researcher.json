@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "question": { "type": "string" },
+    "summary": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "claim": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "sources": { "type": "array", "items": { "type": "string" } },
+          "contradictions": { "type": "string" }
+        },
+        "required": ["claim", "confidence", "sources", "contradictions"],
+        "additionalProperties": false
+      }
+    },
+    "recommendations": { "type": "array", "items": { "type": "string" } },
+    "gaps": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["question", "summary", "findings", "recommendations", "gaps"],
+  "additionalProperties": false
+}

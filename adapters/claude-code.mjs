@@ -8,7 +8,7 @@
 export function createClaudeCodeAdapter(agent) {
   if (typeof agent !== 'function') throw new TypeError('Claude agent function is required')
   return {
-    async run({ prompt, model, schema, writable: _writable, cwd: _cwd, role: _role, ...metadata }) {
+    async run({ prompt, model, schema, writable: _writable, cwd: _cwd, role: _role, search: _search, ...metadata }) {
       const value = await agent(prompt, { model, schema, ...metadata })
       return { value, raw: JSON.stringify(value), usage: null }
     },
