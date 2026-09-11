@@ -151,6 +151,12 @@ aggregate. Counters unavailable from the CLI remain `null`, never a misleading
 zero; plan artifacts and run checkpoints preserve the measurements across
 approval pauses and crash recovery.
 
+The role Markdown remains one shared source for Claude Code and Codex. Before
+launching either portable CLI, LDO strips plugin frontmatter and the embedded
+JSON output example because the same strict schema is already supplied
+separately. Behavioral and safety rules remain shared and unchanged, while the
+duplicated static input is no longer paid on every agent call.
+
 **After a plugin update, re-run `/ldo-init` in each project that has the block.** The block `/ldo-init` writes into `CLAUDE.md` is a snapshot of the version that wrote it — its first line carries an `<!-- ldo:version X -->` stamp, and every pipeline run logs its own version. When the two disagree the block is stale: it is describing flags and behaviour that have since moved. The re-run replaces the block in place and carries your drift log across unchanged, so it costs nothing to do. The stamp is a hint for you, not a check — nothing in the pipeline reads it.
 
 **Working purely in a cloud session that just clones a repo, with no plugin-install step of its own?** See [Vendoring LDO into a project](#vendoring-ldo-into-a-project) below — a project-native install with no plugin required.

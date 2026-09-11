@@ -8,14 +8,25 @@ export function roleInstructions(role) {
   return readFileSync(path, 'utf8')
 }
 
+// Role files double as human-readable documentation. The CLI already receives
+// the strict JSON Schema separately, so sending its large example again costs
+// input tokens without adding a constraint. Frontmatter is plugin metadata,
+// not agent guidance. Keep one shared source while stripping both at render.
+export function compiledRoleInstructions(role) {
+  return roleInstructions(role)
+    .replace(/^---\n[\s\S]*?\n---\n+/, '')
+    .replace(/\n## OUTPUT SCHEMA\n+```json\n[\s\S]*?\n```\n?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 export function buildPrompt({ role, task, context }) {
   const sections = [
-    `You are LDO's ${role}.`,
     'You are an LDO subagent. Do not invoke the LDO orchestrator or start another LDO pipeline; complete only this assigned role.',
-    'Follow the role instructions below. Work only in the current repository.',
+    'Work only in the current repository.',
     '',
     '## ROLE INSTRUCTIONS',
-    roleInstructions(role),
+    compiledRoleInstructions(role),
     '',
     '## TASK',
     task,

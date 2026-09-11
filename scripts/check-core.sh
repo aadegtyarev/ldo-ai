@@ -7,7 +7,7 @@ cd "$ROOT"
 node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs'
 import { createPipeline } from './core/pipeline.mjs'
-import { buildCodexPrompt, buildPrompt } from './core/prompts.mjs'
+import { buildCodexPrompt, buildPrompt, compiledRoleInstructions, roleInstructions } from './core/prompts.mjs'
 import { summarizeTokenUsage } from './core/token-usage.mjs'
 
 const runner = readFileSync('./scripts/ldo-run.mjs', 'utf8')
@@ -21,6 +21,17 @@ for (const [role, model] of Object.entries(expectedModels)) {
   }
 }
 console.log('✓ Codex model defaults reserve Sol for complex/elevated coding and Security, with Terra planning/review and Luna recording')
+
+let sourceBytes = 0; let compiledBytes = 0
+for (const role of ['researcher', 'planner', 'security', 'coder', 'reviewer', 'recorder']) {
+  const source = roleInstructions(role)
+  const compiled = compiledRoleInstructions(role)
+  sourceBytes += Buffer.byteLength(source); compiledBytes += Buffer.byteLength(compiled)
+  if (compiled.startsWith('---') || compiled.includes('## OUTPUT SCHEMA') || compiled.includes('```json')) throw new Error(`compiled ${role} prompt retained metadata or duplicate schema`)
+}
+if (compiledBytes >= sourceBytes * 0.92) throw new Error(`role prompt compaction saved too little: ${sourceBytes} -> ${compiledBytes}`)
+if (!compiledRoleInstructions('reviewer').includes('Evidence is mandatory') || !compiledRoleInstructions('recorder').includes('## BACKLOG DESTINATION')) throw new Error('prompt compaction removed a required behavioral invariant')
+console.log(`✓ shared role prompts drop duplicate schemas and metadata (${sourceBytes} → ${compiledBytes} bytes) while retaining behavioral rules`)
 
 const handoff = {
   plan: { summary: 'plan', complexity: 'medium', security_surface: 'elevated', steps: [{ what: 'change', files: ['src/a.js'], acceptance: 'test', user_facing: true }], risks: [], codebase_context: { stack: 'node', conventions: 'small modules', relevant_files: [{ path: 'src/a.js', role: 'primary', note: 'target' }], test_command: 'npm test', run_command: 'npm run dev' } },

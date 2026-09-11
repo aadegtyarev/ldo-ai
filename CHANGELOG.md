@@ -5,6 +5,16 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.48.0] — 2026-09-11
+
+### Changed
+
+- **Portable Claude and Codex agents now receive compacted shared role
+  instructions.** LDO removes plugin frontmatter and embedded JSON output
+  examples at prompt-render time because the CLI already receives the same
+  strict schema separately. One source of truth and all behavioral safeguards
+  remain; duplicated static input is no longer sent on every phase.
+
 ## [2.47.0] — 2026-09-11
 
 ### Changed
