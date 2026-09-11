@@ -69,6 +69,12 @@ Requires Claude Code v2.1.154 or newer — that's the release that added the wor
 
 Pick **user** scope when Claude Code asks, unless you're setting this up for a team — then see [Set up a project for a team](#set-up-a-project-for-a-team). Updates come with `/plugin update ldo@ldo-ai`.
 
+The same install remains valid as LDO gains its runtime-neutral core: Claude
+Code continues to run `/ldo:ldo`; the shared `planner → coder → reviewer`
+pipeline is also available to Codex through `node scripts/ldo-run.mjs --runtime
+codex "<task>"`. No second package manager, API key, or plugin install is
+needed for the Claude Code path.
+
 **After a plugin update, re-run `/ldo-init` in each project that has the block.** The block `/ldo-init` writes into `CLAUDE.md` is a snapshot of the version that wrote it — its first line carries an `<!-- ldo:version X -->` stamp, and every pipeline run logs its own version. When the two disagree the block is stale: it is describing flags and behaviour that have since moved. The re-run replaces the block in place and carries your drift log across unchanged, so it costs nothing to do. The stamp is a hint for you, not a check — nothing in the pipeline reads it.
 
 **Working purely in a cloud session that just clones a repo, with no plugin-install step of its own?** See [Vendoring LDO into a project](#vendoring-ldo-into-a-project) below — a project-native install with no plugin required.

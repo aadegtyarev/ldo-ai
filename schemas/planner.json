@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "properties": {
+    "complexity": { "type": "string", "enum": ["trivial", "medium", "complex"] },
+    "security_surface": { "type": "string", "enum": ["none", "low", "elevated"] },
+    "summary": { "type": "string" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": { "type": "string" },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "acceptance": { "type": "string" },
+          "user_facing": { "type": "boolean" }
+        },
+        "required": ["what", "files", "acceptance", "user_facing"],
+        "additionalProperties": false
+      }
+    },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "codebase_context": {
+      "type": "object",
+      "properties": {
+        "stack": { "type": "string" },
+        "conventions": { "type": "string" },
+        "relevant_files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string" },
+              "role": { "type": "string" },
+              "note": { "type": "string" }
+            },
+            "required": ["path", "role", "note"],
+            "additionalProperties": false
+          }
+        },
+        "test_command": { "type": "string" },
+        "run_command": { "type": "string" }
+      },
+      "required": ["stack", "conventions", "relevant_files", "test_command", "run_command"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["complexity", "security_surface", "summary", "steps", "risks", "codebase_context"],
+  "additionalProperties": false
+}
