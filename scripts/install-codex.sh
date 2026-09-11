@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install LDO as project-local Codex runtime and enable its AGENTS.md router.
 #
-# Usage: scripts/install-codex.sh <target-project-dir>
+# Usage: scripts/install-codex.sh [--ignore-codex] <target-project-dir>
 #
 # The copied runtime is deliberately project-local. It makes the routing rule
 # reproducible for everyone who opens the target with Codex, without requiring
@@ -9,7 +9,16 @@
 
 set -euo pipefail
 
-TARGET="${1:?Usage: scripts/install-codex.sh <target-project-dir>}"
+IGNORE_CODEX=false
+if [ "${1:-}" = "--ignore-codex" ]; then
+  IGNORE_CODEX=true
+  shift
+fi
+TARGET="${1:?Usage: scripts/install-codex.sh [--ignore-codex] <target-project-dir>}"
+if [ "$#" != 1 ]; then
+  echo "error: expected one target directory" >&2
+  exit 1
+fi
 
 if [ ! -d "$TARGET" ]; then
   echo "error: target directory does not exist: $TARGET" >&2
@@ -100,5 +109,20 @@ cp "$RUNTIME"/scripts/ldo-run.mjs "$TARGET/.codex/ldo/scripts/"
 cp "$RUNTIME/LDO_INSTALLED.md" "$TARGET/.codex/ldo/"
 cp "$STAGE/AGENTS.md" "$AGENTS"
 
+if [ "$IGNORE_CODEX" = true ]; then
+  # Codex runtime is a per-developer install: avoid a noisy untracked tree and
+  # avoid asking teams using Claude Code to carry another agent's files. The
+  # project-level AGENTS.md routing block remains separate and is deliberately
+  # left visible for the project's own instruction policy.
+  IGNORE="$TARGET/.gitignore"
+  if [ ! -f "$IGNORE" ] || ! grep -Fxq '.codex/' "$IGNORE"; then
+    if [ -f "$IGNORE" ] && [ -s "$IGNORE" ]; then printf '\n' >> "$IGNORE"; fi
+    printf '%s\n' '.codex/' >> "$IGNORE"
+  fi
+fi
+
 echo "Installed LDO into $TARGET/.codex/ldo and updated $AGENTS."
+if [ "$IGNORE_CODEX" = true ]; then
+  echo "Added .codex/ to $TARGET/.gitignore; each developer installs this runtime locally."
+fi
 echo "Open Codex in $TARGET; its project instructions will route non-trivial requests through LDO."

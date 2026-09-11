@@ -84,14 +84,17 @@ CLI. `/ldo` remains the current full Claude workflow during the migration.
 From an LDO checkout, install into the project you want Codex to orchestrate:
 
 ```sh
-scripts/install-codex.sh /path/to/target-project
+scripts/install-codex.sh --ignore-codex /path/to/target-project
 ```
 
 This copies the small runtime to `.codex/ldo/` and adds a delimited routing
-block to the target's `AGENTS.md`, preserving its existing instructions. On
-the next Codex session in that project, ordinary non-trivial implementation
-requests automatically run the LDO planner → coder → reviewer pipeline in an
-isolated worktree. One-file mechanical edits and direct questions stay direct.
+block to `AGENTS.md`, preserving its existing instructions. `--ignore-codex`
+also adds `.codex/` to the target's `.gitignore`; use it when LDO is a local
+per-developer tool alongside Claude Code. Without the flag, the installer never
+changes the target's `.gitignore`. On the next Codex session, ordinary
+non-trivial implementation requests automatically run the LDO planner → coder
+→ reviewer pipeline in an isolated worktree. One-file mechanical edits and
+direct questions stay direct.
 
 The install uses the existing authenticated `codex` CLI; it needs no API key,
 marketplace entry, or global Node package. Re-run the same command from a newer
