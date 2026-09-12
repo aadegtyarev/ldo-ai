@@ -159,11 +159,9 @@ function researchHandoff(report) {
 }
 
 export function compactCodexContext(role, context) {
-  const { isolation, scopedTests, research, plan, draftPlan, refinement, security, coder, review, previousReview } = context || {}
+  const { isolation, scopedTests, research, plan, security, coder, review, previousReview } = context || {}
   const compact = isolation ? { isolation } : {}
   if (role === 'planner' && research) compact.research = researchHandoff(research)
-  if (role === 'planner' && draftPlan) compact.draftPlan = planHandoff(draftPlan)
-  if (role === 'planner' && refinement) compact.refinement = refinement
   if (['security', 'coder'].includes(role) && plan) compact.plan = planHandoff(plan)
   if (role === 'reviewer' && plan) compact.plan = reviewerPlanHandoff(plan)
   if (role === 'recorder' && plan) compact.plan = recorderPlanHandoff(plan)

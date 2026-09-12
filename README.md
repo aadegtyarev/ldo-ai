@@ -120,7 +120,7 @@ The Codex defaults use the GPT-5.6 line by role:
 
 | Role | Model | Why |
 |---|---|---|
-| Planner | `gpt-5.6-terra`, then `gpt-5.6-sol` refinement for complex/elevated plans | Cheap classification for ordinary work; strong architectural validation only when warranted. |
+| Planner | `gpt-5.6-sol` | One strong planning pass avoids the cost and drift of frequent cascade refinements. |
 | Coder | `gpt-5.6-terra` normally; `gpt-5.6-sol` for complex/elevated plans | Uses the strongest model only where the plan justifies it. |
 | Security | `gpt-5.6-sol` | Runs automatically only for elevated plans. |
 | Reviewer, Researcher | `gpt-5.6-terra` | Independent review and scoped research are bounded checks. |
@@ -142,10 +142,8 @@ it only with validated repository-relative paths and sends the narrow command
 to Coder and Reviewer before broader verification, reducing test time and
 context without allowing arbitrary shell composition.
 
-Codex planning is cascaded: Terra produces the initial classification and
-plan, while complex or elevated work is passed once through Sol for
-repository-aware refinement before Security or implementation. Claude Code
-does not use this cascade. Codex also uses a compact Reviewer instruction
+Codex uses one Sol planning pass; measured cascade trials caused frequent
+double planning and higher total usage. Codex also uses a compact Reviewer instruction
 profile for trivial plans; it retains diff review, acceptance evidence, tests,
 contracts, and relevant edge cases while omitting long-suite and migration
 procedures that cannot apply. The full Claude Reviewer prompt is unchanged.

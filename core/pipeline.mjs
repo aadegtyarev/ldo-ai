@@ -25,7 +25,7 @@ function scopedTestOf(plan) {
   return { command: template.replace('{paths}', paths.join(' ')), paths }
 }
 
-export function createPipeline({ adapter, prompt, schemas, models = {}, retries = 1, onEvent, scopedTests = false, cascadePlanning = false }) {
+export function createPipeline({ adapter, prompt, schemas, models = {}, retries = 1, onEvent, scopedTests = false }) {
   if (typeof prompt !== 'function') throw new TypeError('prompt({ role, task, context }) is required')
   if (!schemas?.planner || !schemas?.coder || !schemas?.reviewer) throw new TypeError('planner, coder and reviewer schemas are required')
 
@@ -41,20 +41,11 @@ export function createPipeline({ adapter, prompt, schemas, models = {}, retries 
       })
       : null
 
-    let plan = approvedPlan ? { value: approvedPlan, raw: JSON.stringify(approvedPlan), role: 'planner', attempt: 0, resumed: true } : await runAgent({
+    const plan = approvedPlan ? { value: approvedPlan, raw: JSON.stringify(approvedPlan), role: 'planner', attempt: 0, resumed: true } : await runAgent({
       checkpoint: 'planner',
       role: 'planner', cwd, model: modelFor('planner'), schema: schemas.planner,
       prompt: prompt({ role: 'planner', task, context: contextOf({ ...execution, research: researchReport?.value }) }),
     })
-    if (!approvedPlan && cascadePlanning && (plan.value.complexity === 'complex' || plan.value.security_surface === 'elevated')) {
-      const draftPlan = plan.value
-      plan = await runAgent({
-        checkpoint: 'plannerRefiner',
-        role: 'planner', cwd, model: modelFor('plannerRefiner', draftPlan), schema: schemas.planner,
-        prompt: prompt({ role: 'planner', task, context: contextOf({ ...execution, research: researchReport?.value, draftPlan, refinement: 'Validate the draft against the repository, correct architectural or security mistakes, narrow unresolved choices, and return the complete final plan.' }) }),
-      })
-    }
-
     const shouldRunSecurity = schemas.security && (security === true || (security === 'auto' && plan.value.security_surface === 'elevated'))
     const securityReport = approvedSecurity ? { value: approvedSecurity, raw: JSON.stringify(approvedSecurity), role: 'security', attempt: 0, resumed: true } : shouldRunSecurity
       ? await runAgent({

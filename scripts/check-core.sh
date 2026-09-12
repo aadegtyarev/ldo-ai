@@ -25,7 +25,7 @@ const claudeAdapter = readFileSync('./adapters/claude-cli.mjs', 'utf8')
 if (claudeAdapter.includes('--permission-prompts') || !claudeAdapter.includes("permissionMode = 'auto'") || claudeAdapter.includes("writable ? 'acceptEdits'")) throw new Error('Claude adapter uses removed or non-automating permission modes')
 console.log('✓ portable Claude adapter uses current auto permission mode for non-interactive edits and verification')
 const expectedModels = {
-  planner: 'gpt-5.6-terra', coder: 'gpt-5.6-sol', security: 'gpt-5.6-sol',
+  planner: 'gpt-5.6-sol', coder: 'gpt-5.6-sol', security: 'gpt-5.6-sol',
   reviewer: 'gpt-5.6-terra', researcher: 'gpt-5.6-terra', recorder: 'gpt-5.6-luna',
 }
 for (const [role, model] of Object.entries(expectedModels)) {
@@ -33,7 +33,7 @@ for (const [role, model] of Object.entries(expectedModels)) {
     throw new Error(`Codex default or override precedence missing for ${role}`)
   }
 }
-console.log('✓ Codex model defaults reserve Sol for complex/elevated coding and Security, with Terra planning/review and Luna recording')
+console.log('✓ Codex model defaults use one Sol Planner, dynamic Coder routing, Terra review, and Luna recording')
 
 let sourceBytes = 0; let compiledBytes = 0
 for (const role of ['researcher', 'planner', 'security', 'coder', 'reviewer', 'recorder']) {
@@ -121,17 +121,6 @@ if (planned.mode !== 'plan-only' || planOnlyCalls.join(',') !== 'planner') {
   throw new Error(`unexpected plan-only pipeline: mode=${planned.mode} roles=${planOnlyCalls.join(',')}`)
 }
 console.log('✓ plan-only stops after the planner')
-
-const cascadeCalls = []
-const cascade = createPipeline({
-  adapter: { async run(options) { cascadeCalls.push(options); return { value: cascadeCalls.length === 1 ? { summary: 'draft', complexity: 'complex', security_surface: 'none' } : { summary: 'refined', complexity: 'complex', security_surface: 'none' }, raw: '{}', usage: null } } },
-  schemas: { planner: 'plan', coder: 'code', reviewer: 'review' },
-  models: { planner: 'terra', plannerRefiner: 'sol' },
-  prompt: ({ role, context }) => JSON.stringify({ role, context }), cascadePlanning: true, retries: 0,
-})
-const cascaded = await cascade({ task: 'complex task', cwd: process.cwd(), planOnly: true })
-if (cascadeCalls.length !== 2 || cascadeCalls[0].model !== 'terra' || cascadeCalls[1].model !== 'sol' || !cascadeCalls[1].prompt.includes('draftPlan') || cascaded.plan.value.summary !== 'refined') throw new Error('complex planning did not cascade from Terra draft to Sol refinement')
-console.log('✓ complex/elevated Codex planning can cascade from Terra classification to Sol refinement')
 
 const approvedPlanCalls = []
 const approvedPlanPipeline = createPipeline({

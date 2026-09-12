@@ -8,11 +8,9 @@ import { createIsolatedWorktree } from '../core/isolation.mjs'
 import { checkpointRun, createRunCheckpoint, finishRunCheckpoint, loadApprovedPlan, loadRunCheckpoint, saveApprovedPlan } from '../core/plan-store.mjs'
 import { summarizeTokenUsage } from '../core/token-usage.mjs'
 
-// Planner is Terra until it has classified the task; Sol is reserved for
-// elevated/complex implementation and Security. CLI flags always win.
+// Sol owns planning and elevated/complex implementation; CLI flags win.
 const CODEX_DEFAULT_MODELS = {
-  planner: 'gpt-5.6-terra',
-  plannerRefiner: 'gpt-5.6-sol',
+  planner: 'gpt-5.6-sol',
   coder: plan => plan?.complexity === 'complex' || plan?.security_surface === 'elevated' ? 'gpt-5.6-sol' : 'gpt-5.6-terra',
   security: 'gpt-5.6-sol',
   reviewer: 'gpt-5.6-terra',
@@ -63,7 +61,6 @@ const roleModels = Object.fromEntries(['planner', 'researcher', 'coder', 'review
   if (override || runtime !== 'codex') return [role, override]
   return [role, CODEX_DEFAULT_MODELS[role]]
 }))
-roleModels.plannerRefiner = options.plannerModel || options.model || (runtime === 'codex' ? CODEX_DEFAULT_MODELS.plannerRefiner : undefined)
 
 const pipeline = createPipeline({
   adapter,
@@ -81,7 +78,6 @@ const pipeline = createPipeline({
     }
   },
   scopedTests: runtime === 'codex',
-  cascadePlanning: runtime === 'codex',
 })
 
 const originalCwd = process.cwd()
