@@ -69,6 +69,100 @@ Requires Claude Code v2.1.154 or newer — that's the release that added the wor
 
 Pick **user** scope when Claude Code asks, unless you're setting this up for a team — then see [Set up a project for a team](#set-up-a-project-for-a-team). Updates come with `/plugin update ldo@ldo-ai`.
 
+The same install remains valid as LDO gains its runtime-neutral core: Claude
+Code continues to run `/ldo:ldo`; the shared `planner → coder → reviewer`
+pipeline is also available to Codex through `node scripts/ldo-run.mjs --runtime
+codex "<task>"`. No second package manager, API key, or plugin install is
+needed for the Claude Code path.
+
+For the portable path from an installed Claude plugin, use
+`/ldo-runtime "<task>"`; it invokes the same core through the local Claude
+CLI. `/ldo` remains the current full Claude workflow during the migration.
+
+### Codex
+
+From an LDO checkout, install into the project you want Codex to orchestrate:
+
+```sh
+scripts/install-codex.sh --ignore-codex /path/to/target-project
+```
+
+This copies the small runtime to `.codex/ldo/` and adds a delimited routing
+block to `AGENTS.md`, preserving its existing instructions. `--ignore-codex`
+also adds `.codex/` to the target's `.gitignore`; use it when LDO is a local
+per-developer tool alongside Claude Code. Without the flag, the installer never
+changes the target's `.gitignore`. On the next Codex session, ordinary
+non-trivial implementation requests first run LDO Planner (and Security where
+needed). By default LDO stops for discussion only for complex or elevated
+plans; `--review-plan always|never` lets the orchestrator override that policy.
+The plan is stored locally under
+`.codex/ldo/plans/`; once the user approves it, Codex runs
+`--continue-plan latest`, validates that `HEAD` has not moved, and continues at
+Coder → Reviewer without reconstructing the plan. Completed phases are saved
+under `.codex/ldo/runs/`, so `--resume-run latest` restarts at the first
+unfinished role after a crash. Recorder writes unresolved items to
+`docs/BACKLOG.md`, and the terminal checkpoint records that backlog outcome.
+One-file mechanical edits and direct questions stay direct.
+
+Codex's normal `workspace-write` sandbox can write project files but may refuse
+the shared `.git/refs` update required by `git worktree add`. The automatic
+Codex route therefore does **not** pass `--isolate`; it works without disabling
+the sandbox. Use `--isolate` only from a host that explicitly permits Git
+metadata writes (such as an externally sandboxed bypass session), and run
+independent normal-sandbox tasks sequentially rather than with multiple
+`--task` flags.
+
+The install uses the existing authenticated `codex` CLI; it needs no API key,
+marketplace entry, or global Node package. Re-run the same command from a newer
+LDO checkout to update the project-local runtime.
+
+The Codex defaults use the GPT-5.6 line by role:
+
+| Role | Model | Why |
+|---|---|---|
+| Planner | `gpt-5.6-sol` | One strong planning pass avoids the cost and drift of frequent cascade refinements. |
+| Coder | `gpt-5.6-terra` normally; `gpt-5.6-sol` for complex/elevated plans | Uses the strongest model only where the plan justifies it. |
+| Security | `gpt-5.6-sol` | Runs automatically only for elevated plans. |
+| Reviewer, Researcher | `gpt-5.6-terra` | Independent review and scoped research are bounded checks. |
+| Recorder | `gpt-5.6-luna` | It only writes a structured record from already-produced results. |
+
+`--model` replaces all six defaults; `--reviewer-model`, `--coder-model`, and
+the other role flags replace only that role. For example, use
+`--reviewer-model gpt-5.6-sol` when a change needs the strongest independent
+review.
+
+Codex handoffs are role-specific and bounded: every phase starts as a fresh CLI
+context, so it receives only the prior data it can act on. In particular, a
+fix Coder receives the plan, security findings and review issues, not its own
+previous report. This does not change the Claude Code workflow or portable
+`--runtime claude` prompts.
+
+Planner may also provide a safe `test_command_scoped` template. Codex expands
+it only with validated repository-relative paths and sends the narrow command
+to Coder and Reviewer before broader verification, reducing test time and
+context without allowing arbitrary shell composition.
+
+Codex uses one Sol planning pass; measured cascade trials caused frequent
+double planning and higher total usage. Codex also uses a compact Reviewer instruction
+profile for trivial plans; it retains diff review, acceptance evidence, tests,
+contracts, and relevant edge cases while omitting long-suite and migration
+procedures that cannot apply. The full Claude Reviewer prompt is unchanged.
+
+Reviewer receives only acceptance criteria plus changed-file and test evidence,
+rather than the full implementation plan. Recorder receives the final verdict,
+unresolved issues, changed-file evidence, and only the small plan metadata
+needed for persistent documentation. Each Codex result includes `tokenUsage`
+with input, cache-creation, cached-input, output, and total token counters per stage and in
+aggregate. Counters unavailable from the CLI remain `null`, never a misleading
+zero; plan artifacts and run checkpoints preserve the measurements across
+approval pauses and crash recovery.
+
+The role Markdown remains one shared source for Claude Code and Codex. Before
+launching either portable CLI, LDO strips plugin frontmatter and the embedded
+JSON output example because the same strict schema is already supplied
+separately. Behavioral and safety rules remain shared and unchanged, while the
+duplicated static input is no longer paid on every agent call.
+
 **After a plugin update, re-run `/ldo-init` in each project that has the block.** The block `/ldo-init` writes into `CLAUDE.md` is a snapshot of the version that wrote it — its first line carries an `<!-- ldo:version X -->` stamp, and every pipeline run logs its own version. When the two disagree the block is stale: it is describing flags and behaviour that have since moved. The re-run replaces the block in place and carries your drift log across unchanged, so it costs nothing to do. The stamp is a hint for you, not a check — nothing in the pipeline reads it.
 
 **Working purely in a cloud session that just clones a repo, with no plugin-install step of its own?** See [Vendoring LDO into a project](#vendoring-ldo-into-a-project) below — a project-native install with no plugin required.
@@ -197,6 +291,8 @@ Record one with `/ldo-contract`. It's interactive — you describe the rule, it 
 
 **Measure what you wrote, in your own project.** `/ldo-contract` finishes by running `"${CLAUDE_PLUGIN_ROOT:?}/scripts/check-contracts.sh" "$PWD" docs/contracts` against *your* `docs/contracts/`, and the first `/ldo-init` does the same after discovery writes anything. It fails on an entry over 200 characters or carrying an inline `(Source: …)` tail, warns on a file with entries and no `## Sources` section, and prints the recurring byte cost. This matters more than it sounds: a real contracts directory was measured at 66 of 75 entries over the limit, longest 6407 characters, meaning 88% of an enforced security floor reached the Coder compressed with nobody told. Two signals now say so from inside a run — the Planner measures each contract file it reads and raises a `CONTRACT OVER LIMIT:` risk naming the file and the counts, which the orchestrator logs with a `⚠`; and any `security_notes` entry over the limit is counted in the same place (counted, never trimmed — those reach the Coder whole and a cap there would lose security floor text).
 
+**A decision nobody has made stops the run before any code exists.** The Planner maps every affected surface to the contracts and engineering principles that govern it, and a run whose matrix still carries a `research_required` or `contract_candidate` surface — or a `conflicts` entry that still reads as an open choice — comes back as `mode: "resolution-required"`: the plan, the unresolved list, and nothing else. No Security phase, no Coder, no Reviewer, no files touched. Settle it (`/ldo-contract` for a rule, your own call for a product choice) and re-issue the task. The two openings that tell the gate a conflict is *not* open are `NONE — ` (the Planner reconciled the artifact and found no contradiction) and `RESOLVED — ` (there was one, and the entry says which side won and where that came from); every other entry holds the run, which is the point of writing one down. The Planner is told to restate what it settled rather than delete it — a dropped conflict reads downstream as one that never existed. A blocked run reports what it cost like any other — it paid for a Planner pass, often a Researcher and a second Planner — and under `args.tasks` it is counted and printed apart from both the planned and the failed features.
+
 **A rule the run had to invent gets proposed, never written.** When the Coder or the Reviewer has to settle a project-wide rule because nothing in `docs/contracts/` settles it, it comes back as a line beginning `CONTRACT CANDIDATE:` — in the Coder's `deviations`, or in the Reviewer's `summary` where it is explicitly *not* an issue and cannot hold the fix loop. The orchestrator logs each one and hands them to the Recorder as backlog items suggesting `/ldo-contract`. Logging happens wherever the data exists, including on a `trivial` run and on an ordinary rejection — neither of which has a Record phase at all. On those runs the signal is logged **only**, with a line saying which condition skipped the phase and that nothing was written as a backlog item; it used to be collected below that skip and therefore discarded in silence. No agent in the pipeline ever writes a file under `docs/contracts/`; whether something becomes a contract stays your decision.
 
 None of this loads into `CLAUDE.md` — that file stays thin, one pointer line. The Planner reads a contract file only when the task plausibly touches what it governs; a variable rename never pays for the security floor. `/ldo-docs-audit` also checks contracts occasionally: for an accepted risk whose stated reasoning no longer matches the code, and for patterns repeated everywhere that aren't written down as a contract yet — a suggestion, never an auto-write.
@@ -267,7 +363,7 @@ Type `ldo` in the command palette and everything clusters together.
 | Command | What |
 |---------|------|
 | `/ldo:ldo "task"` | Full pipeline (Plan → Code ⇄ Review) |
-| `/ldo:ldo research:true "task"` | Add the web research phase |
+| `/ldo:ldo research:true "task"` | Add upfront web research; surface gaps trigger focused research automatically |
 | `/ldo:ldo security:true "task"` | Force the threat model on (or `false` to skip it) |
 | `/ldo:ldo planOnly:true "task"` | Plan and stop — no code, no review; returns the plan and its sizing block |
 | `Workflow({args:{task, resumePlan}})` | Skip the Planner and run against a plan recovered from an interrupted run's transcript — a plan object, so it goes through the tool call, not the palette |

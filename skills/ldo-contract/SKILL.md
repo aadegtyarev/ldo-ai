@@ -28,9 +28,12 @@ Every contract is one of four kinds. Ask which, if it isn't obvious from the des
 | **Scope boundary** | `docs/contracts/scope.md` | What this application does and deliberately does not do | Planner, before writing the plan |
 | **Accepted risk** | `docs/contracts/security.md` (Accepted section) | A risk the operator has knowingly chosen not to mitigate | Security, so it doesn't re-raise a closed question |
 | **Security floor** | `docs/contracts/security.md` (Required section) | A security property that must hold regardless of what the task looks like | Security + Reviewer, always |
-| **Code contract** | `docs/contracts/code.md` | A structural rule about how code must be written — observability, error handling, data flow | Reviewer, as a blocking check |
+| **Code contract** | `docs/contracts/code.md` | A cross-cutting structural rule about how code must be written — observability, error handling, data flow | Reviewer, as a blocking check |
+| **Product/area contract** | `docs/contracts/<area>.md` | A product or domain rule that does not belong to scope, security, or cross-cutting code policy | Planner + Reviewer when that area is touched |
 
 A rule can be both a scope boundary and a security floor ("never add a network listener" reads both ways) — ask which enforcement path matters, or write it to both files if it genuinely does double duty.
+
+Do not use `code.md` as a miscellaneous bucket. If candidates govern different product areas, give each area its own narrowly named file (or reuse an existing applicable one); never create one catch-all file just because the candidates arrived in the same research run.
 
 ### 3. Write it precisely
 
