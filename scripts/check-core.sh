@@ -86,11 +86,12 @@ const unavailableUsage = summarizeTokenUsage([{ stage: 'reviewer', model: 'terra
 if (unavailableUsage.status !== 'unavailable' || unavailableUsage.input_tokens !== null) throw new Error('missing CLI usage must not be reported as zero')
 console.log('✓ Codex token usage reports real per-stage counters and never turns missing data into zero')
 
+const covered = { surface_analysis: { project_type: 'test', surfaces: [{ id: 'logic', name: 'Logic', change: 'test change', contracts: [], principles: ['correctness'], coverage: 'covered', evidence: ['test fixture'], resolution: 'follow fixture' }] } }
 const calls = []
 const adapter = {
   async run(options) {
     calls.push(options)
-    if (options.role === 'planner') return { value: { summary: 'plan' }, raw: '{}' }
+    if (options.role === 'planner') return { value: { ...covered, summary: 'plan' }, raw: '{}' }
     if (options.role === 'coder') return { value: { summary: 'code' }, raw: '{}' }
     return { value: { status: calls.filter(c => c.role === 'reviewer').length === 1 ? 'changes_requested' : 'approved' }, raw: '{}' }
   },
@@ -111,7 +112,7 @@ console.log('✓ shared pipeline performs plan → code → review → fix → r
 
 const planOnlyCalls = []
 const planOnly = createPipeline({
-  adapter: { async run(options) { planOnlyCalls.push(options.role); return { value: { summary: 'plan' }, raw: '{}' } } },
+  adapter: { async run(options) { planOnlyCalls.push(options.role); return { value: { ...covered, summary: 'plan' }, raw: '{}' } } },
   schemas: { planner: 'plan', coder: 'code', reviewer: 'review' },
   prompt: ({ role }) => role,
   retries: 0,
@@ -137,7 +138,7 @@ const approvedPlanPipeline = createPipeline({
 })
 const resumed = await approvedPlanPipeline({
   task: 'approved task', cwd: process.cwd(),
-  approvedPlan: { complexity: 'medium', security_surface: 'elevated', summary: 'approved plan' },
+  approvedPlan: { ...covered, complexity: 'medium', security_surface: 'elevated', summary: 'approved plan' },
   approvedSecurity: { status: 'clean', findings: [], summary: 'approved security' },
 })
 if (approvedPlanCalls.join(',') !== 'coder,reviewer' || !resumed.approved || resumed.plan.resumed !== true || resumed.security.resumed !== true) {
@@ -153,7 +154,7 @@ const resumePipeline = createPipeline({
 })
 const afterCoder = await resumePipeline({
   task: 'resume review', cwd: process.cwd(),
-  approvedPlan: { complexity: 'medium', security_surface: 'none', summary: 'approved plan' },
+  approvedPlan: { ...covered, complexity: 'medium', security_surface: 'none', summary: 'approved plan' },
   completed: { coder: { summary: 'already implemented' } },
 })
 if (resumeCalls.join(',') !== 'reviewer' || !afterCoder.coder.resumed || !afterCoder.approved) throw new Error(`Coder checkpoint did not resume at Reviewer: ${resumeCalls.join(',')}`)
@@ -164,7 +165,7 @@ const securityPipeline = createPipeline({
   adapter: {
     async run(options) {
       securityCalls.push(options)
-      if (options.role === 'planner') return { value: { summary: 'plan', security_surface: 'elevated' }, raw: '{}' }
+      if (options.role === 'planner') return { value: { ...covered, summary: 'plan', security_surface: 'elevated' }, raw: '{}' }
       return { value: { status: 'clean', summary: 'threat model', findings: [], threat_model_notes: null }, raw: '{}' }
     },
   },
@@ -184,7 +185,7 @@ const researchPipeline = createPipeline({
     async run(options) {
       researchCalls.push(options)
       if (options.role === 'researcher') return { value: { summary: 'research' }, raw: '{}' }
-      return { value: { summary: 'plan', security_surface: 'none' }, raw: '{}' }
+      return { value: { ...covered, summary: 'plan', security_surface: 'none' }, raw: '{}' }
     },
   },
   schemas: { researcher: 'research', planner: 'plan', coder: 'code', reviewer: 'review' },
@@ -197,13 +198,41 @@ if (researchCalls.map(c => c.role).join(',') !== 'researcher,planner' || researc
 }
 console.log('✓ opt-in research runs before planning and is carried forward')
 
+const governanceCalls = []
+let planningPass = 0
+const governancePipeline = createPipeline({
+  adapter: { async run(options) {
+    governanceCalls.push(options.role)
+    if (options.role === 'researcher') return { value: { summary: 'evidence' }, raw: '{}' }
+    if (options.role === 'planner') {
+      planningPass++
+      const coverage = planningPass === 1 ? 'research_required' : 'resolved'
+      return { value: { ...covered, surface_analysis: { project_type: 'cli', surfaces: [{ ...covered.surface_analysis.surfaces[0], coverage }] }, summary: 'plan', security_surface: 'none' }, raw: '{}' }
+    }
+    return { value: { status: 'approved' }, raw: '{}' }
+  } },
+  schemas: { researcher: 'research', planner: 'plan', coder: 'code', reviewer: 'review' },
+  prompt: ({ role }) => role, retries: 0,
+})
+const governed = await governancePipeline({ task: 'governed', cwd: process.cwd(), planOnly: true })
+if (governanceCalls.join(',') !== 'planner,researcher,planner' || governed.mode !== 'plan-only') throw new Error(`required research did not re-plan before coding: ${governanceCalls.join(',')}`)
+
+const blockedCalls = []
+const blockedPipeline = createPipeline({
+  adapter: { async run(options) { blockedCalls.push(options.role); return { value: { ...covered, surface_analysis: { project_type: 'cli', surfaces: [{ ...covered.surface_analysis.surfaces[0], coverage: 'contract_candidate' }] }, summary: 'blocked' }, raw: '{}' } } },
+  schemas: { planner: 'plan', coder: 'code', reviewer: 'review' }, prompt: ({ role }) => role, retries: 0,
+})
+const blocked = await blockedPipeline({ task: 'blocked', cwd: process.cwd() })
+if (blocked.mode !== 'resolution-required' || blockedCalls.join(',') !== 'planner') throw new Error('contract candidate reached Code')
+console.log('✓ surface governance automatically researches uncertain coverage and blocks unresolved contract candidates before Code')
+
 const recordCalls = []
 const recordPipeline = createPipeline({
   adapter: {
     async run(options) {
       recordCalls.push(options)
       const values = {
-        planner: { complexity: 'medium', summary: 'plan', security_surface: 'none' },
+        planner: { ...covered, complexity: 'medium', summary: 'plan', security_surface: 'none' },
         coder: { summary: 'code' },
         reviewer: { status: 'approved', summary: 'review' },
         recorder: { worktree_root: process.cwd(), files_written: ['docs/reviews/test.md'], backlog: { destination: 'none', file: null, count: 0 }, notes: '' },
@@ -225,7 +254,7 @@ const scopedContexts = []
 const scopedPipeline = createPipeline({
   adapter: {
     async run(options) {
-      if (options.role === 'planner') return { value: { complexity: 'medium', security_surface: 'none', summary: 'plan', steps: [{ files: ['src/a.js'] }], codebase_context: { relevant_files: [{ path: 'test/a.test.js', role: 'test' }], test_command: 'npm test', test_command_scoped: 'npm test -- {paths}' } }, raw: '{}' }
+      if (options.role === 'planner') return { value: { ...covered, complexity: 'medium', security_surface: 'none', summary: 'plan', steps: [{ files: ['src/a.js'] }], codebase_context: { relevant_files: [{ path: 'test/a.test.js', role: 'test' }], test_command: 'npm test', test_command_scoped: 'npm test -- {paths}' } }, raw: '{}' }
       if (options.role === 'coder') return { value: { summary: 'code' }, raw: '{}' }
       return { value: { status: 'approved' }, raw: '{}' }
     },
@@ -242,7 +271,7 @@ console.log('✓ Codex scoped tests expand only validated repository-relative pa
 const noTestContexts = []
 const noTestPipeline = createPipeline({
   adapter: { async run(options) {
-    if (options.role === 'planner') return { value: { complexity: 'trivial', security_surface: 'none', steps: [{ files: ['package.json', 'src/a.js'] }], codebase_context: { relevant_files: [{ path: 'package.json', role: 'config' }], test_command: 'node --test', test_command_scoped: 'node --test {paths}' } }, raw: '{}' }
+    if (options.role === 'planner') return { value: { ...covered, complexity: 'trivial', security_surface: 'none', steps: [{ files: ['package.json', 'src/a.js'] }], codebase_context: { relevant_files: [{ path: 'package.json', role: 'config' }], test_command: 'node --test', test_command_scoped: 'node --test {paths}' } }, raw: '{}' }
     if (options.role === 'coder') return { value: {}, raw: '{}' }
     return { value: { status: 'approved' }, raw: '{}' }
   } },
@@ -276,7 +305,7 @@ if (!isolated.path.startsWith(`${root}/.worktrees/`) || isolated.branch !== 'ldo
 }
 console.log('✓ deterministic isolation creates and verifies a fresh worktree')
 
-const plan = { complexity: 'medium', security_surface: 'none', summary: 'saved plan', steps: [], risks: [], codebase_context: { stack: 'node', conventions: '', relevant_files: [], test_command: 'npm test', test_command_scoped: null, run_command: '' } }
+const plan = { complexity: 'medium', security_surface: 'none', summary: 'saved plan', surface_analysis: { project_type: 'test', surfaces: [{ id: 'logic', coverage: 'resolved', evidence: ['approved fixture'] }] }, steps: [], risks: [], codebase_context: { stack: 'node', conventions: '', relevant_files: [], test_command: 'npm test', test_command_scoped: null, run_command: '' } }
 const saved = await saveApprovedPlan({ cwd: root, task: 'checkpoint test', plan, security: null })
 const approved = await loadApprovedPlan({ cwd: root, reference: saved.id })
 const run = await createRunCheckpoint({ cwd: root, approved })

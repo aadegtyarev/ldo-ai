@@ -2,7 +2,7 @@
   "name": "ldo",
   "displayName": "LDO — Lightweight Dev Orchestrator",
   "description": "Planner, Coder, Reviewer pipeline with a different model per role. The strong model plans and writes; a cheaper one reviews, because a fix round costs more than writing it well once.",
-  "version": "2.51.0",
+  "version": "2.52.0",
   "author": {
     "name": "Alexander Degtyarev",
     "email": "adegtyarev.ap@gmail.com"

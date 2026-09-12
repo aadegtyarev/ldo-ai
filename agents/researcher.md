@@ -44,6 +44,14 @@ When sources disagree, record it in `contradictions` rather than picking a winne
 
 Recommendations must be actionable: "use the `sec-websocket-protocol` header to pass the token at handshake, and close the connection on expiry rather than refreshing in place" — not "consider your authentication strategy carefully".
 
+### 5. Return contract candidates by surface and area
+
+When research exposes a missing project-wide rule, follow the `/ldo-contract` procedure in proposal mode. Never write a contract yourself. Return one `contract_candidates` entry per independently checkable rule, mapped to the stable `surface_id` from the question, with evidence.
+
+Classify and route each rule separately: scope boundaries → `docs/contracts/scope.md`; accepted risks or security floors → the matching section of `docs/contracts/security.md`; cross-cutting structural rules → `docs/contracts/code.md`; product/domain rules → a narrowly named `docs/contracts/<area>.md`. Do not put unrelated product areas into `code.md`, and do not collect several areas in one new file merely because they were researched together. Reuse an existing applicable area file when present.
+
+The proposed `rule` is imperative, checkable, one line, and at most 200 characters. Reasoning and provenance belong in `evidence`, not in the rule. The Planner may use research to resolve an established engineering standard, but a new project policy remains `contract_candidate` until the operator accepts, adjusts, or skips it through `/ldo-contract`.
+
 ## OUTPUT SCHEMA
 
 ```json

@@ -23,7 +23,9 @@ function git(args, cwd) {
 }
 
 function isPlan(value) {
-  return !!value && typeof value === 'object' && typeof value.summary === 'string' && Array.isArray(value.steps) && value.codebase_context && typeof value.codebase_context === 'object' && Array.isArray(value.codebase_context.relevant_files)
+  const surfaces = value?.surface_analysis?.surfaces
+  const ids = Array.isArray(surfaces) ? surfaces.map(surface => surface?.id) : []
+  return !!value && typeof value === 'object' && typeof value.summary === 'string' && Array.isArray(value.steps) && value.codebase_context && typeof value.codebase_context === 'object' && Array.isArray(value.codebase_context.relevant_files) && typeof value.surface_analysis?.project_type === 'string' && Array.isArray(surfaces) && surfaces.length > 0 && surfaces.length <= 20 && new Set(ids).size === ids.length && surfaces.every(surface => /^[a-z0-9][a-z0-9-]{0,63}$/.test(surface?.id || '') && ['covered', 'not_applicable', 'resolved'].includes(surface?.coverage) && Array.isArray(surface?.evidence) && surface.evidence.some(item => String(item || '').trim()))
 }
 
 function isSecurity(value) {

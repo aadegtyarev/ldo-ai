@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.52.0] — 2026-09-12
+
+### Added
+
+- **Planning now fails closed on surface and contract coverage.** Planner maps
+  every affected product surface to contracts, engineering principles, and
+  evidence. Uncertain coverage automatically invokes focused research and a
+  resolution planning pass; unresolved contract candidates or product choices
+  stop before Security and Code. Reviewer receives the complete bounded matrix.
+- **Research contract candidates are structured and area-specific.** Researcher
+  follows the `/ldo-contract` proposal procedure, keeps evidence outside the
+  short rule, and routes domain policies to narrow area files instead of using
+  `code.md` as a catch-all. Recorder cannot downgrade pre-code gaps to backlog.
+
 ## [2.51.0] — 2026-09-12
 
 ### Changed

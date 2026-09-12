@@ -22,9 +22,10 @@ node scripts/ldo-run.mjs --runtime codex "add rate limiting"
 node scripts/ldo-run.mjs --runtime claude "add rate limiting"
 ```
 
-Both use the same optional Research → Plan → Security (when elevated) → Code
-→ Review → Record policy, prompts and schemas. `--research` opts into external
-research before planning. Record persists review evidence for medium/complex
+Both use the same Plan → optional Research → Plan → Security (when elevated)
+→ Code → Review → Record policy, prompts and schemas. Surface analysis triggers
+focused external research when needed; `--research` additionally opts into broad
+upfront research before planning. Record persists review evidence for medium/complex
 or unapproved runs; pass `--no-record` to suppress it. This lets us move the
 remaining Claude-only features here incrementally.
 

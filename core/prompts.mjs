@@ -81,6 +81,7 @@ function planHandoff(plan) {
     complexity: plan.complexity,
     security_surface: plan.security_surface,
     summary: text(plan.summary),
+    surface_analysis: surfaceAnalysisHandoff(plan.surface_analysis),
     steps: list(plan.steps, step => ({
       what: text(step?.what), files: list(step?.files, file => text(file, 300)),
       acceptance: text(step?.acceptance), user_facing: step?.user_facing,
@@ -94,9 +95,22 @@ function planHandoff(plan) {
   }
 }
 
+function surfaceAnalysisHandoff(analysis) {
+  if (!analysis || typeof analysis !== 'object') return analysis
+  return {
+    project_type: text(analysis.project_type, 300),
+    surfaces: list(analysis.surfaces, surface => ({
+      id: text(surface?.id, 64), name: text(surface?.name, 200), change: text(surface?.change, 600),
+      contracts: list(surface?.contracts, item => text(item, 500)), principles: list(surface?.principles, item => text(item, 500)),
+      coverage: surface?.coverage, evidence: list(surface?.evidence, item => text(item, 700)), resolution: text(surface?.resolution, 700),
+    })),
+  }
+}
+
 function reviewerPlanHandoff(plan) {
   if (!plan || typeof plan !== 'object') return plan
   return {
+    surface_analysis: surfaceAnalysisHandoff(plan.surface_analysis),
     acceptance_criteria: list(plan.steps, step => ({ acceptance: text(step?.acceptance), files: list(step?.files, file => text(file, 300)) })),
   }
 }
@@ -159,9 +173,10 @@ function researchHandoff(report) {
 }
 
 export function compactCodexContext(role, context) {
-  const { isolation, scopedTests, research, plan, security, coder, review, previousReview } = context || {}
+  const { isolation, scopedTests, research, previousPlan, plan, security, coder, review, previousReview } = context || {}
   const compact = isolation ? { isolation } : {}
   if (role === 'planner' && research) compact.research = researchHandoff(research)
+  if (role === 'planner' && previousPlan) compact.previousPlan = planHandoff(previousPlan)
   if (['security', 'coder'].includes(role) && plan) compact.plan = planHandoff(plan)
   if (role === 'reviewer' && plan) compact.plan = reviewerPlanHandoff(plan)
   if (role === 'recorder' && plan) compact.plan = recorderPlanHandoff(plan)

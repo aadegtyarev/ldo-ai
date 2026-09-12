@@ -99,7 +99,7 @@ async function runTask(task, isolation, approved = null, completed = {}, planOnl
   })
   const tokenUsage = summarizeTokenUsage(usageEntries)
   const enriched = { ...result, tokenUsage }
-  const planArtifact = runtime === 'codex' && planOnly
+  const planArtifact = runtime === 'codex' && planOnly && result.mode !== 'resolution-required'
     ? await saveApprovedPlan({ cwd: isolation?.path || originalCwd, task, plan: result.plan.value, security: result.security?.value, usage: usageEntries })
     : null
   if (activeRun && !planOnly) await finishRunCheckpoint({ state: activeRun, result: enriched })
@@ -135,6 +135,7 @@ async function main() {
   const runFresh = async (task, isolation) => {
     if (runtime !== 'codex' || tasks.length > 1) return runTask(task, isolation)
     const planned = await runTask(task, isolation, null, {}, true)
+    if (planned.mode === 'resolution-required') return planned
     const pause = options.planOnly || options.reviewPlan === 'always' || (options.reviewPlan === 'auto' && (planned.plan.value.complexity === 'complex' || planned.plan.value.security_surface === 'elevated'))
     if (pause) return { ...planned, mode: 'plan-review', plan_review_recommended: options.planOnly ? 'requested' : planned.plan.value.security_surface === 'elevated' ? 'elevated security surface' : 'complex plan' }
     const approved = await loadApprovedPlan({ cwd: isolation?.path || originalCwd, reference: planned.planArtifact.id })

@@ -361,7 +361,7 @@ Type `ldo` in the command palette and everything clusters together.
 | Command | What |
 |---------|------|
 | `/ldo:ldo "task"` | Full pipeline (Plan → Code ⇄ Review) |
-| `/ldo:ldo research:true "task"` | Add the web research phase |
+| `/ldo:ldo research:true "task"` | Add upfront web research; surface gaps trigger focused research automatically |
 | `/ldo:ldo security:true "task"` | Force the threat model on (or `false` to skip it) |
 | `/ldo:ldo planOnly:true "task"` | Plan and stop — no code, no review; returns the plan and its sizing block |
 | `Workflow({args:{task, resumePlan}})` | Skip the Planner and run against a plan recovered from an interrupted run's transcript — a plan object, so it goes through the tool call, not the palette |

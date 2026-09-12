@@ -455,11 +455,11 @@ assert('renderCost on an unavailable block promises no total elsewhere', ['rende
 }
 
 {
-  const label = 'all seven agent call sites pass the feature ledger'
+  const label = 'all nine agent call sites pass the feature ledger'
   const count = (src.match(/ledger: ctx\.ledger/g) || []).length
-  const ok = count === 7
+  const ok = count === 9
   console.log(`${ok ? '✓' : '✗'} ${label} — ${count} site(s)`)
-  if (!ok) problems.push(`${label}: found ${count} \`ledger: ctx.ledger\` site(s) in ${target}, expected 7 (isolator, researcher, planner, security, coder, reviewer, recorder). A missing one is an agent whose output is silently unattributed.`)
+  if (!ok) problems.push(`${label}: found ${count} \`ledger: ctx.ledger\` site(s) in ${target}, expected 9 (including focused surface research and the resolution Planner pass). A missing one is an agent whose output is silently unattributed.`)
 }
 
 {

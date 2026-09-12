@@ -65,8 +65,8 @@ const extract = name => {
 
 // Constants first so no extracted function body sits in their temporal dead
 // zone; among themselves the order here is the order in the source.
-const WANTED_CONSTS = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'ARTIFACT_MARKERS', 'PLAN_SCHEMA']
-const WANTED_FNS = ['detectSuppliedArtifact', 'reconciliationStatus', 'renderReconciliationBrief', 'renderConflicts', 'renderMigrations', 'safeRelPathSegments', 'safeMigrationsDir', 'renderPlan', 'renderConstraints', 'renderSplitPaste', 'resumePlanRejection']
+const WANTED_CONSTS = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'ARTIFACT_MARKERS', 'PLAN_SCHEMA', 'RESOLVED_SURFACE_COVERAGE']
+const WANTED_FNS = ['detectSuppliedArtifact', 'reconciliationStatus', 'renderReconciliationBrief', 'renderConflicts', 'renderMigrations', 'safeRelPathSegments', 'safeMigrationsDir', 'renderSurfaceAnalysis', 'renderPlan', 'renderConstraints', 'renderSplitPaste', 'unresolvedSurfaceCoverage', 'resumePlanRejection']
 const WANTED = [...WANTED_CONSTS, ...WANTED_FNS]
 
 const problems = []
@@ -224,7 +224,8 @@ assert('BRIEF_NAMES_MARKERS: the brief names what was detected, points at sectio
 
 // ── the conflicts survive into the prompts, capped and collapsed ──
 
-const planWith = extra => ({ complexity: 'medium', summary: 's', steps: [{ what: 'w', files: ['a.js'], acceptance: 'acc' }], ...extra })
+const matrix = { project_type: 'test', surfaces: [{ id: 'logic', name: 'Logic', change: 'change', contracts: [], principles: ['correctness'], coverage: 'covered', evidence: ['fixture'], resolution: 'test' }] }
+const planWith = extra => ({ complexity: 'medium', summary: 's', surface_analysis: matrix, steps: [{ what: 'w', files: ['a.js'], acceptance: 'acc' }], ...extra })
 const CONFLICT = 'ARTIFACT: chats.is_allowed (docs/requirements.md) vs no allow-list ever (docs/contracts/trust.md) — DECISION: drop the column?'
 
 assert('RENDER_PLAN_CARRIES: a conflict reaches the Security, first Coder and first Review prompt', ['renderPlan'], s => {
@@ -343,13 +344,13 @@ assert('SCHEMA_HAS_CONFLICTS: PLAN_SCHEMA still fits the classifier ceiling chec
 })
 
 assert('RESUME_REJECTS_MALFORMED: a recovered plan with a bad conflicts value is rejected, not rendered', ['resumePlanRejection'], s => {
-  const base = { complexity: 'medium', summary: 's', steps: [{ what: 'w', files: [], acceptance: 'a' }], codebase_context: { stack: 'node', relevant_files: [] } }
+  const base = { complexity: 'medium', summary: 's', surface_analysis: matrix, steps: [{ what: 'w', files: [], acceptance: 'a' }], codebase_context: { stack: 'node', relevant_files: [] } }
   const bad = ['a string', 42, {}, [1], [null], ['ok', 2]].map(c => s.resumePlanRejection({ ...base, conflicts: c }))
   return { ok: bad.every(r => r === 'conflicts is malformed'), detail: JSON.stringify(bad) }
 })
 
 assert('RESUME_REJECTS_MALFORMED: CONTROL — an absent or well-formed conflicts is accepted', ['resumePlanRejection'], s => {
-  const base = { complexity: 'medium', summary: 's', steps: [{ what: 'w', files: [], acceptance: 'a' }], codebase_context: { stack: 'node', relevant_files: [] } }
+  const base = { complexity: 'medium', summary: 's', surface_analysis: matrix, steps: [{ what: 'w', files: [], acceptance: 'a' }], codebase_context: { stack: 'node', relevant_files: [] } }
   const r = [s.resumePlanRejection(base), s.resumePlanRejection({ ...base, conflicts: [] }), s.resumePlanRejection({ ...base, conflicts: [CONFLICT] })]
   return { ok: r.every(v => v === null), detail: JSON.stringify(r) }
 })

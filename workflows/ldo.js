@@ -1,10 +1,10 @@
 export const meta = {
   name: 'ldo',
-  description: 'Lightweight Dev Orchestrator: [Research→]Plan→[Security→]Code⇄Review, with a different model per role',
+  description: 'Lightweight Dev Orchestrator: Plan→[Research→Plan]→[Security→]Code⇄Review, with a different model per role',
   whenToUse: 'args.task runs one feature in the current directory. args.tasks (an array) runs N independent features in parallel, each isolated in its own git worktree, created and verified in a dedicated Isolate phase before anything else runs; each ships separately afterward via /ldo-ship run from its own worktree. Add planOnly: true to either form to stop after Plan (and Security, when the surface is elevated) and get the plan plus its sizing block back without implementing it. args.resumePlan accepts a previously produced plan object and skips the Planner in a plain single-task run (not isolate: true, not args.tasks); an invalid object logs why and the Planner runs normally.',
   phases: [
     { title: 'Isolate', detail: 'Create and verify this feature\'s git worktree (isolated/multi-feature runs only)' },
-    { title: 'Research', detail: 'Multi-source web research (opt-in)' },
+    { title: 'Research', detail: 'Multi-source web research (automatic for unresolved surface requirements; also opt-in)' },
     { title: 'Plan', detail: 'Read the codebase, plan the change, rate complexity + security surface' },
     { title: 'Security', detail: 'Threat-model the plan before code exists (elevated surface only)' },
     { title: 'Code', detail: 'Set up env, implement, test, document' },
@@ -24,16 +24,35 @@ const PLAN_SCHEMA = {
     security_surface: {
       type: 'string',
       enum: ['none', 'low', 'elevated'],
-      description: 'Attack surface this change introduces. See agents/planner.md.',
     },
     security_notes: { type: 'array', items: { type: 'string' } },
     summary: { type: 'string' },
+    surface_analysis: {
+      type: 'object',
+      properties: {
+        project_type: { type: 'string' },
+        surfaces: {
+          type: 'array', minItems: 1, maxItems: 20,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' }, name: { type: 'string' }, change: { type: 'string' },
+              contracts: { type: 'array', maxItems: 10, items: { type: 'string' } },
+              principles: { type: 'array', maxItems: 10, items: { type: 'string' } },
+              coverage: { type: 'string', enum: ['covered', 'not_applicable', 'research_required', 'contract_candidate', 'resolved'] },
+              evidence: { type: 'array', minItems: 1, maxItems: 10, items: { type: 'string' } }, resolution: { type: 'string' },
+            },
+            required: ['id', 'name', 'change', 'contracts', 'principles', 'coverage', 'evidence', 'resolution'],
+          },
+        },
+      },
+      required: ['project_type', 'surfaces'],
+    },
     codebase_context: {
       type: 'object',
-      description: 'The only codebase information downstream agents receive',
       properties: {
-        stack: { type: 'string', description: 'Language, framework, package manager, test framework, db' },
-        conventions: { type: 'string', description: 'Patterns the Coder must match. 3-8 lines.' },
+        stack: { type: 'string' },
+        conventions: { type: 'string' },
         relevant_files: {
           type: 'array',
           items: {
@@ -48,7 +67,7 @@ const PLAN_SCHEMA = {
         },
         test_command: { type: 'string' },
         test_command_scoped: { type: 'string' },
-        run_command: { type: 'string', description: 'How to start the app; null if not runnable' },
+        run_command: { type: 'string' },
       },
       required: ['stack', 'relevant_files'],
     },
@@ -67,15 +86,13 @@ const PLAN_SCHEMA = {
     },
     problem_evidence: {
       type: 'object',
-      description: 'What observation shows the problem is real. See agents/planner.md.',
       properties: {
         basis: {
           type: 'string',
           enum: ['measured', 'reported', 'inspected', 'asserted'],
-          description: 'How the problem is known',
         },
-        evidence: { type: 'string', description: 'The specific observation. Empty when basis is asserted.' },
-        confirms: { type: 'string', description: 'What observable measurement would show the change worked' },
+        evidence: { type: 'string' },
+        confirms: { type: 'string' },
       },
       required: ['basis'],
     },
@@ -91,30 +108,27 @@ const PLAN_SCHEMA = {
     branch: { type: 'string', description: 'Multi-feature mode only: the branch you worked on' },
     migrations: {
       type: 'object',
-      description: 'Only when this plan creates globally-numbered files',
       properties: {
-        count: { type: 'number', description: '0 or omit when it creates none' },
-        directory: { type: 'string', description: 'Verified path, relative to the repo root' },
-        identifiers: { type: 'array', items: { type: 'string' }, description: 'Filename number prefixes, e.g. ["0075","0076"]' },
+        count: { type: 'number' },
+        directory: { type: 'string' },
+        identifiers: { type: 'array', items: { type: 'string' } },
         note: { type: 'string' },
       },
       required: ['count', 'directory'],
     },
     sizing: {
       type: 'object',
-      description: 'One run or several. Advisory. See agents/planner.md.',
       properties: {
         fits_one_run: { type: 'boolean' },
-        reason: { type: 'string', description: 'One line' },
+        reason: { type: 'string' },
         suggested_split: {
           type: 'array',
-          description: 'Empty when fits_one_run is true',
           items: {
             type: 'object',
             properties: {
-              label: { type: 'string', description: 'lowercase, digits, hyphens' },
-              task: { type: 'string', description: 'Self-contained: the next Planner never sees this plan' },
-              depends_on: { type: 'array', items: { type: 'string' }, description: 'Labels of chunks that must land first' },
+              label: { type: 'string' },
+              task: { type: 'string' },
+              depends_on: { type: 'array', items: { type: 'string' } },
             },
             required: ['label', 'task'],
           },
@@ -127,7 +141,7 @@ const PLAN_SCHEMA = {
   // aborts the Planner outright, and an advisory field that can kill a run
   // contradicts the whole point of it being advisory. A Planner that omits it
   // produces a run with no size rating, which phasePlan warns about.
-  required: ['complexity', 'summary', 'steps', 'codebase_context'],
+  required: ['complexity', 'summary', 'surface_analysis', 'steps', 'codebase_context'],
 }
 
 const CODER_SCHEMA = {
@@ -323,9 +337,21 @@ const RESEARCH_SCHEMA = {
       },
     },
     recommendations: { type: 'array', items: { type: 'string' } },
+    contract_candidates: {
+      type: 'array',
+      maxItems: 20,
+      items: {
+        type: 'object',
+        properties: {
+          surface_id: { type: 'string' }, kind: { type: 'string', enum: ['scope', 'accepted_risk', 'security_floor', 'code', 'area'] },
+          target: { type: 'string' }, rule: { type: 'string' }, evidence: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['surface_id', 'kind', 'target', 'rule', 'evidence'],
+      },
+    },
     gaps: { type: 'array', items: { type: 'string' } },
   },
-  required: ['question', 'summary', 'findings'],
+  required: ['question', 'summary', 'findings', 'recommendations', 'contract_candidates', 'gaps'],
 }
 
 // The Isolate phase asks for four independent git outputs rather than a
@@ -540,7 +566,7 @@ Already rendered for the files this plan names, safe to run as-is:
 }
 
 function renderPlan(plan) {
-  const lines = [`## PLAN (${plan.complexity})`, plan.summary, '', '### Steps']
+  const lines = [`## PLAN (${plan.complexity})`, plan.summary, renderSurfaceAnalysis(plan), '', '### Steps']
   plan.steps.forEach((s, i) => {
     lines.push(`${i + 1}. ${s.what}`)
     lines.push(`   Files: ${s.files.join(', ')}`)
@@ -563,6 +589,20 @@ function renderPlan(plan) {
   if (plan.rollback_plan) lines.push('', '### Rollback', plan.rollback_plan)
   const migrations = renderMigrations(plan)
   if (migrations) lines.push(migrations)
+  return lines.join('\n')
+}
+
+function renderSurfaceAnalysis(plan) {
+  const analysis = plan?.surface_analysis
+  if (!analysis?.surfaces?.length) return '\n### Surface-to-contract matrix\nMISSING — approval is forbidden.'
+  const lines = ['', `### Surface-to-contract matrix (${analysis.project_type})`]
+  analysis.surfaces.forEach(surface => {
+    lines.push(`- [${surface.coverage}] ${surface.id}: ${surface.name} — ${surface.change}`)
+    if (surface.contracts?.length) lines.push(`  Contracts: ${surface.contracts.join('; ')}`)
+    if (surface.principles?.length) lines.push(`  Principles: ${surface.principles.join('; ')}`)
+    lines.push(`  Evidence: ${(surface.evidence || []).join('; ') || 'MISSING'}`)
+    if (surface.resolution) lines.push(`  Resolution: ${surface.resolution}`)
+  })
   return lines.join('\n')
 }
 
@@ -743,7 +783,7 @@ function collectRunSignals(designMap, coderSignals, verdict) {
 }
 
 function renderPlanCompact(plan) {
-  return plan.steps.map((s, i) => `${i + 1}. ${s.what} [${s.files.join(', ')}]`).join('\n')
+  return renderSurfaceAnalysis(plan) + '\n\n' + plan.steps.map((s, i) => `${i + 1}. ${s.what} [${s.files.join(', ')}]`).join('\n')
 }
 
 // A fresh Reviewer agent runs every round, so it remembers nothing about what
@@ -1148,6 +1188,7 @@ function resumePlanRejection(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return 'not a plan object'
   if (!['trivial', 'medium', 'complex'].includes(p.complexity)) return 'complexity is not trivial|medium|complex'
   if (typeof p.summary !== 'string' || !p.summary.trim()) return 'summary is missing'
+  if (unresolvedSurfaceCoverage(p).length) return 'surface_analysis is missing, malformed, unresolved, or lacks evidence'
   if (
     !Array.isArray(p.steps) ||
     p.steps.length === 0 ||
@@ -1258,6 +1299,10 @@ function renderResearch(r) {
   if (r.recommendations?.length) {
     lines.push('', '### Recommendations')
     r.recommendations.forEach(x => lines.push(`- ${x}`))
+  }
+  if (r.contract_candidates?.length) {
+    lines.push('', '### Contract candidates (operator decision required via /ldo-contract)')
+    r.contract_candidates.forEach(c => lines.push(`- [${c.surface_id}] ${c.kind} → ${c.target}: ${c.rule}\n  Evidence: ${(c.evidence || []).join('; ')}`))
   }
   if (r.gaps?.length) lines.push('', '### Unanswered\n' + r.gaps.map(g => `- ${g}`).join('\n'))
   return lines.join('\n') + '\n\n'
@@ -2383,7 +2428,7 @@ function renderCost(cost) {
 // Nothing here reads or branches on the stamp — the stamp is a hint to re-run
 // /ldo-init, never a check, because an agent-written marker in a repo file
 // proves nothing about what surrounds it.
-const LDO_VERSION = '2.51.0'
+const LDO_VERSION = '2.52.0'
 
 // ═══════════════════════════════════════════
 // CONFIG
@@ -3035,6 +3080,37 @@ async function phaseIsolate(task, ctx, logStage, logPrefix) {
 
 // ── phaseResearch ──────────────────────────
 
+const RESOLVED_SURFACE_COVERAGE = new Set(['covered', 'not_applicable', 'resolved'])
+
+function unresolvedSurfaceCoverage(plan) {
+  const analysis = plan?.surface_analysis
+  if (!analysis || typeof analysis.project_type !== 'string' || !Array.isArray(analysis.surfaces) || !analysis.surfaces.length || analysis.surfaces.length > 20) {
+    return [{ id: 'surface-analysis', name: 'Surface analysis', coverage: 'missing', reason: 'the required matrix is absent or empty' }]
+  }
+  const seen = new Set()
+  return analysis.surfaces.filter(surface => {
+    if (!surface || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(surface.id || '') || seen.has(surface.id)) return true
+    seen.add(surface.id)
+    if (!RESOLVED_SURFACE_COVERAGE.has(surface.coverage)) return true
+    if (!Array.isArray(surface.evidence) || !surface.evidence.some(item => String(item || '').trim())) return true
+    return false
+  })
+}
+
+function unresolvedProductConflicts(plan) {
+  return (Array.isArray(plan?.conflicts) ? plan.conflicts : []).filter(item => item && !String(item).startsWith('NONE —'))
+}
+
+async function researchSurfaceGaps(task, plan, gaps, ctx, logStage, logPrefix) {
+  logStage('Research')
+  const report = await runAgent(
+    `Research only the unresolved surface requirements below. Map every finding and contract candidate to the supplied stable surface ID. Follow the /ldo-contract proposal procedure: one checkable rule per candidate, route scope/security/code separately, use a narrow docs/contracts/<area>.md for product-domain policy, keep the rule at most 200 characters, put provenance in evidence, and NEVER write a contract.\n\n## TASK\n${task}\n\n## PROJECT TYPE\n${plan.surface_analysis?.project_type || 'unknown'}\n\n## UNRESOLVED SURFACES\n${JSON.stringify(gaps, null, 2)}`,
+    { label: ctx.isMulti ? `${ctx.label}:researcher-surfaces` : 'researcher-surfaces', phase: 'Research', model: prePlanModels.researcher, agentType: 'ldo:researcher', schema: RESEARCH_SCHEMA, stallMs: STALL_MS.researcher, ledger: ctx.ledger }
+  )
+  if (!report) log(`${logPrefix}⚠ Required surface research returned nothing; coverage remains blocked.`)
+  return report
+}
+
 async function phaseResearch(task, ctx, logStage, logPrefix) {
   if (!DO_RESEARCH) {
     return { researchReport: null }
@@ -3122,6 +3198,30 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
   if (!plan) {
     log(`${logPrefix}ERROR: Planner failed.`)
     return { error: 'Planner failed', label: ctx.label, task }
+  }
+
+  let coverageGaps = unresolvedSurfaceCoverage(plan)
+  if (coverageGaps.some(gap => gap?.coverage === 'research_required')) {
+    const surfaceResearch = await researchSurfaceGaps(task, plan, coverageGaps, ctx, logStage, logPrefix)
+    if (surfaceResearch) {
+      researchReport = surfaceResearch
+      const previousPlan = plan
+      plan = await agentWithRetry(
+        worktreeTrigger + renderResearch(surfaceResearch) + sizingBrief + reconciliationBrief +
+        `Resolve the surface-to-contract matrix and produce the final implementation plan. Preserve every stable surface ID from the previous plan; do not delete a surface to clear a gap. An established engineering standard may become resolved with evidence. A new project policy stays contract_candidate until the operator accepts, adjusts, or skips it via /ldo-contract.\n\n## PREVIOUS PLAN\n${JSON.stringify(previousPlan, null, 2)}\n\n## TASK\n${task}`,
+        { label: ctx.isMulti ? `${ctx.label}:planner-resolution` : 'planner-resolution', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA, stallMs: STALL_MS.planner, ledger: ctx.ledger }
+      )
+      if (!plan) return { error: 'Planner failed after required surface research', label: ctx.label, task }
+      coverageGaps = unresolvedSurfaceCoverage(plan)
+    }
+  }
+
+  const productConflicts = unresolvedProductConflicts(plan)
+  if (coverageGaps.length || productConflicts.length) {
+    coverageGaps.forEach(gap => log(`${logPrefix}✗ Surface coverage unresolved [${gap?.coverage || 'missing'}] ${gap?.id || '(no id)'}: ${gap?.name || gap?.resolution || 'missing evidence'}`))
+    productConflicts.forEach(conflict => log(`${logPrefix}✗ Product choice unresolved: ${collapseLines(conflict)}`))
+    log(`${logPrefix}⏹ Resolution required before Security or Code. Accept, adjust, or skip contract candidates via /ldo-contract, then resume with the resolved plan.`)
+    return { resolutionRequired: true, mode: 'resolution-required', approved: false, plan, researchReport, unresolvedCoverage: coverageGaps, unresolvedConflicts: productConflicts, label: ctx.label, task }
   }
 
   // The host-side half of the contract-length signal. Logged here rather than
@@ -4034,6 +4134,7 @@ async function runOneFeature(task, ctx) {
     // Phase 3: Plan
     const planResult = await phasePlan(task, ctx, researchReport, isolation, logStage, logPrefix)
     if (planResult.error) return planResult
+    if (planResult.resolutionRequired) return planResult
     const { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK, scopedTests } = planResult
 
     const planReviewAdvice = recommendPlanReview(plan)

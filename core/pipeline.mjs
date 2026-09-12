@@ -25,6 +25,32 @@ function scopedTestOf(plan) {
   return { command: template.replace('{paths}', paths.join(' ')), paths }
 }
 
+const RESOLVED_COVERAGE = new Set(['covered', 'not_applicable', 'resolved'])
+
+export function unresolvedPlanCoverage(plan) {
+  const analysis = plan?.surface_analysis
+  if (!analysis || typeof analysis.project_type !== 'string' || !Array.isArray(analysis.surfaces) || !analysis.surfaces.length || analysis.surfaces.length > 20) {
+    return [{ id: 'surface-analysis', coverage: 'missing', name: 'Surface analysis' }]
+  }
+  const seen = new Set()
+  return analysis.surfaces.filter(surface => {
+    if (!surface || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(surface.id || '') || seen.has(surface.id)) return true
+    seen.add(surface.id)
+    if (!RESOLVED_COVERAGE.has(surface.coverage)) return true
+    return !Array.isArray(surface.evidence) || !surface.evidence.some(item => String(item || '').trim())
+  })
+}
+
+function researchQuestion(task, plan, gaps) {
+  return [
+    'Research the engineering requirements needed to resolve these affected product surfaces before implementation.',
+    `Task: ${task}`,
+    `Project type: ${plan?.surface_analysis?.project_type || 'unknown'}`,
+    `Unresolved surfaces: ${JSON.stringify(gaps)}`,
+    'Return evidence-backed findings mapped to the stable surface IDs. Prefer authoritative standards and established project evidence.',
+  ].join('\n')
+}
+
 export function createPipeline({ adapter, prompt, schemas, models = {}, retries = 1, onEvent, scopedTests = false }) {
   if (typeof prompt !== 'function') throw new TypeError('prompt({ role, task, context }) is required')
   if (!schemas?.planner || !schemas?.coder || !schemas?.reviewer) throw new TypeError('planner, coder and reviewer schemas are required')
@@ -34,18 +60,34 @@ export function createPipeline({ adapter, prompt, schemas, models = {}, retries 
 
   return async function run({ task, cwd, planOnly = false, security = 'auto', research = false, record = true, isolation = null, approvedPlan = null, approvedSecurity = null, completed = {} }) {
     const execution = isolation ? { isolation } : {}
-    const researchReport = !approvedPlan && research && schemas.researcher
+    let researchReport = !approvedPlan && research && schemas.researcher
       ? await runAgent({
         role: 'researcher', cwd, model: modelFor('researcher'), schema: schemas.researcher, search: true,
         prompt: prompt({ role: 'researcher', task, context: contextOf(execution) }),
       })
       : null
 
-    const plan = approvedPlan ? { value: approvedPlan, raw: JSON.stringify(approvedPlan), role: 'planner', attempt: 0, resumed: true } : await runAgent({
+    let plan = approvedPlan ? { value: approvedPlan, raw: JSON.stringify(approvedPlan), role: 'planner', attempt: 0, resumed: true } : await runAgent({
       checkpoint: 'planner',
       role: 'planner', cwd, model: modelFor('planner'), schema: schemas.planner,
       prompt: prompt({ role: 'planner', task, context: contextOf({ ...execution, research: researchReport?.value }) }),
     })
+    let coverageGaps = unresolvedPlanCoverage(plan.value)
+    if (!approvedPlan && coverageGaps.some(gap => gap.coverage === 'research_required') && schemas.researcher) {
+      researchReport = await runAgent({
+        role: 'researcher', cwd, model: modelFor('researcher'), schema: schemas.researcher, search: true,
+        prompt: prompt({ role: 'researcher', task: researchQuestion(task, plan.value, coverageGaps), context: contextOf({ ...execution, plan: plan.value }) }),
+      })
+      plan = await runAgent({
+        checkpoint: 'planner', role: 'planner', cwd, model: modelFor('planner'), schema: schemas.planner,
+        prompt: prompt({ role: 'planner', task, context: contextOf({ ...execution, previousPlan: plan.value, research: researchReport.value }) }),
+      })
+      coverageGaps = unresolvedPlanCoverage(plan.value)
+    }
+    const unresolvedConflicts = Array.isArray(plan.value?.conflicts) ? plan.value.conflicts.filter(item => item && !String(item).trim().startsWith('NONE —')) : []
+    if (coverageGaps.length || unresolvedConflicts.length) {
+      return { task, mode: 'resolution-required', research: researchReport, plan, security: null, unresolvedCoverage: coverageGaps, unresolvedConflicts, approved: false }
+    }
     const shouldRunSecurity = schemas.security && (security === true || (security === 'auto' && plan.value.security_surface === 'elevated'))
     const securityReport = approvedSecurity ? { value: approvedSecurity, raw: JSON.stringify(approvedSecurity), role: 'security', attempt: 0, resumed: true } : shouldRunSecurity
       ? await runAgent({
