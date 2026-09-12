@@ -71,8 +71,11 @@ const extract = name => {
   return null
 }
 
-const WANTED_CONSTS = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'CONTRACT_LIMIT_PREFIX', 'CONTRACT_CANDIDATE_PREFIX']
-const WANTED_FNS = ['contractWarnings', 'collectContractCandidates', 'renderContractCandidates', 'recommendPlanReview', 'collectRunSignals']
+const WANTED_CONSTS = ['LINE_BREAK_RUN', 'PROMPT_TEXT_MAX', 'collapseLines', 'RENDER_LIST_MAX', 'capList', 'CONTRACT_LIMIT_PREFIX', 'CONTRACT_CANDIDATE_PREFIX', 'SETTLED_CONFLICT']
+// settledConflict/unresolvedProductConflicts are pulled in because
+// recommendPlanReview shares the resolution gate's rule for which conflicts
+// count as open, rather than carrying a second copy of it that could drift.
+const WANTED_FNS = ['settledConflict', 'unresolvedProductConflicts', 'contractWarnings', 'collectContractCandidates', 'renderContractCandidates', 'recommendPlanReview', 'collectRunSignals']
 const problems = []
 const sources = {}
 for (const name of [...WANTED_CONSTS, ...WANTED_FNS]) {

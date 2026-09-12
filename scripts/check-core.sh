@@ -226,6 +226,34 @@ const blocked = await blockedPipeline({ task: 'blocked', cwd: process.cwd() })
 if (blocked.mode !== 'resolution-required' || blockedCalls.join(',') !== 'planner') throw new Error('contract candidate reached Code')
 console.log('✓ surface governance automatically researches uncertain coverage and blocks unresolved contract candidates before Code')
 
+// The conflicts half of the same gate, driven through the real pipeline: a
+// Codex run stalled with three RESOLVED entries because the filter blocked
+// everything that did not begin `NONE —`. A settled conflict is a decision the
+// plan records, not one the operator still owes.
+const settledCalls = []
+const settledPipeline = createPipeline({
+  adapter: { async run(options) {
+    settledCalls.push(options.role)
+    if (options.role === 'planner') return { value: { ...covered, summary: 'plan', security_surface: 'none', conflicts: ['NONE — checked the DDL against docs/contracts/code.md', 'RESOLVED — kept the operator column (operator decision, brief §3)'] }, raw: '{}' }
+    if (options.role === 'coder') return { value: { summary: 'code' }, raw: '{}' }
+    return { value: { status: 'approved', summary: 'reviewed' }, raw: '{}' }
+  } },
+  schemas: { planner: 'plan', coder: 'code', reviewer: 'review' }, prompt: ({ role }) => role, retries: 0,
+})
+const settled = await settledPipeline({ task: 'settled conflicts', cwd: process.cwd() })
+if (settled.mode === 'resolution-required' || !settled.approved || settledCalls.join(',') !== 'planner,coder,reviewer') throw new Error(`a plan whose conflicts are all settled did not reach Code: mode=${settled.mode} roles=${settledCalls.join(',')}`)
+
+// CONTROL: the marker is a prefix, so an entry that merely mentions a decision
+// still holds the run — that is what the gate is for.
+const openCalls = []
+const openPipeline = createPipeline({
+  adapter: { async run(options) { openCalls.push(options.role); return { value: { ...covered, summary: 'plan', conflicts: ['ARTIFACT: DDL keeps is_allowed (brief §3) vs prose drops the ACL (brief §1) — DECISION: which ships'] }, raw: '{}' } } },
+  schemas: { planner: 'plan', coder: 'code', reviewer: 'review' }, prompt: ({ role }) => role, retries: 0,
+})
+const open = await openPipeline({ task: 'open conflict', cwd: process.cwd() })
+if (open.mode !== 'resolution-required' || open.unresolvedConflicts.length !== 1 || openCalls.join(',') !== 'planner') throw new Error('an open product conflict reached Code')
+console.log('✓ a conflict the plan marks NONE/RESOLVED clears the gate, an open one still stops before Code')
+
 const recordCalls = []
 const recordPipeline = createPipeline({
   adapter: {
@@ -281,6 +309,24 @@ const noTestPipeline = createPipeline({
 })
 await noTestPipeline({ task: 'no test path', cwd: process.cwd() })
 if (noTestContexts.some(context => context?.scopedTests)) throw new Error('scoped test fallback accepted a config or source file as a test target')
+// The role is the Planner's prose, and prose mentioning tests is not a test
+// file: a real run rated package.json 'defines the test command', which put it
+// into `node --test package.json` and broke the runner for every later phase.
+const roleProseContexts = []
+const roleProsePipeline = createPipeline({
+  adapter: { async run(options) {
+    roleProseContexts.push(options.context)
+    if (options.role === 'planner') return { value: { ...covered, complexity: 'trivial', security_surface: 'none', steps: [{ files: ['cli.js'] }], codebase_context: { relevant_files: [{ path: 'package.json', role: 'defines the test command and the version this test reads' }, { path: 'cli.js', role: 'target' }], test_command: 'node --test', test_command_scoped: 'node --test {paths}' } }, raw: '{}' }
+    if (options.role === 'coder') return { value: { summary: 'code' }, raw: '{}' }
+    return { value: { status: 'approved', summary: 'reviewed' }, raw: '{}' }
+  } },
+  schemas: { planner: 'plan', coder: 'code', reviewer: 'review' }, prompt: ({ role }) => role,
+  scopedTests: true, retries: 0,
+})
+await roleProsePipeline({ task: 'role prose', cwd: process.cwd() })
+if (roleProseContexts.some(context => context?.scopedTests)) throw new Error('a file whose ROLE mentions tests was selected as a test target')
+console.log('✓ scoped test targets are chosen by path, so a role that merely mentions tests selects nothing')
+
 console.log('✓ scoped tests fall back to the full suite instead of passing non-test files')
 NODE
 

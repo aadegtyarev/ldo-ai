@@ -18,8 +18,15 @@ function scopedTestOf(plan) {
   const command = shellFree.trim().split(/\s+/)[0]
   const allowed = new Set(['npm', 'npx', 'yarn', 'pnpm', 'pytest', 'python', 'python3', 'go', 'cargo', 'mvn', 'gradle', 'dotnet', 'rspec', 'bundle', 'phpunit', 'jest', 'vitest', 'ctest', 'make', 'tox', 'deno', 'bun', 'node'])
   if (!allowed.has(command) && command !== broad) return null
-  const candidates = (plan.codebase_context.relevant_files || []).filter(file => /test|spec/i.test(`${file.role} ${file.path}`)).map(file => file.path)
-  const fallback = (plan.steps || []).flatMap(step => step.files || []).filter(path => /(^|[/_.-])(test|tests|spec|specs)([/_.-]|$)/i.test(path))
+  // Both lists are matched on the PATH, never on the Planner's `role` prose. A
+  // role reading "defines the test command" made `package.json` a test target,
+  // and `node --test package.json` does not fail the tests — it fails the
+  // runner, so the Coder and the Reviewer both reported the suite as blocked.
+  // A test file this misses costs one broader run; a non-test file it lets
+  // through costs the run its verification.
+  const testPath = /(^|[/_.-])(test|tests|spec|specs)([/_.-]|$)/i
+  const candidates = (plan.codebase_context.relevant_files || []).filter(file => testPath.test(String(file?.path || ''))).map(file => file.path)
+  const fallback = (plan.steps || []).flatMap(step => step.files || []).filter(path => testPath.test(path))
   const paths = [...new Set(candidates.length ? candidates : fallback)].filter(path => typeof path === 'string' && path.length <= 300 && !path.startsWith('-') && !path.startsWith('/') && !path.split('/').includes('..') && /^[A-Za-z0-9_./-]+$/.test(path)).slice(0, 20)
   if (!paths.length) return null
   return { command: template.replace('{paths}', paths.join(' ')), paths }
@@ -39,6 +46,19 @@ export function unresolvedPlanCoverage(plan) {
     if (!RESOLVED_COVERAGE.has(surface.coverage)) return true
     return !Array.isArray(surface.evidence) || !surface.evidence.some(item => String(item || '').trim())
   })
+}
+
+// `conflicts` is model-authored prose, so the only thing a gate can read is how
+// an entry starts. `NONE —` means the reconciliation found no contradiction and
+// `RESOLVED —` means one existed and the entry says which side won; anything
+// else is a decision nobody has made, and that is what stops the run. Without
+// the second marker a Planner that resolved every conflict it found had no way
+// to say so, and its own resolution blocked the run that produced it.
+const SETTLED_CONFLICT = /^\s*(?:none|resolved)\b\s*[—–:-]?/i
+
+export function unresolvedPlanConflicts(plan) {
+  return (Array.isArray(plan?.conflicts) ? plan.conflicts : [])
+    .filter(item => String(item ?? '').trim() && !SETTLED_CONFLICT.test(String(item)))
 }
 
 function researchQuestion(task, plan, gaps) {
@@ -84,7 +104,7 @@ export function createPipeline({ adapter, prompt, schemas, models = {}, retries 
       })
       coverageGaps = unresolvedPlanCoverage(plan.value)
     }
-    const unresolvedConflicts = Array.isArray(plan.value?.conflicts) ? plan.value.conflicts.filter(item => item && !String(item).trim().startsWith('NONE —')) : []
+    const unresolvedConflicts = unresolvedPlanConflicts(plan.value)
     if (coverageGaps.length || unresolvedConflicts.length) {
       return { task, mode: 'resolution-required', research: researchReport, plan, security: null, unresolvedCoverage: coverageGaps, unresolvedConflicts, approved: false }
     }

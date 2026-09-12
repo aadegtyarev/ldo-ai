@@ -2428,7 +2428,7 @@ function renderCost(cost) {
 // Nothing here reads or branches on the stamp — the stamp is a hint to re-run
 // /ldo-init, never a check, because an agent-written marker in a repo file
 // proves nothing about what surrounds it.
-const LDO_VERSION = '2.52.0'
+const LDO_VERSION = '2.52.1'
 
 // ═══════════════════════════════════════════
 // CONFIG
@@ -3097,8 +3097,34 @@ function unresolvedSurfaceCoverage(plan) {
   })
 }
 
+// `conflicts` is model-authored prose, so the only thing a gate can read is how
+// an entry starts. Two openings mean the decision is made: `NONE —` (the
+// reconciliation found no contradiction) and `RESOLVED —` (the contradiction
+// was real and the entry says which side won and why). Anything else is still a
+// choice nobody has made, and that is what stops the run. Without the second
+// marker a Planner that resolves every conflict it found has no way to say so,
+// and its own resolution blocks the run that produced it — a Codex run stalled
+// exactly there, with all three entries reading RESOLVED.
+const SETTLED_CONFLICT = /^\s*(?:none|resolved)\b\s*[—–:-]?/i
+
+function settledConflict(item) {
+  return SETTLED_CONFLICT.test(String(item ?? ''))
+}
+
+// Composed from COUNTS and fixed text only, never from the model-authored
+// entries themselves — the same rule recommendPlanReview follows, and for the
+// same reason: this line lands in a summary the caller prints.
+function renderResolutionRequired(feature) {
+  const coverage = feature?.unresolvedCoverage?.length || 0
+  const conflicts = feature?.unresolvedConflicts?.length || 0
+  const parts = []
+  if (coverage) parts.push(`${coverage} unresolved surface(s)`)
+  if (conflicts) parts.push(`${conflicts} open product choice(s)`)
+  return `resolution required before any code — ${parts.join(' and ') || 'see the Plan phase log'}. Settle them (contract candidates via /ldo-contract) and re-issue this task.`
+}
+
 function unresolvedProductConflicts(plan) {
-  return (Array.isArray(plan?.conflicts) ? plan.conflicts : []).filter(item => item && !String(item).startsWith('NONE —'))
+  return (Array.isArray(plan?.conflicts) ? plan.conflicts : []).filter(item => String(item ?? '').trim() && !settledConflict(item))
 }
 
 async function researchSurfaceGaps(task, plan, gaps, ctx, logStage, logPrefix) {
@@ -3208,7 +3234,7 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
       const previousPlan = plan
       plan = await agentWithRetry(
         worktreeTrigger + renderResearch(surfaceResearch) + sizingBrief + reconciliationBrief +
-        `Resolve the surface-to-contract matrix and produce the final implementation plan. Preserve every stable surface ID from the previous plan; do not delete a surface to clear a gap. An established engineering standard may become resolved with evidence. A new project policy stays contract_candidate until the operator accepts, adjusts, or skips it via /ldo-contract.\n\n## PREVIOUS PLAN\n${JSON.stringify(previousPlan, null, 2)}\n\n## TASK\n${task}`,
+        `Resolve the surface-to-contract matrix and produce the final implementation plan. Preserve every stable surface ID from the previous plan; do not delete a surface to clear a gap. Restate every conflict you have settled as one entry beginning \`RESOLVED — \` naming the decision and its source; an entry that still reads as an open choice stops the run. An established engineering standard may become resolved with evidence. A new project policy stays contract_candidate until the operator accepts, adjusts, or skips it via /ldo-contract.\n\n## PREVIOUS PLAN\n${JSON.stringify(previousPlan, null, 2)}\n\n## TASK\n${task}`,
         { label: ctx.isMulti ? `${ctx.label}:planner-resolution` : 'planner-resolution', phase: 'Plan', model: prePlanModels.planner, agentType: 'ldo:planner', schema: PLAN_SCHEMA, stallMs: STALL_MS.planner, ledger: ctx.ledger }
       )
       if (!plan) return { error: 'Planner failed after required surface research', label: ctx.label, task }
@@ -3220,7 +3246,7 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
   if (coverageGaps.length || productConflicts.length) {
     coverageGaps.forEach(gap => log(`${logPrefix}✗ Surface coverage unresolved [${gap?.coverage || 'missing'}] ${gap?.id || '(no id)'}: ${gap?.name || gap?.resolution || 'missing evidence'}`))
     productConflicts.forEach(conflict => log(`${logPrefix}✗ Product choice unresolved: ${collapseLines(conflict)}`))
-    log(`${logPrefix}⏹ Resolution required before Security or Code. Accept, adjust, or skip contract candidates via /ldo-contract, then resume with the resolved plan.`)
+    log(`${logPrefix}⏹ Resolution required before Security or Code. Accept, adjust, or skip contract candidates via /ldo-contract, then resume with the resolved plan. A conflict that IS decided belongs in the plan as \`RESOLVED — <decision> (<source>)\` — only an entry that still reads as an open choice holds the run.`)
     return { resolutionRequired: true, mode: 'resolution-required', approved: false, plan, researchReport, unresolvedCoverage: coverageGaps, unresolvedConflicts: productConflicts, label: ctx.label, task }
   }
 
@@ -3332,7 +3358,12 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
   // Planner that never created one — so a prompt-level instruction with no
   // orchestrator-side reinforcement is a known losing shape here, not a
   // hypothetical one.
-  capList((Array.isArray(plan.conflicts) ? plan.conflicts : []).filter(c => String(c ?? '').trim()).map(c => `⚠ Conflict to confirm: ${collapseLines(c)}`)).forEach(l => log(`${logPrefix}  ${l}`))
+  // Split by the same marker the gate reads: an open entry cannot reach this
+  // line any more (the resolution return is above it), so labelling a `NONE —`
+  // or `RESOLVED —` entry as one to confirm would ask the operator for a
+  // decision the plan already carries. The ⚠ branch stays because the log is
+  // the only place an entry the gate somehow let through would show up.
+  capList((Array.isArray(plan.conflicts) ? plan.conflicts : []).filter(c => String(c ?? '').trim()).map(c => `${settledConflict(c) ? '✓ Conflict settled' : '⚠ Conflict to confirm'}: ${collapseLines(c)}`)).forEach(l => log(`${logPrefix}  ${l}`))
   if (reconciliationStatus(task, plan) === 'expected_not_reported') {
     log(`${logPrefix}  ⚠ Reconciliation expected but not reported: this task supplies an artifact (${artifactMarkers.join(', ')}) and the plan carries no conflicts entry — the artifact was either not reconciled against the project's contracts and the brief's own prose, or it was and the Planner did not say so.`)
   }
@@ -3351,7 +3382,13 @@ async function phasePlan(task, ctx, researchReport, isolation, logStage, logPref
     log(`${logPrefix}Migrations: ${plan.migrations.count} in ${plan.migrations.directory} — ${(plan.migrations.identifiers || []).join(', ') || '(no identifiers listed)'}`)
   }
 
-  return { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK, scopedTests }
+  // researchReport rides back out because phasePlan may have run a Researcher
+  // of its own: an unresolved surface triggers a focused pass whose report is
+  // what the final plan was built from. Left behind, the run reports
+  // `researched: false` with a null report, and the Recorder never sees the
+  // contract candidates that pass produced — a Researcher paid for and then
+  // erased from the record of the run it shaped.
+  return { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK, scopedTests, researchReport }
 }
 
 // ── phaseSecurity ──────────────────────────
@@ -3935,16 +3972,17 @@ ${securityReport?.status === 'findings' ? securityReport.findings.map(f => `[${f
 // model-authored text that would land uncollapsed on the result object the
 // caller prints.
 //
-// `NONE —` conflicts are excluded because agents/planner.md tells the Planner
-// to report `NONE — <what you checked it against>` when it reconciled an
-// artifact and found nothing: that is a clean reconciliation, and treating it
-// as an unresolved decision would make this fire on every artifact-bearing run.
+// Settled conflicts are excluded — the same `NONE —`/`RESOLVED —` rule the
+// resolution gate uses, and for the same reason. agents/planner.md tells the
+// Planner to report `NONE — <what you checked it against>` after a clean
+// reconciliation and `RESOLVED — <decision> (<source>)` once a contradiction
+// has been decided; counting either as an open decision would make this fire on
+// every artifact-bearing run.
 function recommendPlanReview(plan) {
   const reasons = []
   if (plan?.complexity === 'complex') reasons.push('complexity is `complex`')
   if (plan?.security_surface === 'elevated') reasons.push('security_surface is `elevated`')
-  const conflicts = (Array.isArray(plan?.conflicts) ? plan.conflicts : [])
-    .filter(c => !String(c ?? '').trim().startsWith('NONE —'))
+  const conflicts = unresolvedProductConflicts(plan)
   if (conflicts.length) reasons.push(`${conflicts.length} unresolved conflict(s) in \`conflicts\``)
   if (plan?.sizing?.fits_one_run === false) reasons.push('`sizing.fits_one_run` is false')
   if (!reasons.length) return null
@@ -4129,13 +4167,24 @@ async function runOneFeature(task, ctx) {
     const { isolation } = isolateResult
 
     // Phase 2: Research (opt-in)
-    const { researchReport } = await phaseResearch(task, ctx, logStage, logPrefix)
+    let { researchReport } = await phaseResearch(task, ctx, logStage, logPrefix)
 
     // Phase 3: Plan
     const planResult = await phasePlan(task, ctx, researchReport, isolation, logStage, logPrefix)
     if (planResult.error) return planResult
-    if (planResult.resolutionRequired) return planResult
+    if (planResult.resolutionRequired) {
+      // Sampled and logged here for the same reason the other two terminal
+      // paths do it: a run that stopped before Code still spent a Planner
+      // pass, and often a Researcher and a second Planner on top. Returning
+      // without a cost block is what makes a blocked run look free.
+      const blockedCost = ctx.ledger.finish()
+      log(`${logPrefix}${renderCostLine(blockedCost)}`)
+      return { ...planResult, cost: blockedCost }
+    }
     const { plan, models, CTX, surface, DO_SECURITY, WORKTREE_BLOCK, scopedTests } = planResult
+    // The focused surface pass, when it ran, replaces the opt-in report the
+    // Research phase produced (usually none) — see phasePlan's return.
+    researchReport = planResult.researchReport ?? researchReport
 
     const planReviewAdvice = recommendPlanReview(plan)
     if (planReviewAdvice) log(`${logPrefix}▸ ${planReviewAdvice}`)
@@ -4262,12 +4311,17 @@ if (tasksList) {
   // reported as a failure. There is also nothing to ship, so no /ldo-ship line.
   if (PLAN_ONLY) {
     const planned = features.filter(f => f.mode === 'plan-only').length
+    // A feature the resolution gate stopped has no error and no plan-only mode,
+    // so counting only those two leaves it invisible — and the ✓ line below
+    // used to report it as planned, which is the opposite of what happened.
+    const blocked = features.filter(f => f.mode === 'resolution-required').length
     const failed = features.filter(f => f.error).length
 
     log('')
-    log(`Multi-feature plan-only summary: ${planned}/${features.length} planned, ${failed} failed`)
+    log(`Multi-feature plan-only summary: ${planned}/${features.length} planned, ${blocked} need resolution, ${failed} failed`)
     features.forEach(f => {
       if (f.error) log(`  [${f.label}] ✗ ${f.error}`)
+      else if (f.mode === 'resolution-required') log(`  [${f.label}] ⏹ ${renderResolutionRequired(f)}`)
       else if (f.worktree_path) log(`  [${f.label}] ✓ planned in ${f.worktree_path}`)
       else log(`  [${f.label}] ✓ planned`)
       // Status first and total second, so an operator reading only the summary
@@ -4279,19 +4333,25 @@ if (tasksList) {
 
     return {
       mode: 'multi-plan-only',
-      summary: { total: features.length, planned, failed },
+      summary: { total: features.length, planned, blocked, failed },
       features,
     }
   }
 
   const approved = features.filter(f => f.approved).length
-  const failed = features.filter(f => f.error || !f.verdict).length
-  const changesRequested = features.length - approved - failed
+  // Counted apart from `failed` because nothing failed: the run stopped on a
+  // decision the operator owes. Folded into the failure count it reads as a
+  // broken feature, and its line printed 'no worktree — see error above' with
+  // no error above to see.
+  const blocked = features.filter(f => f.mode === 'resolution-required').length
+  const failed = features.filter(f => f.mode !== 'resolution-required' && (f.error || !f.verdict)).length
+  const changesRequested = features.length - approved - failed - blocked
 
   log('')
-  log(`Multi-feature summary: ${approved}/${features.length} approved, ${changesRequested} changes requested, ${failed} failed`)
+  log(`Multi-feature summary: ${approved}/${features.length} approved, ${changesRequested} changes requested, ${blocked} need resolution, ${failed} failed`)
   features.forEach(f => {
-    if (f.worktree_path) log(`  [${f.label}] ${f.approved ? '✓' : '✗'} → run /ldo-ship from ${f.worktree_path} (already on ${f.branch})`)
+    if (f.mode === 'resolution-required') log(`  [${f.label}] ⏹ ${renderResolutionRequired(f)}`)
+    else if (f.worktree_path) log(`  [${f.label}] ${f.approved ? '✓' : '✗'} → run /ldo-ship from ${f.worktree_path} (already on ${f.branch})`)
     else log(`  [${f.label}] ✗ ${f.error || 'no worktree — see error above'}`)
     if (f.record_misplaced) log(`  [${f.label}] ⚠ Recorder wrote outside its worktree — check the main checkout before you git add`)
     // Reported even on an approved feature: a dead Recorder leaves the review
@@ -4316,7 +4376,7 @@ if (tasksList) {
 
   return {
     mode: 'multi',
-    summary: { total: features.length, approved, changesRequested, failed },
+    summary: { total: features.length, approved, changesRequested, blocked, failed },
     features,
   }
 }

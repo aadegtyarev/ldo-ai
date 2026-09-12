@@ -102,6 +102,50 @@ for f in $ROUTING_FILES; do
   fi
 done
 
+# LDO's own CLAUDE.md is the first consumer of the block /ldo-init writes, and
+# in this repo it must not lag behind it. The surface-governance change edited
+# only this copy and left the canonical block in the skill a release behind, so
+# every project running /ldo-init would have installed the older wording, and
+# nothing here noticed. The drift-log lines are the project's own data, never
+# LDO's, so they are excluded from the comparison.
+BLOCK_DRIFT="$(python3 - "$ROOT" <<'BLOCKPY'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+
+def block(path):
+    lines = (root / path).read_text().split('\n')
+    try:
+        start = next(i for i, l in enumerate(lines) if l.strip() == '<!-- BEGIN ldo -->')
+        end = next(i for i, l in enumerate(lines) if l.strip() == '<!-- END ldo -->')
+    except StopIteration:
+        return None
+    kept, skipping = [], False
+    for line in lines[start:end + 1]:
+        if line.strip() == '<!-- ldo:features -->':
+            skipping = True
+        elif line.strip() == '<!-- /ldo:features -->':
+            skipping = False
+        elif not skipping:
+            kept.append(line)
+    return kept
+
+canonical = block('skills/ldo-init/SKILL.md')
+installed = block('CLAUDE.md')
+if canonical is None or installed is None:
+    print('a block marker is missing — this gate is stale, or one of the files is')
+elif canonical != installed:
+    first = next((f'line {i + 1}: skill {c!r} vs CLAUDE.md {p!r}'
+                  for i, (c, p) in enumerate(zip(canonical, installed)) if c != p),
+                 f'{len(canonical)} block lines vs {len(installed)}')
+    print(first[:240])
+BLOCKPY
+)"
+if [ -z "$BLOCK_DRIFT" ]; then
+  pass "this repo's CLAUDE.md block matches the one /ldo-init writes" 'identical apart from the drift log'
+else
+  fail "this repo's CLAUDE.md block has drifted from skills/ldo-init/SKILL.md" "$BLOCK_DRIFT"
+fi
+
 echo
 if [ "$FAILED" = "0" ]; then
   echo "✓ Every documented default still matches workflows/ldo.js."

@@ -5,6 +5,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.52.1] — 2026-09-12
+
+### Fixed
+
+- **A conflict the plan already settled no longer blocks the run.** The
+  resolution gate read `conflicts` by prefix and treated every entry that did
+  not begin `NONE —` as an open decision, so a Planner that resolved what it
+  found had no way to say so and its own resolution stopped the run before
+  Security and Code — a Codex run stalled with all three entries reading
+  RESOLVED. `NONE —` and `RESOLVED —` now both clear the gate on both runtimes
+  (`workflows/ldo.js`, `core/pipeline.mjs`); anything else still holds it, and
+  `agents/planner.md` tells the Planner how to mark a decision it made, on the
+  first pass and when carrying conflicts into a resolution pass.
+- **A run stopped by the resolution gate now reports itself like any other.** It
+  closes its cost ledger and logs the line (a blocked run still paid for a
+  Planner pass, often a Researcher and a second Planner), carries the focused
+  surface research out to the result and the Recorder instead of dropping it
+  inside `phasePlan`, and under `args.tasks` gets its own count and line in both
+  multi-feature summaries — the plan-only one used to print it as `✓ planned`
+  and the full one as `✗ no worktree — see error above`, with no error above it.
+- **A scoped test target is chosen by path, not by the Planner's prose.** The
+  portable runtime matched `${role} ${path}`, so `package.json` rated "defines
+  the test command" became a test target and `node --test package.json` broke
+  the runner rather than the tests — the Coder and both Reviewer passes reported
+  the suite as blocked. Selection now reads the path only, and a file whose role
+  merely mentions tests selects nothing.
+- **The `/ldo-init` block is held to the copy this repo installs.** The surface
+  governance change edited `CLAUDE.md` and left the canonical block in
+  `skills/ldo-init/SKILL.md` a release behind, so every project re-running
+  `/ldo-init` would have installed the older wording. `scripts/check-config-defaults.sh`
+  now compares the two blocks, drift log excluded, and the block documents the
+  `resolution-required` outcome it can now hand back.
+
 ## [2.52.0] — 2026-09-12
 
 ### Added
