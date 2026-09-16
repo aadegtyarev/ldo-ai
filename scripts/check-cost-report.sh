@@ -14,6 +14,19 @@
 #   coder    opus    2,000,000 reads + 100,000 writes + 10 in + 50,000 out
 #   reviewer sonnet  1,000,000 reads +       0 writes +  0 in + 10,000 out
 #
+# The second fixture, cost-streamed, exists because that first one CANNOT catch
+# the defect that made this report overstate every run by about 2x: its records
+# carry no `message.id`, so one record is one message and double counting is
+# invisible. A real transcript writes a streamed answer several times under one
+# id, with the SAME input and cache figures each time — summing records charges
+# the prompt once per partial. cost-streamed is one agent, two messages, the
+# first written three times:
+#   msg_stream_one  1,000,000 reads + 100,000 writes + 10 in, output 5→900→20,000
+#   msg_stream_two  1,000,000 reads +       0 writes +  0 in, output 30,000
+# Read per message it is 2 turns / 2,000,000 reads / 50,000 out; read per record
+# it is 4 turns / 4,000,000 reads / 50,905 out. The assertions below name the
+# first, so a regression to record-summing fails here instead of in a bill.
+#
 # Usage: scripts/check-cost-report.sh [ldo-cost.py path]
 set -uo pipefail
 
@@ -58,6 +71,34 @@ else
   [ "$unc" = "38.4" ] && pass 'CONTROL: the uncached counterfactual prices reads as fresh input' "\$$unc" \
     || fail 'CONTROL: the uncached counterfactual prices reads as fresh input' "got $unc, expected 38.4"
 fi
+
+# ── a streamed answer is one message, not one per partial ─────────────────
+STREAM="$HERE/fixtures/cost-streamed"
+if [ ! -d "$STREAM" ]; then
+  fail 'the streamed-partials fixture exists' "no fixture at $STREAM"
+else
+  S="$(python3 "$COST" "$STREAM" --json 2>/dev/null)"
+  if [ -z "$S" ]; then
+    fail 'the streamed fixture is readable' 'no JSON returned'
+  else
+    s_turns=$(printf '%s' "$S" | python3 -c "import json,sys; print(sum(a['turns'] for a in json.load(sys.stdin)['agents']))")
+    s_reads=$(printf '%s' "$S" | python3 -c "import json,sys; print(json.load(sys.stdin)['totals']['cache_read_input_tokens'])")
+    s_out=$(printf '%s' "$S" | python3 -c "import json,sys; print(json.load(sys.stdin)['totals']['output_tokens'])")
+
+    [ "$s_turns" = "2" ] && pass 'a message streamed over 3 records counts as ONE turn' "$s_turns turns" \
+      || fail 'a message streamed over 3 records counts as ONE turn' "got $s_turns, expected 2 — record-summing is back"
+    [ "$s_reads" = "2000000" ] && pass 'the prompt behind a streamed answer is billed ONCE' "$s_reads reads" \
+      || fail 'the prompt behind a streamed answer is billed ONCE' "got $s_reads, expected 2000000 (4000000 = once per partial)"
+    [ "$s_out" = "50000" ] && pass 'output takes the final partial, not the sum of them' "$s_out" \
+      || fail 'output takes the final partial, not the sum of them' "got $s_out, expected 50000 (50905 = summed)"
+  fi
+fi
+
+# CONTROL: the id-less shape must still count one record as one message, or the
+# fix would silently under-count every older transcript and both fixtures.
+C="$(python3 "$COST" "$FIX" --json 2>/dev/null | python3 -c "import json,sys; print(sum(a['turns'] for a in json.load(sys.stdin)['agents']))")"
+[ "$C" = "2" ] && pass 'CONTROL: records with no message id are still counted individually' "$C turns" \
+  || fail 'CONTROL: records with no message id are still counted individually' "got $C, expected 2"
 
 # ── the part that must never degrade quietly ──────────────────────────────
 mkdir -p "$WORK/empty"

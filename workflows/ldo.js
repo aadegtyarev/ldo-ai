@@ -2214,7 +2214,7 @@ async function agentWithModelFallback(prompt, opts, fallbackModel) {
 // README: the block travels to the Recorder and into a review report, far away
 // from any prose written here.
 const COST_ENTRIES_MAX = 40
-const COST_NOTE = 'Output tokens only — no input tokens, no cache reads, no cache writes — so this figure cannot say whether prompt caching is helping, and on a measured run it was 0.2% of the bill. For the rest, run `scripts/ldo-cost.sh <transcriptDir>` after the run: the cache figures exist in the per-agent transcripts, just not here. A per-phase number is a delta measured around that phase, not an attribution: the token pool is shared across the whole turn.'
+const COST_NOTE = 'Output tokens only — no input tokens, no cache reads, no cache writes — so this figure cannot say whether prompt caching is helping. It is under 1% of the tokens a run moves but 15-54% of what it costs on the runs measured, because output is priced far above a cache read: a small number here is not a small bill, and the two move apart as re-reading grows. For the rest, run `scripts/ldo-cost.sh <transcriptDir>` after the run: the cache figures exist in the per-agent transcripts, just not here. A per-phase number is a delta measured around that phase, not an attribution: the token pool is shared across the whole turn.'
 
 // The one shape `createCostLedger().finish()` returns when there was no ledger
 // to finish. Written out twice at the two shapeResult call sites before this,
@@ -2428,7 +2428,7 @@ function renderCost(cost) {
 // Nothing here reads or branches on the stamp — the stamp is a hint to re-run
 // /ldo-init, never a check, because an agent-written marker in a repo file
 // proves nothing about what surrounds it.
-const LDO_VERSION = '2.52.1'
+const LDO_VERSION = '2.52.2'
 
 // ═══════════════════════════════════════════
 // CONFIG

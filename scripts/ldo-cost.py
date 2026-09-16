@@ -4,13 +4,19 @@
 The `cost` block on a run result reports OUTPUT tokens only, and says so in its
 own note — the workflow script is handed `budget.spent()` and nothing else, so
 from inside a run the cache figures are not reachable. That note is honest and
-it is also the problem: on one measured run the output was 380k tokens against
-119.7 million cache reads, so the only cost signal the pipeline surfaces is
-roughly 0.2% of the bill (issue #31).
+it is also the problem: on one measured 9-agent run the output was 588k tokens
+against 22.5 million cache reads — output is 54% of that bill and the reads 33%,
+so the figure the pipeline surfaces is a real share of the total but not a
+proxy for it, and the two move apart as a run's re-reading grows (issue #31).
 
 The numbers do exist, in the per-agent transcripts the harness writes. This
 reads them back: `agent-*.jsonl` for `usage`, `agent-*.meta.json` for the role
 and model, and reports per role and in total.
+
+One usage record is NOT one turn: a streamed answer is written repeatedly under
+one `message.id`, so the records must be folded per message before anything is
+summed. See `read_agent` — getting this wrong overstated every run by about 2x,
+which is the kind of error that reads as a plausible bill.
 
 Two things it deliberately does NOT do:
 
@@ -52,9 +58,33 @@ FIELDS = ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_token
 
 
 def read_agent(jsonl_path):
-    """Sum usage over every assistant message in one agent transcript."""
-    totals = dict.fromkeys(FIELDS, 0)
-    seen = 0
+    """Sum usage over every assistant message in one agent transcript.
+
+    A streamed response is written to the transcript more than once: the same
+    `message.id` reappears as the answer grows, carrying IDENTICAL input and
+    cache figures and a rising `output_tokens`. Summing the records instead of
+    the messages therefore bills the prompt once per partial. Measured over 402
+    agent transcripts (19,381 messages, 40,114 records) that is a 2.07x
+    overstatement; on one 9-agent run it reported $114.16 for a run that cost
+    $72.95.
+
+    So usage is folded per `message.id` — input and cache fields are the same
+    in every partial, and `output_tokens` is taken at its maximum, which is the
+    final value because the sequence only grows. Both invariants were checked
+    across those 19,381 messages: zero had input or cache fields that varied
+    between partials, and zero had a non-monotonic output count.
+
+    A record with no `message.id` is counted on its own, so that one record is
+    one message when the id is absent; collapsing them together would
+    under-count instead. That branch is defensive, not observed: every one of
+    the 574 transcripts on disk carries an id on every usage record, the oldest
+    included, so nothing here proves an id-less transcript ever existed. The
+    fixtures are the only thing shaped that way, and check-cost-report.sh holds
+    the branch open with them.
+    """
+    per_message = {}
+    order = []
+    anonymous = 0
     with open(jsonl_path, encoding='utf-8', errors='replace') as fh:
         for line in fh:
             line = line.strip()
@@ -64,18 +94,34 @@ def read_agent(jsonl_path):
                 rec = json.loads(line)
             except ValueError:
                 continue
-            usage = (rec.get('message') or {}).get('usage') or rec.get('usage')
+            message = rec.get('message') or {}
+            usage = message.get('usage') or rec.get('usage')
             if not isinstance(usage, dict):
                 continue
-            counted = False
-            for f in FIELDS:
-                v = usage.get(f)
-                if isinstance(v, int):
-                    totals[f] += v
-                    counted = True
-            if counted:
-                seen += 1
-    return totals, seen
+            fields = {f: usage[f] for f in FIELDS if isinstance(usage.get(f), int)}
+            if not fields:
+                continue
+            mid = message.get('id')
+            if not isinstance(mid, str) or not mid:
+                anonymous += 1
+                key = ('#anon', anonymous)
+            else:
+                key = ('#id', mid)
+            if key not in per_message:
+                per_message[key] = dict.fromkeys(FIELDS, 0)
+                order.append(key)
+            slot = per_message[key]
+            for f, v in fields.items():
+                # Identical across partials for the input/cache fields; rising
+                # for output. max() is right for both, and never double-counts.
+                if v > slot[f]:
+                    slot[f] = v
+
+    totals = dict.fromkeys(FIELDS, 0)
+    for key in order:
+        for f in FIELDS:
+            totals[f] += per_message[key][f]
+    return totals, len(order)
 
 
 def price_of(model, t):
@@ -117,7 +163,7 @@ def collect(run_dir):
             'file': os.path.basename(jsonl_path),
             'role': meta.get('agentType') or '(unknown role)',
             'model': meta.get('model') or '(unknown model)',
-            'messages_with_usage': seen,
+            'turns': seen,
             **totals,
         })
     return agents
@@ -136,7 +182,7 @@ def report(run_dir, as_json=False):
         print(f'error: no agent-*.jsonl transcripts under {run_dir} — nothing to measure.', file=sys.stderr)
         print('       This reads harness internals; if the layout changed, this script is stale.', file=sys.stderr)
         return 1
-    if not any(a['messages_with_usage'] for a in agents):
+    if not any(a['turns'] for a in agents):
         print(f'error: {len(agents)} transcript(s) found, none carrying a `usage` record — nothing to measure.', file=sys.stderr)
         print('       Reporting 0 here would be a lie; the shape this script reads has changed.', file=sys.stderr)
         return 1
@@ -166,10 +212,10 @@ def report(run_dir, as_json=False):
 
     print(f'Run: {run_dir}')
     print()
-    print(f'{"role":<22}{"model":<10}{"calls":>7}{"cache read":>14}{"cache write":>13}{"fresh in":>10}{"output":>10}{"USD":>10}')
+    print(f'{"role":<22}{"model":<10}{"turns":>7}{"cache read":>14}{"cache write":>13}{"fresh in":>10}{"output":>10}{"USD":>10}')
     for a in sorted(agents, key=lambda x: -(x['usd'] or 0)):
         usd = '     n/a' if a['usd'] is None else f'{a["usd"]:8.2f}'
-        print(f'{a["role"]:<22}{a["model"]:<10}{a["messages_with_usage"]:>7}'
+        print(f'{a["role"]:<22}{a["model"]:<10}{a["turns"]:>7}'
               f'{fmt(a["cache_read_input_tokens"]):>14}{fmt(a["cache_creation_input_tokens"]):>13}'
               f'{fmt(a["input_tokens"]):>10}{fmt(a["output_tokens"]):>10}{usd:>10}')
     print()
