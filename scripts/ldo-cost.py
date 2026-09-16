@@ -18,6 +18,25 @@ one `message.id`, so the records must be folded per message before anything is
 summed. See `read_agent` — getting this wrong overstated every run by about 2x,
 which is the kind of error that reads as a plausible bill.
 
+**This reads Claude Code runs only.** The portable runtime
+(`scripts/ldo-run.mjs --runtime codex`) writes no `agent-*.jsonl` at all: each
+role is a fresh `codex exec` process, and its usage arrives as a single
+`turn.completed` event per phase, which `core/token-usage.mjs` aggregates onto
+the run result as `tokenUsage`. There are no per-turn records there, so there is
+nothing here to read and nothing to fold. Pointing this script at a Codex run
+gives the "no agent-*.jsonl transcripts" error, which is the correct answer
+rather than a bug.
+
+Nor would the arithmetic below transfer if the figures were handed over. A
+Codex turn reports a cached-input total but no cache-creation counter, and its
+`input_tokens` already contains the cached subset rather than sitting beside it
+— which is why `summarizeTokenUsage` guards the addition on the Anthropic-only
+cache-creation field. The three-way split this script prices (fresh input,
+reads at a tenth, writes at a premium) is not reconstructible from that shape,
+and OpenAI bills a cached read as one discounted input rate with no separate
+write charge. Pricing a Codex run needs its own reader and its own rates —
+issue #45.
+
 Two things it deliberately does NOT do:
 
 - It never prints a zero for something it could not read. Transcript layout is

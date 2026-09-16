@@ -18,6 +18,13 @@ only when they request a separate worktree; it creates and proves a fresh
 that needs external evidence. The runtime prints one JSON result covering all
 phases; report its final approval status and any incomplete verification.
 
+The result carries a `tokenUsage` block covering every phase — on Codex that is
+input, cached-input, output and totals, with cache-creation absent because the
+CLI reports none. There is no priced figure: `scripts/ldo-cost.sh` reads Claude
+Code transcripts, which a Codex run does not write, and its three-way cache
+arithmetic does not describe OpenAI billing anyway (issue #45). Report the
+token figures as token figures; do not convert them to money.
+
 For several independent features, repeat `--task "..."`. That mode creates an
 isolated worktree for every task before its phases run concurrently; do not
 batch dependent tasks.

@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.52.3] — 2026-09-17
+
+### Documentation
+
+- **The cost report's runtime scope is stated where it is read, instead of
+  discovered.** `scripts/ldo-cost.py` reads `agent-*.jsonl` transcripts, which
+  only Claude Code writes. A Codex run is a fresh `codex exec --ephemeral` per
+  role reporting one `turn.completed` usage event per phase, aggregated onto the
+  result as `tokenUsage` — no per-turn records to fold, and a cached-input total
+  with no cache-creation counter beside it, so the three-way split the script
+  prices cannot be reconstructed even if the figures were handed over. Pointing
+  it at a Codex run errors with "no agent-*.jsonl transcripts", which is the
+  correct answer and now reads as one.
+  Said in the script's own docstring, in `skills/ldo-runtime/SKILL.md` where a
+  Codex operator meets the result, and in README beside the Claude-only figures.
+  Issue #45 carries what closing the gap would take.
+
 ## [2.52.2] — 2026-09-17
 
 ### Fixed
