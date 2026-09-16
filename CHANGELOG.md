@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.42.1] — 2026-09-17
+## [2.52.2] — 2026-09-17
 
 ### Fixed
 
@@ -50,6 +50,189 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   54%/33%), and README's "94% of all input and 5x" (97%, 4.0x-6.7x on two runs).
   The 2.41.0 figures could not be recomputed — that run is no longer on disk —
   so they carry an inline correction rather than invented replacements.
+
+## [2.52.1] — 2026-09-12
+
+### Fixed
+
+- **A conflict the plan already settled no longer blocks the run.** The
+  resolution gate read `conflicts` by prefix and treated every entry that did
+  not begin `NONE —` as an open decision, so a Planner that resolved what it
+  found had no way to say so and its own resolution stopped the run before
+  Security and Code — a Codex run stalled with all three entries reading
+  RESOLVED. `NONE —` and `RESOLVED —` now both clear the gate on both runtimes
+  (`workflows/ldo.js`, `core/pipeline.mjs`); anything else still holds it, and
+  `agents/planner.md` tells the Planner how to mark a decision it made, on the
+  first pass and when carrying conflicts into a resolution pass.
+- **A run stopped by the resolution gate now reports itself like any other.** It
+  closes its cost ledger and logs the line (a blocked run still paid for a
+  Planner pass, often a Researcher and a second Planner), carries the focused
+  surface research out to the result and the Recorder instead of dropping it
+  inside `phasePlan`, and under `args.tasks` gets its own count and line in both
+  multi-feature summaries — the plan-only one used to print it as `✓ planned`
+  and the full one as `✗ no worktree — see error above`, with no error above it.
+- **A scoped test target is chosen by path, not by the Planner's prose.** The
+  portable runtime matched `${role} ${path}`, so `package.json` rated "defines
+  the test command" became a test target and `node --test package.json` broke
+  the runner rather than the tests — the Coder and both Reviewer passes reported
+  the suite as blocked. Selection now reads the path only, and a file whose role
+  merely mentions tests selects nothing.
+- **The `/ldo-init` block is held to the copy this repo installs.** The surface
+  governance change edited `CLAUDE.md` and left the canonical block in
+  `skills/ldo-init/SKILL.md` a release behind, so every project re-running
+  `/ldo-init` would have installed the older wording. `scripts/check-config-defaults.sh`
+  now compares the two blocks, drift log excluded, and the block documents the
+  `resolution-required` outcome it can now hand back.
+
+## [2.52.0] — 2026-09-12
+
+### Added
+
+- **Planning now fails closed on surface and contract coverage.** Planner maps
+  every affected product surface to contracts, engineering principles, and
+  evidence. Uncertain coverage automatically invokes focused research and a
+  resolution planning pass; unresolved contract candidates or product choices
+  stop before Security and Code. Reviewer receives the complete bounded matrix.
+- **Research contract candidates are structured and area-specific.** Researcher
+  follows the `/ldo-contract` proposal procedure, keeps evidence outside the
+  short rule, and routes domain policies to narrow area files instead of using
+  `code.md` as a catch-all. Recorder cannot downgrade pre-code gaps to backlog.
+
+## [2.51.0] — 2026-09-12
+
+### Changed
+
+- **Codex planning is a single Sol pass again.** Production use showed that
+  Terra classified enough tasks as complex/elevated to make Sol refinement a
+  frequent second full planning pass, increasing usage instead of saving it.
+  Compact trivial review and all checkpoint/token optimizations remain.
+
+## [2.50.0] — 2026-09-11
+
+### Added
+
+- **Codex planning now cascades by risk.** Terra creates the initial plan;
+  complex or elevated drafts receive one Sol refinement pass before Security,
+  discussion, or implementation. Claude Code planning is unchanged.
+
+### Changed
+
+- **Trivial Codex reviews use a smaller instruction profile.** Core diff,
+  acceptance, test, contract, evidence, and edge-case gates remain, while
+  inapplicable migration and long-suite procedures are omitted. Claude Code
+  keeps the full Reviewer prompt.
+- **Running checkpoints now contain incremental token totals.** A crash after
+  Coder leaves both raw usage and an immediately readable aggregate; Recorder
+  output remains absent until that phase actually completes.
+- **Scoped test fallback no longer substitutes config/source files.** If no
+  test-like path is available, Codex uses the full suite instead of producing
+  commands such as `node --test package.json`.
+
+## [2.49.0] — 2026-09-11
+
+### Fixed
+
+- **The portable Claude runtime works with current Claude Code releases.** A
+  real CLI smoke test found that `--permission-prompts`, removed from Claude
+  Code 2.1.236, prevented Planner from starting. The old `dontAsk`/`acceptEdits`
+  split also denied every test command in non-interactive runs. The adapter now
+  uses the supported `--permission-mode auto`, which a live smoke test proved
+  can edit and run verification without prompts; the legacy plugin workflow is
+  unaffected.
+- **Claude cache usage is normalized in portable token reports.**
+  `cache_read_input_tokens` and `cache_creation_input_tokens` now contribute to
+  per-stage and total measurements instead of appearing unavailable.
+
+## [2.48.0] — 2026-09-11
+
+### Changed
+
+- **Portable Claude and Codex agents now receive compacted shared role
+  instructions.** LDO removes plugin frontmatter and embedded JSON output
+  examples at prompt-render time because the CLI already receives the same
+  strict schema separately. One source of truth and all behavioral safeguards
+  remain; duplicated static input is no longer sent on every phase.
+
+## [2.47.0] — 2026-09-11
+
+### Changed
+
+- **Codex Reviewer and Recorder handoffs are narrower.** Reviewer receives
+  acceptance criteria and changed-file evidence instead of the full plan;
+  Recorder receives the verdict, unresolved work, and compact documentation
+  metadata. The Claude Code workflow remains unchanged.
+- **Codex reports measured token usage per pipeline stage.** Input, cached
+  input, output, and total counters are aggregated, persisted across plan
+  approval and crash resume, and left null when the CLI does not expose them.
+  The installed orchestrator must print a concise operator report after every
+  completed pipeline, including usage, checkpoint, and backlog results.
+
+## [2.46.0] — 2026-09-11
+
+### Added
+
+- **Codex plans are now reusable artifacts with stage-level crash recovery.**
+  The orchestrator can decide whether to discuss a plan, continue an approved
+  plan without replanning, and resume at Reviewer (or another first unfinished
+  phase) after a later failure. Successful runs leave a terminal checkpoint
+  containing the Recorder backlog outcome.
+- **Codex uses bounded scoped test commands and dynamic GPT-5.6 routing.** Terra
+  plans and handles normal coding, Sol is reserved for complex/elevated coding
+  and elevated Security, and Luna records the result. Claude Code behavior and
+  marketplace installation remain unchanged.
+
+### Changed
+
+- **Codex handoffs explicitly require Recorder to update `docs/BACKLOG.md` for
+  unresolved work.** The installed orchestrator instructions require every
+  completed pipeline to report both its terminal checkpoint and backlog result.
+
+## [2.45.0] — 2026-09-11
+
+### Fixed
+
+- **The automatic Codex router no longer requires a sandbox bypass before it
+  can begin work.** It previously always passed `--isolate`, whose `git
+  worktree add` writes shared `.git/refs` metadata that a normal
+  `workspace-write` sandbox can deny even when the project tree itself is
+  writable. The normal Codex route now works in its current workspace;
+  isolation is explicit opt-in for hosts that deliberately permit Git metadata
+  writes. Claude Code's workflow and routing remain unchanged.
+
+## [2.44.0] — 2026-09-11
+
+### Changed
+
+- **Codex phase handoffs now carry only actionable context.** Every Codex role
+  starts in a fresh CLI context, so the shared runtime projects previous phase
+  output by recipient and bounds lists and free-form text. A fix Coder gets the
+  plan, security report and review findings, but not its own prior report;
+  Reviewer and Recorder receive the corresponding compact evidence. The legacy
+  Claude Code workflow and portable `--runtime claude` prompt builder are
+  unchanged.
+
+## [2.43.0] — 2026-09-11
+
+### Added
+
+- **Codex is now a first-class LDO runtime.** `scripts/install-codex.sh` installs
+  the project-local shared runtime under `.codex/ldo/` and adds a delimited,
+  idempotent router to `AGENTS.md`, preserving existing project instructions.
+  Non-trivial Codex implementation requests now run planner → coder → reviewer
+  in a verified isolated worktree; LDO workers are marked so they cannot
+  recursively re-enter the router. The same portable pipeline remains available
+  to Claude Code through the existing plugin and vendored install paths.
+
+- **Codex roles default to GPT-5.6 by responsibility:** Sol for planning,
+  implementation and security; Terra for research and review; Luna for the
+  structured recorder. `--model` and per-role `--*-model` flags override that
+  policy without editing project files.
+
+### Fixed
+
+- **Portable worktree setup no longer changes `.gitignore` before it has proved
+  the worktree exists.** A failed `git worktree add` therefore leaves no
+  unrelated source-tree diff behind.
 
 ## [2.42.0] — 2026-09-09
 

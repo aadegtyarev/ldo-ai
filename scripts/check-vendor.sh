@@ -38,7 +38,7 @@ else
   pass 'a clean source vendors and exits 0' 'exit 0'
 fi
 
-for want in agents workflows/ldo.js skills LDO_VENDORED.md; do
+for want in agents workflows/ldo.js skills core adapters schemas scripts/ldo-run.mjs LDO_VENDORED.md; do
   if [ -e "$T1/.claude/$want" ]; then
     pass "a completed vendor writes .claude/$want" 'present'
   else
@@ -68,7 +68,7 @@ fi
 # builds a source copy carrying an agentType shape the sed cannot match.
 SRCCOPY="$WORK/src"
 mkdir -p "$SRCCOPY"
-cp -R "$ROOT/agents" "$ROOT/skills" "$ROOT/workflows" "$ROOT/scripts" "$ROOT/.claude-plugin" "$SRCCOPY/" 2>/dev/null
+cp -R "$ROOT/agents" "$ROOT/skills" "$ROOT/workflows" "$ROOT/scripts" "$ROOT/core" "$ROOT/adapters" "$ROOT/schemas" "$ROOT/.claude-plugin" "$SRCCOPY/" 2>/dev/null
 printf '\n// agentType: "ldo:NEWSHAPE"\n' >> "$SRCCOPY/workflows/ldo.js"
 
 T2="$WORK/rejected"

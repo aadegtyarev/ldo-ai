@@ -19,11 +19,11 @@ if [ ! -d "$TARGET" ]; then
 fi
 TARGET="$(cd "$TARGET" && pwd)"
 
-# Find LDO's own source root: walk up from this script until agents/,
-# skills/, and workflows/ldo.js all exist as siblings.
+# Find LDO's own source root: walk up from this script until the Claude
+# plugin inputs and the runtime-neutral core all exist as siblings.
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [ ! -f "$SRC/workflows/ldo.js" ] || [ ! -d "$SRC/agents" ] || [ ! -d "$SRC/skills" ]; then
-  echo "error: could not find LDO source root above $(dirname "${BASH_SOURCE[0]}") — expected agents/, skills/, workflows/ldo.js as siblings" >&2
+if [ ! -f "$SRC/workflows/ldo.js" ] || [ ! -d "$SRC/agents" ] || [ ! -d "$SRC/skills" ] || [ ! -d "$SRC/core" ] || [ ! -d "$SRC/adapters" ] || [ ! -d "$SRC/schemas" ]; then
+  echo "error: could not find LDO source root above $(dirname "${BASH_SOURCE[0]}") — expected agents/, skills/, workflows/ldo.js, core/, adapters/, schemas/ as siblings" >&2
   exit 1
 fi
 
@@ -44,7 +44,7 @@ echo "Vendoring LDO from $SRC into $TARGET/.claude/ ..."
 # is left half-transformed") is only true with the staging step in place.
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
-mkdir -p "$STAGE/agents" "$STAGE/skills" "$STAGE/workflows"
+mkdir -p "$STAGE/agents" "$STAGE/skills" "$STAGE/workflows" "$STAGE/core" "$STAGE/adapters" "$STAGE/schemas" "$STAGE/scripts"
 
 # ── 1. Agents, verbatim — frontmatter names are already bare ──────────────
 
@@ -124,7 +124,21 @@ if grep -rq 'ldo:ldo' "$STAGE/skills/"; then
   exit 1
 fi
 
-# ── 4. Marker file — a vendored copy has no auto-update, say so plainly ───
+# ── 4. Shared runtime — available to both Claude Code and Codex ───────────
+
+# Keep the standalone runner beside vendored agents. Its relative imports are
+# intentional: .claude/scripts/ldo-run.mjs resolves ../core, ../adapters and
+# ../schemas inside this same project-native install.
+cp "$SRC"/core/*.mjs "$STAGE/core/"
+cp "$SRC"/adapters/*.mjs "$STAGE/adapters/"
+cp "$SRC"/schemas/*.json "$STAGE/schemas/"
+cp "$SRC"/scripts/ldo-run.mjs "$SRC"/scripts/check-core.sh "$STAGE/scripts/"
+node --check "$STAGE/scripts/ldo-run.mjs"
+node --check "$STAGE/core/agent-runner.mjs"
+node --check "$STAGE/core/pipeline.mjs"
+echo "  core/, adapters/, schemas/, scripts/ldo-run.mjs -> .claude/ (shared Claude/Codex runtime)"
+
+# ── 5. Marker file — a vendored copy has no auto-update, say so plainly ───
 
 src_version="$(python3 -c "import json; print(json.load(open('$SRC/.claude-plugin/plugin.json'))['version'])" 2>/dev/null || echo "unknown")"
 vendored_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")"
@@ -144,20 +158,25 @@ at this project. Check LDO's own CHANGELOG.md for what changed since
 v${src_version} before overwriting — a vendored copy already customized for
 this project (routing in CLAUDE.md, project contracts) isn't touched by
 vendoring; only the LDO-owned files under .claude/agents, .claude/skills,
-and .claude/workflows are replaced.
+.claude/workflows, .claude/core, .claude/adapters, .claude/schemas and
+.claude/scripts are replaced.
 EOF
 echo "  .claude/LDO_VENDORED.md written (source version: $src_version)"
 
-# ── 5. Publish — the first and only writes into $TARGET ───────────────────
+# ── 6. Publish — the first and only writes into $TARGET ───────────────────
 #
 # Everything above ran against $STAGE, so a guard that fired left the target
 # exactly as it was. From here the copies are mechanical: nothing below can
 # decide to stop, which is the property that makes "verified before written"
 # true rather than aspirational.
-mkdir -p "$TARGET/.claude/agents" "$TARGET/.claude/skills" "$TARGET/.claude/workflows"
+mkdir -p "$TARGET/.claude/agents" "$TARGET/.claude/skills" "$TARGET/.claude/workflows" "$TARGET/.claude/core" "$TARGET/.claude/adapters" "$TARGET/.claude/schemas" "$TARGET/.claude/scripts"
 cp "$STAGE"/agents/*.md "$TARGET/.claude/agents/"
 cp "$STAGE"/workflows/ldo.js "$TARGET/.claude/workflows/ldo.js"
 cp -R "$STAGE"/skills/. "$TARGET/.claude/skills/"
+cp "$STAGE"/core/*.mjs "$TARGET/.claude/core/"
+cp "$STAGE"/adapters/*.mjs "$TARGET/.claude/adapters/"
+cp "$STAGE"/schemas/*.json "$TARGET/.claude/schemas/"
+cp "$STAGE"/scripts/* "$TARGET/.claude/scripts/"
 cp "$STAGE"/LDO_VENDORED.md "$TARGET/.claude/LDO_VENDORED.md"
 
 echo

@@ -1,5 +1,5 @@
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.42.0 -->
+<!-- ldo:version 2.52.2 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -9,7 +9,12 @@ what doesn't need it, and don't hand-edit around it for what does.
 - **Real change** (feature, refactor, bug fix, multi-file): run the pipeline —
   `Workflow({ name: "ldo:ldo", args: { task: "<the task>" } })`. It plans, implements,
   reviews, and proves the result. For a change touching auth, secrets, user input,
-  or crypto, add `security: true`. For one needing outside knowledge, `research: true`.
+  or crypto, add `security: true`. `research: true` requests broad upfront research;
+  focused research runs automatically when Planner marks surface coverage uncertain.
+  A run can also stop before any code with `mode: "resolution-required"` — an
+  unresolved surface or an open product choice in the plan. Settle it (a rule via
+  `/ldo-contract`, a product choice yourself) and re-issue the task; re-running it
+  unchanged just buys the same plan again.
 - **New project** is a conversation first: `/ldo-bootstrap "idea"`.
 
 **Track every pipeline call in `.claude/ldo-runs.json`** so an interrupted run can
@@ -146,5 +151,7 @@ the list. Offer; don't run either unasked.
 - scripts/ldo-cost.sh reports what a run actually cost, cache included — the run result cannot
 - subagentPromptCacheTtl 1h is documented: the fix loop's cold starts are a 5-minute TTL expiring
 - agents are told to carry less forward: read ranges, cap output, batch calls — context is re-sent every turn
+- a conflict marked `RESOLVED —` clears the pre-code gate; only an open entry holds the run
+- a run stopped by that gate reports its cost, keeps its surface research, and gets its own line in a multi summary
 <!-- /ldo:features -->
 <!-- END ldo -->

@@ -31,7 +31,7 @@ Drop an LDO instruction block into the project's `CLAUDE.md` so Claude self-rout
 
 ```markdown
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.42.1 -->
+<!-- ldo:version 2.52.2 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -41,7 +41,12 @@ what doesn't need it, and don't hand-edit around it for what does.
 - **Real change** (feature, refactor, bug fix, multi-file): run the pipeline —
   `Workflow({ name: "ldo:ldo", args: { task: "<the task>" } })`. It plans, implements,
   reviews, and proves the result. For a change touching auth, secrets, user input,
-  or crypto, add `security: true`. For one needing outside knowledge, `research: true`.
+  or crypto, add `security: true`. `research: true` requests broad upfront research;
+  focused research runs automatically when Planner marks surface coverage uncertain.
+  A run can also stop before any code with `mode: "resolution-required"` — an
+  unresolved surface or an open product choice in the plan. Settle it (a rule via
+  `/ldo-contract`, a product choice yourself) and re-issue the task; re-running it
+  unchanged just buys the same plan again.
 - **New project** is a conversation first: `/ldo-bootstrap "idea"`.
 
 **Track every pipeline call in `.claude/ldo-runs.json`** so an interrupted run can

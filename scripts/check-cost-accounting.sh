@@ -455,11 +455,11 @@ assert('renderCost on an unavailable block promises no total elsewhere', ['rende
 }
 
 {
-  const label = 'all seven agent call sites pass the feature ledger'
+  const label = 'all nine agent call sites pass the feature ledger'
   const count = (src.match(/ledger: ctx\.ledger/g) || []).length
-  const ok = count === 7
+  const ok = count === 9
   console.log(`${ok ? '✓' : '✗'} ${label} — ${count} site(s)`)
-  if (!ok) problems.push(`${label}: found ${count} \`ledger: ctx.ledger\` site(s) in ${target}, expected 7 (isolator, researcher, planner, security, coder, reviewer, recorder). A missing one is an agent whose output is silently unattributed.`)
+  if (!ok) problems.push(`${label}: found ${count} \`ledger: ctx.ledger\` site(s) in ${target}, expected 9 (including focused surface research and the resolution Planner pass). A missing one is an agent whose output is silently unattributed.`)
 }
 
 {
@@ -492,11 +492,22 @@ for (const [name, endMarker] of [['shapeResult', 'function shapePlanOnly('], ['s
 }
 
 {
-  const label = 'the run log prints exactly one cost line per feature, for both the full and the plan-only path'
+  const label = 'the run log prints exactly one cost line per feature, on every path a run can end on'
   const count = (src.match(/renderCostLine\(/g) || []).length
-  const ok = count === 3
-  console.log(`${ok ? '✓' : '✗'} ${label} — ${count} reference(s), 1 declaration + 2 call sites`)
-  if (!ok) problems.push(`${label}: found ${count} renderCostLine reference(s) in ${target}, expected 3 (the declaration, the plan-only path and the full path).`)
+  const ok = count === 4
+  console.log(`${ok ? '✓' : '✗'} ${label} — ${count} reference(s), 1 declaration + 3 call sites`)
+  if (!ok) problems.push(`${label}: found ${count} renderCostLine reference(s) in ${target}, expected 4 (the declaration, the plan-only path, the full path and the resolution-required path).`)
+}
+
+{
+  // A run the resolution gate stops still paid for a Planner pass, often a
+  // Researcher and a second Planner on top. It used to return before the ledger
+  // was ever closed, so the most expensive thing about a blocked run — that it
+  // is not free — was the one thing its result did not say.
+  const label = 'a run stopped by the resolution gate reports its cost like any other'
+  const ok = /const blockedCost = ctx\.ledger\.finish\(\)/.test(src) && /renderCostLine\(blockedCost\)/.test(src) && /return \{ \.\.\.planResult, cost: blockedCost \}/.test(src)
+  console.log(`${ok ? '✓' : '✗'} ${label}`)
+  if (!ok) problems.push(`${label}: ${target} returns the resolution-required result without closing the ledger, so a blocked run reports no cost at all.`)
 }
 
 {
