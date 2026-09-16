@@ -1,5 +1,5 @@
 <!-- BEGIN ldo -->
-<!-- ldo:version 2.52.2 -->
+<!-- ldo:version 2.52.3 -->
 ## LDO — development workflow
 
 This project uses LDO. Match the work to its size; don't invoke the pipeline for
@@ -153,5 +153,6 @@ the list. Offer; don't run either unasked.
 - agents are told to carry less forward: read ranges, cap output, batch calls — context is re-sent every turn
 - a conflict marked `RESOLVED —` clears the pre-code gate; only an open entry holds the run
 - a run stopped by that gate reports its cost, keeps its surface research, and gets its own line in a multi summary
+- ldo-cost.sh is Claude-Code-only; a Codex run reports tokens, never a price
 <!-- /ldo:features -->
 <!-- END ldo -->
