@@ -5,6 +5,52 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.42.1] — 2026-09-17
+
+### Fixed
+
+- **The cost report billed every prompt once per streaming partial, overstating
+  every run.** A streamed answer is written to an agent transcript repeatedly
+  under one `message.id`, each record carrying the *same* input and cache
+  figures and a rising `output_tokens`. `scripts/ldo-cost.py` summed records, so
+  a prompt streamed over three partials was charged three times.
+  `read_agent` now folds usage per `message.id` before summing anything.
+
+  Measured on the 402 agent transcripts on disk (19,381 messages, 40,114
+  records). The distortion is not uniform, which is what made it convincing:
+  cache reads inflate **1.99x**, cache writes 2.15x, fresh input 2.74x — but
+  output only **1.015x**, because the fold takes the largest partial rather
+  than the sum, and output was already nearly right. One 9-agent run was
+  reported at $114.16 against a real $72.95.
+
+  The fold is `max()` per field, which is correct for both shapes and can never
+  double-count: the input and cache fields are identical across partials (0 of
+  19,381 messages varied) and output rises monotonically (0 non-monotonic, and
+  `max` equals the final partial in every message measured).
+
+  `scripts/fixtures/cost-streamed/` is new because the existing fixture
+  *structurally cannot* catch this: its records carry no `message.id`, so one
+  record is one message there and summing coincides with folding. The new
+  fixture is one agent whose first message is written three times; four
+  assertions in `scripts/check-cost-report.sh` name the per-message figures, and
+  reverting `read_agent` to record-summing fails three of them.
+
+- **`COST_NOTE` understated the figure it ships with, by 75-270x.** It told
+  every run result that output tokens were "0.2% of the bill". That is a share
+  of the *token count*, not of the cost, and output is priced far above a cache
+  read: on the two runs measured, output is **15% and 54%** of the actual bill.
+  A reader was being told the one cost signal the pipeline surfaces is
+  negligible, when it is a sixth to a half of what they pay.
+
+- **Stale figures corrected wherever the buggy tool's output had been quoted**:
+  the context-costs section in `agents/{planner,coder,reviewer}.md` (318 calls /
+  52.8M reads → the real 175 turns / 29.5M; the "about 40% of that run's entire
+  bill" conclusion was re-verified at 38.9% and stands), this file's 2.42.0 and
+  2.41.0 entries, the `ldo-cost.py` docstring's own 35%/46% split (really
+  54%/33%), and README's "94% of all input and 5x" (97%, 4.0x-6.7x on two runs).
+  The 2.41.0 figures could not be recomputed — that run is no longer on disk —
+  so they carry an inline correction rather than invented replacements.
+
 ## [2.42.0] — 2026-09-09
 
 ### Changed
@@ -12,8 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The Planner, Coder and Reviewer are told what context costs.** Everything a
   tool returns stays in an agent's context and is re-sent on every later turn,
   so a 40 KB file read on turn 5 is paid for on turns 6 through 300. Measured on
-  a real run: one agent's context grew 41k → 251k tokens over 318 calls and cost
-  **52.8 million cache-read tokens — about 40% of that run's entire bill**, for
+  a real run: one agent's context grew 41k → 251k tokens over 175 turns and cost
+  **29.5 million cache-read tokens — about 40% of that run's entire bill**, for
   one agent, re-reading what it had already gathered. Cost is roughly
   `turns × context`, and because context grows as turns accumulate, halving the
   turns cuts the bill closer to fourfold than twofold.
@@ -34,8 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparable runs before and after.
 
   Two honesties. The section costs about 540 tokens on every turn of every agent
-  that carries it — roughly $0.26 of cache reads on a 318-turn agent, against a
-  read bill of $79 on the run measured, so it pays for itself if it changes
+  that carries it — roughly $0.14 of cache reads on a 175-turn agent, against a
+  read bill of $73 on the run measured, so it pays for itself if it changes
   behaviour at all. And it is a behavioural instruction with a real failure
   mode: "smaller output" shades easily into "looked at less", which shows up as
   review quality rather than as a number. The wording resists that as hard as
@@ -71,9 +117,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   #31). The `cost` block on a run result reports output tokens only and says so
   in its own note, which is honest and is also the problem: on the run that
   prompted the issue, output was 380k tokens against **119.7 million cache
-  reads**, so the one cost signal the pipeline surfaced was roughly 0.2% of the
-  bill. Answering "what did the last feature cost" meant parsing transcripts by
-  hand.
+  reads**, so the one cost signal the pipeline surfaced was a fraction of a
+  percent of the tokens a run moves. Answering "what did the last feature cost"
+  meant parsing transcripts by hand.
 
   Why the run cannot report it itself, stated plainly rather than left as a
   gap: a workflow script is handed `budget.spent()` and nothing else, and that
@@ -87,6 +133,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against 2,530 fresh input tokens — 94.3% of all input — $99.53 at list
   against $519.52 had every read been fresh, and 234,825 output tokens, which
   is the only figure the result carried.
+
+  **Correction (2.42.1): the input-side figures in this entry are overstated.**
+  The tool shipped here summed streaming partials, so a prompt was billed once
+  per partial — see 2.42.1 below. `wf_1cbb583c-44f` is no longer on disk, so
+  these cannot be recomputed and are left as written rather than replaced with a
+  guess. What the bug did is not uniform, measured across 402 transcripts:
+  cache reads inflate 1.99x, cache writes 2.15x and fresh input 2.74x, but
+  **output only 1.015x** — output is folded by taking the largest partial, not
+  by summing, so it was nearly right all along. So "94.3% of all input" survives
+  (96.50% → 96.76% run-wide, both input-side fields inflating together), while
+  the dollar totals and the uncached multiple do not: halving the reads without
+  halving the output roughly doubles output's share of the bill. The
+  380k-against-119.7M comparison above is a token count and was never a cost
+  ratio — priced, output is 15-54% of a run's bill, and `COST_NOTE` said 0.2%
+  until this release.
 
   Two refusals are deliberate. It never prints a zero it could not read: a
   directory with no transcripts, or transcripts whose `usage` shape has changed,

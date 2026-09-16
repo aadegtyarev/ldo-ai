@@ -1,0 +1,5 @@
+{"type": "system", "note": "a line with no usage at all"}
+{"type": "assistant", "message": {"id": "msg_stream_one", "role": "assistant", "usage": {"input_tokens": 10, "cache_read_input_tokens": 1000000, "cache_creation_input_tokens": 100000, "output_tokens": 5}}}
+{"type": "assistant", "message": {"id": "msg_stream_one", "role": "assistant", "usage": {"input_tokens": 10, "cache_read_input_tokens": 1000000, "cache_creation_input_tokens": 100000, "output_tokens": 900}}}
+{"type": "assistant", "message": {"id": "msg_stream_one", "role": "assistant", "usage": {"input_tokens": 10, "cache_read_input_tokens": 1000000, "cache_creation_input_tokens": 100000, "output_tokens": 20000}}}
+{"type": "assistant", "message": {"id": "msg_stream_two", "role": "assistant", "usage": {"input_tokens": 0, "cache_read_input_tokens": 1000000, "cache_creation_input_tokens": 0, "output_tokens": 30000}}}

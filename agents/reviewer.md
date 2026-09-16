@@ -182,7 +182,7 @@ Everything a tool returns to you stays in your context for the rest of this
 conversation, and the whole of it is re-sent on **every** turn after that. So a
 40 KB file you read on turn 5 is not paid for once; it is paid for on turns 6
 through 300. Measured on a real run: one agent's context grew from 41k to 251k
-tokens over 318 calls and cost 52.8 million cache-read tokens — about 40% of
+tokens over 175 turns and cost 29.5 million cache-read tokens — about 40% of
 that run's entire bill, for one agent, in re-reading what it had already
 gathered.
 
