@@ -154,5 +154,6 @@ the list. Offer; don't run either unasked.
 - a conflict marked `RESOLVED —` clears the pre-code gate; only an open entry holds the run
 - a run stopped by that gate reports its cost, keeps its surface research, and gets its own line in a multi summary
 - ldo-cost.sh is Claude-Code-only; a Codex run reports tokens, never a price
+- docs: recorder artifacts (ARCHITECTURE, BACKLOG, reviews/) published, backlog reconciled against 2.52.3
 <!-- /ldo:features -->
 <!-- END ldo -->
