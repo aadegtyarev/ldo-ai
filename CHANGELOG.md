@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0] — 2026-10-08
+
+### Changed
+
+- Added native conditional skills for contract-first development, evidence-driven decomposition, security, validation, and Git delivery; reduced always-loaded role prompt content while keeping host-controlled workflows.
+- Hardened the Codex installer to preflight owned destinations and preserve unrelated files, directories, and symlinks.
+
 ## [3.0.0] — 2026-10-08
 
 ### Breaking
