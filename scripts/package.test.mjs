@@ -10,7 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const installer = path.join(root, "scripts/install-codex.sh");
 const roles = ["planner", "worker", "reviewer"];
 
- test("Codex install and update touch only package-owned agent files", async () => {
+test("Codex install and update touch only package-owned agent files", async () => {
   const targetRoot = await mkdtemp(path.join(os.tmpdir(), "ldo-ai-install-"));
   const target = path.join(targetRoot, "agents");
   await mkdir(target, { recursive: true });

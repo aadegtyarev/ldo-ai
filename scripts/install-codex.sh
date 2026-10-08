@@ -4,7 +4,7 @@ set -eu
 # Install or remove only ldo-ai's native Codex agent definitions.
 
 mode=install
-target=${HOME:?HOME must be set}/.codex/agents
+target=${HOME:-}/.codex/agents
 case ${1-} in
   --uninstall) mode=uninstall; shift ;;
   --help|-h)
@@ -14,6 +14,7 @@ case ${1-} in
 esac
 [ "$#" -le 1 ] || { printf '%s\n' 'Expected at most one agents-directory argument.' >&2; exit 2; }
 [ "$#" -eq 0 ] || target=$1
+[ "$#" -ne 0 ] || [ -n "${HOME:-}" ] || { printf '%s\n' 'HOME must be set when no target directory is provided.' >&2; exit 2; }
 
 script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
 case $target in /*) ;; *) target=$PWD/$target ;; esac
