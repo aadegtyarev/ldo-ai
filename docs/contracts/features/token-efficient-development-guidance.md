@@ -9,9 +9,10 @@ Provide compact native Claude Code and Codex instructions that route trivial wor
 ## Scenarios
 
 - Trivial, local work goes directly to the worker; non-trivial work proceeds through reconnaissance, concise approval contract, plan, implementation, independent review, and durable contract update. Delete the temporary feature contract only after verification and reconciliation.
-- Conditional guides are read when relevant for decomposition, development, security, validation, and Git delivery.
-- Decomposition preserves important observable behavior with focused tests; structural and behavioral changes are separated, migrated incrementally, and old paths removed. Surface contracts change only at real observable boundaries.
-- Claude plugin roles and Codex installed role definitions can reach applicable root and conditional guidance through native package/install mechanisms.
+- Conditional guidance is delivered as native host skills and loaded only when relevant for development, decomposition, security, validation, and Git delivery.
+- Decomposition protects important observable behavior with proportional focused characterization/contract tests; structural and behavior changes are separated, migrated incrementally, and old paths removed. Surface contracts change only at real observable boundaries.
+- Claude Code receives skills through its plugin package. The Codex installer safely installs, updates, and uninstalls package-owned skills at the native skills location; a custom agents target maps skills to its corresponding sibling skills directory when provided.
+- Role prompts contain only compact routing triggers and role-local rules. Native host skill discovery/loading, not a custom runtime, activates conditional guidance.
 
 ## Non-goals
 
@@ -25,12 +26,12 @@ No new roles, runtime, router, schemas, state, Recorder, Researcher, or standalo
 
 ## Interfaces and constraints
 
-Preserve three native roles and installer ownership/preflight guarantees, including unrelated files and live/dangling symlinks. Source each cross-role rule once; host copies are delivery formats, not independent policies. Keep every guidance file focused and at most 100 lines. Checks use resilient reference, package completeness, role, legacy-path, and size ceilings, not exact prose or hashes.
+Preserve three native roles and installer ownership/preflight guarantees: complete preflight before mutation, preserving unowned files/directories and live/dangling symlinks. Source each cross-role rule once; host copies are delivery formats, not independent policies. Keep every guidance and role file focused and at most 100 lines. Checks use resilient skill/reference, package completeness, role, legacy-path, and size ceilings, not exact prose or hashes.
 
 ## Acceptance criteria
 
-- Claude and Codex receive compact lifecycle, role, and conditional instructions with no custom orchestration.
-- Tests cover package references, host delivery, role set, size ceilings, and temporary-directory Codex install/update/uninstall safety.
+- Claude and Codex receive compact lifecycle and role-local instructions plus reachable native conditional skills, with no custom orchestration.
+- Tests cover skill references and delivery, role set, size ceilings, and temporary-directory Codex skill install/update/uninstall safety including preflight preservation.
 - Measure before/after always-loaded and role prompt lines and bytes; run required checks and preserve unowned filesystem entries.
 
 ## Validation
