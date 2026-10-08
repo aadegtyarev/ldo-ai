@@ -6,7 +6,7 @@
 
 ## Observable inputs, outputs, and flows
 
-Users install/update the Claude Code plugin through its native plugin mechanism or use the package's native Codex installation path. Both expose exactly planner, worker, and reviewer roles and conditionally discover shared native skills. Claude receives skills from the plugin's `skills/<name>/SKILL.md`; Codex receives package-owned skills in its native `$CODEX_HOME/skills/<name>/SKILL.md` location. The installer maps a custom agents-directory argument to the sibling `skills/` directory. Native hosts own skill loading and role dispatch.
+Users install/update the Claude Code plugin through its native plugin mechanism or use the package's native Codex installation path. Both expose exactly planner, worker, and reviewer roles and conditionally discover five shared native skills: workflow, decomposition, security, validation, and Git delivery. Claude receives skills from the plugin's `skills/<name>/SKILL.md`; Codex receives the package-owned `SKILL.md` files in its native `$CODEX_HOME/skills/<name>/SKILL.md` location. The installer maps a custom agents-directory argument to the sibling `skills/` directory. Native hosts own skill loading and role dispatch.
 
 ## Interfaces and compatibility
 
