@@ -2,7 +2,7 @@
   "name": "ldo",
   "displayName": "ldo-ai native agents",
   "description": "Native Claude Code agents for planning, approved implementation, and independent review; no custom workflow runtime.",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "author": {
     "name": "Alexander Degtyarev",
     "email": "adegtyarev.ap@gmail.com"
