@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, access, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, access, writeFile, rm, symlink, readlink } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -50,5 +50,36 @@ test("Codex install and update touch only package-owned agent files", async () =
     assert.equal(await readFile(path.join(target, "AGENTS.md"), "utf8"), "keep user instructions\n");
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
+  }
+});
+
+test("Codex install and uninstall preserve live and dangling symlink collisions without partial changes", async () => {
+  for (const mode of ["install", "--uninstall"]) {
+    for (const linkType of ["live", "dangling"]) {
+      const targetRoot = await mkdtemp(path.join(os.tmpdir(), "ldo-ai-symlink-"));
+      const target = path.join(targetRoot, "agents");
+      await mkdir(target, { recursive: true });
+      const link = path.join(target, "ldo-ai-reviewer.toml");
+      const linkTarget = path.join(targetRoot, linkType === "live" ? "existing-target" : "missing-target");
+      if (linkType === "live") await writeFile(linkTarget, "preserve symlink target\n");
+      await symlink(linkTarget, link);
+      const ownedFiles = ["planner", "worker"].map((role) => path.join(target, `ldo-ai-${role}.toml`));
+      if (mode === "--uninstall") {
+        for (const file of ownedFiles) await writeFile(file, "# managed by ldo-ai\nowned content\n");
+      }
+      try {
+        const result = spawnSync("sh", [installer, ...(mode === "install" ? [] : [mode]), target], {
+          encoding: "utf8", env: { ...process.env, PATH: "/usr/bin:/bin" },
+        });
+        assert.notEqual(result.status, 0, `${mode} accepted ${linkType} symlink`);
+        assert.equal(await readlink(link), linkTarget);
+        for (const file of ownedFiles) {
+          if (mode === "install") await assert.rejects(access(file));
+          else assert.equal(await readFile(file, "utf8"), "# managed by ldo-ai\nowned content\n");
+        }
+      } finally {
+        await rm(targetRoot, { recursive: true, force: true });
+      }
+    }
   }
 });

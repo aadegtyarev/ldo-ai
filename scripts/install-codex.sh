@@ -24,6 +24,10 @@ owned='planner.toml worker.toml reviewer.toml'
 if [ "$mode" = uninstall ]; then
   for name in $owned; do
     file=$target/ldo-ai-$name
+    if [ -L "$file" ]; then
+      printf 'Refusing to remove symlink: %s\n' "$file" >&2
+      exit 1
+    fi
     if [ -e "$file" ] && ! grep -Fqx '# managed by ldo-ai' "$file"; then
       printf 'Refusing to remove unowned file: %s\n' "$file" >&2
       exit 1
@@ -36,6 +40,10 @@ fi
 for name in $owned; do
   [ -f "$source_dir/$name" ] || { printf 'Missing package agent: %s\n' "$source_dir/$name" >&2; exit 1; }
   file=$target/ldo-ai-$name
+  if [ -L "$file" ]; then
+    printf 'Refusing to replace symlink: %s\n' "$file" >&2
+    exit 1
+  fi
   if [ -e "$file" ] && ! grep -Fqx '# managed by ldo-ai' "$file"; then
     printf 'Refusing to replace unowned file: %s\n' "$file" >&2
     exit 1
