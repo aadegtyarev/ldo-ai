@@ -6,17 +6,18 @@
 
 ## Observable inputs, outputs, and flows
 
-Users install/update the Claude Code plugin through its native plugin mechanism or use the package's native Codex installation path. Both expose planner, worker, and reviewer roles. Codex installation updates only marked `ldo-ai-*` agent definitions, refuses to overwrite unowned collisions, and leaves unrelated host/project files untouched.
+Users install/update the Claude Code plugin through its native plugin mechanism or use the package's native Codex installation path. Both expose exactly planner, worker, and reviewer roles and conditionally discover shared native skills. Claude receives skills from the plugin's `skills/<name>/SKILL.md`; Codex receives package-owned skills in its native `$CODEX_HOME/skills/<name>/SKILL.md` location. The installer maps a custom agents-directory argument to the sibling `skills/` directory. Native hosts own skill loading and role dispatch.
 
 ## Interfaces and compatibility
 
-- Claude Code agent definitions use plugin-native agent files and metadata.
-- Codex agent definitions use native Codex agent configuration; shared project instructions use `AGENTS.md` conventions.
+- Claude Code agent definitions and skills use plugin-native `agents/` and `skills/` directories.
+- Codex agent definitions use native Codex TOML configuration; skills use `$CODEX_HOME/skills/`; shared project instructions use `AGENTS.md` conventions.
+- The Codex installer accepts an optional agents directory; the skills destination is its sibling `skills/` directory. Without an argument it uses `$CODEX_HOME/{agents,skills}` when set, otherwise `$HOME/.codex/{agents,skills}`.
 - Package/repository identity remains `ldo-ai`; legacy LDO workflow/runtime compatibility is intentionally removed.
 
 ## Failure behavior and recovery
 
-The Codex installer validates all sources and target collisions before writing; it updates/removes only files carrying the package ownership marker. It refuses live and dangling symlink collisions during complete preflight in both install and uninstall modes, before any writes or removals. Failures are explicit and do not clean unrelated files. Claude Code installation/update remains managed by Claude Code's marketplace/plugin mechanism.
+The Codex installer validates all sources and agent/skill target collisions before writing or removing anything. It updates/removes only marked package-owned agent files and skill `SKILL.md` files, never removes skill directories or their unowned contents, and preserves unrelated files and directories. It refuses live and dangling symlink collisions during complete preflight in both install and uninstall modes. Failures are explicit. Claude Code installation/update remains managed by Claude Code's marketplace/plugin mechanism; plugin skills are discovered natively.
 
 ## Security, privacy, and retention
 

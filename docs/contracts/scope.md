@@ -1,7 +1,7 @@
 # Scope — supported product surfaces
 
-- `ldo-ai` provides Markdown-first role guidance for Claude Code and Codex through each host's native agent/subagent and instruction conventions.
-- Keep only native roles with a distinct use: planner, worker, and reviewer. Security is included only if its boundary is distinct and justified.
+- `ldo-ai` provides Markdown-first planner, worker, and reviewer roles plus conditional native skills for Claude Code and Codex.
+- Keep exactly three roles; development lifecycle, decomposition, security, validation, and Git delivery are conditional guidance skills, not extra roles.
 - Do not ship Recorder or Researcher roles, a Pi product surface, custom orchestration/runtime, model routing, state/resume machinery, or legacy compatibility.
 - JavaScript is limited to justified package, installation, or validation mechanics.
 

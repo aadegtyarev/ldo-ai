@@ -7,6 +7,6 @@
   "license": "MIT",
   "scripts": {
     "check": "node scripts/check-package.mjs",
-    "test": "node --test scripts/package.test.mjs"
+    "test": "node --test scripts/*.test.mjs"
   }
 }
