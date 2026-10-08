@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.openai.com/marketplace.schema.json",
+  "name": "ldo-ai",
+  "plugins": [
+    {
+      "name": "ldo-ai",
+      "source": {
+        "source": "local",
+        "path": "./.codex-plugin"
+      }
+    }
+  ]
+}
