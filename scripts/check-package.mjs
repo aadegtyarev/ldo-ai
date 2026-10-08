@@ -1,6 +1,7 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { checkPackageVersions } from "./check-package-versions.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requiredRoles = ["planner", "worker", "reviewer"];
@@ -18,7 +19,7 @@ const pkg = JSON.parse(await read("package.json"));
 const plugin = JSON.parse(await read(".claude-plugin/plugin.json"));
 const marketplace = JSON.parse(await read(".claude-plugin/marketplace.json"));
 if (pkg.name !== "ldo-ai" || plugin.name !== "ldo" || marketplace.name !== "ldo-ai") fail("Package metadata must retain ldo-ai identity");
-if (pkg.version !== plugin.version || pkg.version !== marketplace.version || pkg.version !== marketplace.metadata.version) fail("Package versions are inconsistent");
+checkPackageVersions(pkg, plugin, marketplace);
 for (const [directory, extension] of [["agents", ".md"], ["codex/agents", ".toml"]]) {
   const actual = (await readdir(path.join(root, directory))).sort();
   const expected = requiredRoles.map((role) => `${role}${extension}`).sort();
