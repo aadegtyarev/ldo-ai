@@ -16,7 +16,7 @@ Users install/update the Claude Code plugin through its native plugin mechanism 
 
 ## Failure behavior and recovery
 
-The Codex installer validates all sources and target collisions before writing; it updates/removes only files carrying the package ownership marker. Failures are explicit and do not clean unrelated files. Claude Code installation/update remains managed by Claude Code's marketplace/plugin mechanism.
+The Codex installer validates all sources and target collisions before writing; it updates/removes only files carrying the package ownership marker. It refuses live and dangling symlink collisions during complete preflight in both install and uninstall modes, before any writes or removals. Failures are explicit and do not clean unrelated files. Claude Code installation/update remains managed by Claude Code's marketplace/plugin mechanism.
 
 ## Security, privacy, and retention
 
@@ -28,5 +28,4 @@ No Pi product surface, custom orchestrator, automatic model routing, resumable p
 
 ## Related contracts
 
-- [Native Claude/Codex rebuild feature](../features/native-claude-codex-rebuild.md)
 - [Scope](../scope.md)
