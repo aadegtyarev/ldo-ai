@@ -13,7 +13,8 @@ Offer native Codex marketplace/plugin installation while preserving the existing
 - CI runs on pull requests, pushes to `master`, and manual dispatch, using an isolated home and no credentials or model calls.
 - Manual/release Codex model tests are limited to exact `gpt-6-luna`; no model tests run in CI.
 - Keep normative version sources synchronized and prompt size unchanged. Do not bump version absent release approval.
-- Native Codex marketplace compatibility requires the first CLI version that accepts the official `.agents/plugins/marketplace.json` flow. Keep `scripts/install-codex.sh` as the fallback for older CLI versions; never route Codex installation through the Claude marketplace.
+- The official native Codex marketplace manifest is `.agents/plugins/marketplace.json`; `codex plugin marketplace add` receives the checkout/marketplace root containing that file, not its directory. Claude `.claude-plugin/marketplace.json` remains independent and unchanged.
+- Native Codex marketplace compatibility requires the first CLI version that accepts and resolves that official root-source flow. Keep `scripts/install-codex.sh` as the fallback for older CLI versions; never route Codex installation through the Claude marketplace.
 
 ## Non-goals
 
