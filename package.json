@@ -1,0 +1,12 @@
+{
+  "name": "ldo-ai",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Native Claude Code and Codex agents for planning, implementation, and review",
+  "license": "MIT",
+  "scripts": {
+    "check": "node scripts/check-package.mjs",
+    "test": "node --test scripts/package.test.mjs"
+  }
+}

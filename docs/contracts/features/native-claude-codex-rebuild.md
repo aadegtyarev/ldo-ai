@@ -1,6 +1,6 @@
 # Feature: native Claude Code and Codex rebuild
 
-Status: approved; implementation pending
+Status: ready-for-verification
 
 ## Goal and user-visible behavior
 
@@ -21,7 +21,7 @@ Replace LDO's custom workflow runtime with a Markdown-first `ldo-ai` package usa
 
 ## Roles
 
-Keep only roles with a clear native-agent purpose: at minimum planner, worker, and reviewer. Add security only if implementation establishes a distinct justified boundary. Do not include Recorder or Researcher.
+Keep only roles with a clear native-agent purpose: planner, worker, and reviewer. Security is not a standalone role because security review fits the worker/reviewer guidance rather than a distinct workflow boundary. Do not include Recorder or Researcher.
 
 ## Affected surfaces
 

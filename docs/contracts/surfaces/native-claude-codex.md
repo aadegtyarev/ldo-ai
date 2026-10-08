@@ -6,7 +6,7 @@
 
 ## Observable inputs, outputs, and flows
 
-Users install/update the Claude Code plugin through its native plugin mechanism or use the package's native Codex installation path. Both expose planner, worker, and reviewer roles plus concise shared guidance. Installing or updating package-owned files leaves unrelated host/project files untouched.
+Users install/update the Claude Code plugin through its native plugin mechanism or use the package's native Codex installation path. Both expose planner, worker, and reviewer roles. Codex installation updates only marked `ldo-ai-*` agent definitions, refuses to overwrite unowned collisions, and leaves unrelated host/project files untouched.
 
 ## Interfaces and compatibility
 
@@ -16,7 +16,7 @@ Users install/update the Claude Code plugin through its native plugin mechanism 
 
 ## Failure behavior and recovery
 
-Installers validate source/target assumptions before replacing only files owned by this package. Failures are explicit and do not clean unrelated files.
+The Codex installer validates all sources and target collisions before writing; it updates/removes only files carrying the package ownership marker. Failures are explicit and do not clean unrelated files. Claude Code installation/update remains managed by Claude Code's marketplace/plugin mechanism.
 
 ## Security, privacy, and retention
 
@@ -24,7 +24,7 @@ Install/update mechanics operate only on requested package-owned destinations. N
 
 ## Non-goals
 
-No Pi product surface, custom orchestrator, automatic model routing, resumable pipeline, or compatibility shell is provided. Recorder and Researcher roles are excluded.
+No Pi product surface, custom orchestrator, automatic model routing, resumable pipeline, or compatibility shell is provided. Recorder and Researcher roles are excluded. There is no standalone security role because security is handled as part of worker/reviewer guidance, not a separate workflow boundary.
 
 ## Related contracts
 
