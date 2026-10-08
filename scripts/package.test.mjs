@@ -9,11 +9,15 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const installer = path.join(root, "scripts/install-codex.sh");
 const roles = ["planner", "worker", "reviewer"];
+const skills = ["ldo-ai-workflow", "ldo-ai-decomposition", "ldo-ai-security", "ldo-ai-validation", "ldo-ai-git-delivery"];
 
 test("Codex install and update touch only package-owned agent files", async () => {
   const targetRoot = await mkdtemp(path.join(os.tmpdir(), "ldo-ai-install-"));
   const target = path.join(targetRoot, "agents");
+  const skillTarget = path.join(targetRoot, "skills");
   await mkdir(target, { recursive: true });
+  await mkdir(path.join(skillTarget, "custom"), { recursive: true });
+  await writeFile(path.join(skillTarget, "custom", "data.txt"), "keep custom skill directory\n");
   await writeFile(path.join(target, "custom.toml"), "keep custom agent\n");
   await writeFile(path.join(target, "AGENTS.md"), "keep user instructions\n");
   const collision = path.join(target, "ldo-ai-reviewer.toml");
@@ -26,11 +30,15 @@ test("Codex install and update touch only package-owned agent files", async () =
     assert.notEqual(rejected.status, 0);
     assert.equal(await readFile(collision, "utf8"), "user-owned file\n");
     await assert.rejects(access(path.join(target, "ldo-ai-planner.toml")));
+    await assert.rejects(access(path.join(skillTarget, skills[0], "SKILL.md")));
     await rm(collision);
     const first = run([]);
     assert.equal(first.status, 0, first.stderr);
     for (const role of roles) await access(path.join(target, `ldo-ai-${role}.toml`));
+    for (const skill of skills) await access(path.join(skillTarget, skill, "SKILL.md"));
+    await writeFile(path.join(skillTarget, "ldo-ai-workflow", "user-note.md"), "keep unowned skill content\n");
     assert.equal(await readFile(path.join(target, "custom.toml"), "utf8"), "keep custom agent\n");
+    assert.equal(await readFile(path.join(skillTarget, "custom", "data.txt"), "utf8"), "keep custom skill directory\n");
     assert.equal(await readFile(path.join(target, "AGENTS.md"), "utf8"), "keep user instructions\n");
     const update = run([]);
     assert.equal(update.status, 0, update.stderr);
@@ -46,7 +54,10 @@ test("Codex install and update touch only package-owned agent files", async () =
     const remove = run(["--uninstall"]);
     assert.equal(remove.status, 0, remove.stderr);
     for (const role of roles) await assert.rejects(access(path.join(target, `ldo-ai-${role}.toml`)));
+    for (const skill of skills) await assert.rejects(access(path.join(skillTarget, skill, "SKILL.md")));
+    assert.equal(await readFile(path.join(skillTarget, "ldo-ai-workflow", "user-note.md"), "utf8"), "keep unowned skill content\n");
     assert.equal(await readFile(path.join(target, "custom.toml"), "utf8"), "keep custom agent\n");
+    assert.equal(await readFile(path.join(skillTarget, "custom", "data.txt"), "utf8"), "keep custom skill directory\n");
     assert.equal(await readFile(path.join(target, "AGENTS.md"), "utf8"), "keep user instructions\n");
   } finally {
     await rm(targetRoot, { recursive: true, force: true });
