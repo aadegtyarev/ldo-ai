@@ -48,7 +48,7 @@ The planner investigates and plans; the worker implements approved work; the rev
 - No custom JavaScript workflow engine, role router, phase state, resume mechanism, or automated fix loop.
 - No legacy LDO workflow or configuration compatibility; migrate tasks to your host's native agent workflows.
 - No Recorder or Researcher agents, no Pi support, and no automatic model selection.
-- Codex installer updates only its three named agent files. Back up any personal edits to those owned files before updating; all other files are preserved.
+- Codex installer updates only `agents/ldo-ai-{planner,worker,reviewer}.toml` and package-owned `skills/ldo-ai-*/SKILL.md` destinations. Unrelated and unowned files are untouched. Updates replace local edits to owned agent or skill files; keep personal skill changes elsewhere.
 - Agent behavior depends on the installed Claude Code or Codex version and its native subagent support.
 
 ## Validate this package
