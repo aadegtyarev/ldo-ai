@@ -13,7 +13,7 @@ Users install/update the Claude Code plugin through its native plugin mechanism 
 - Claude Code agent definitions and skills use plugin-native `agents/` and `skills/` directories.
 - Codex agent definitions use native Codex TOML configuration; skills use `$CODEX_HOME/skills/`; shared project instructions use `AGENTS.md` conventions.
 - The Codex installer accepts an optional agents directory; the skills destination is its sibling `skills/` directory. Without an argument it uses `$CODEX_HOME/{agents,skills}` when set, otherwise `$HOME/.codex/{agents,skills}`.
-- Package/repository identity remains `ldo-ai`; legacy LDO workflow/runtime compatibility is intentionally removed.
+- Package/repository identity remains `ldo-ai`; package, Claude plugin, and marketplace metadata versions stay synchronized and are checked by the package validation command. Legacy LDO workflow/runtime compatibility is intentionally removed.
 
 ## Failure behavior and recovery
 
