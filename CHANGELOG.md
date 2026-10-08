@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added a native Codex marketplace/plugin bundle and isolated marketplace lifecycle coverage in CI; retained the shell installer for older Codex CLI versions.
+
 ## [3.1.0] — 2026-10-08
 
 ### Changed

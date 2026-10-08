@@ -6,22 +6,22 @@
 
 ## Observable inputs, outputs, and flows
 
-Users install/update the Claude Code plugin through its native plugin mechanism or use the package's native Codex installation path. Both expose exactly planner, worker, and reviewer roles and conditionally discover five shared native skills: workflow, decomposition, security, validation, and Git delivery. Claude receives skills from the plugin's `skills/<name>/SKILL.md`; Codex receives the package-owned `SKILL.md` files in its native `$CODEX_HOME/skills/<name>/SKILL.md` location. The installer maps a custom agents-directory argument to the sibling `skills/` directory. Native hosts own skill loading and role dispatch.
+Users install/update the Claude Code plugin through its unchanged Claude marketplace. For Codex CLI 0.161.0 or newer, users add the checkout root as a native marketplace and install `ldo-ai@ldo-ai`; the marketplace definition is `.agents/plugins/marketplace.json` and the plugin bundle is `.codex-plugin/`. The native plugin and Claude package expose exactly planner, worker, and reviewer roles and five shared skills: workflow, decomposition, security, validation, and Git delivery. Shared Codex TOMLs and skill prompts have one canonical plugin-owned source. Older Codex CLI versions can use `scripts/install-codex.sh`, which writes package-owned agents and skills under `$CODEX_HOME` (or `~/.codex`). Native hosts own skill loading and role dispatch.
 
 ## Interfaces and compatibility
 
-- Claude Code agent definitions and skills use plugin-native `agents/` and `skills/` directories.
-- Codex agent definitions use native Codex TOML configuration; skills use `$CODEX_HOME/skills/`; shared project instructions use `AGENTS.md` conventions.
-- The Codex installer accepts an optional agents directory; the skills destination is its sibling `skills/` directory. Without an argument it uses `$CODEX_HOME/{agents,skills}` when set, otherwise `$HOME/.codex/{agents,skills}`.
-- Package/repository identity remains `ldo-ai`; package, Claude plugin, and marketplace metadata versions stay synchronized and are checked by the package validation command. Legacy LDO workflow/runtime compatibility is intentionally removed.
+- Claude Code agent definitions and skills use plugin-native `agents/` and `skills/` directories; the existing Claude marketplace remains independent of Codex metadata.
+- Codex marketplace registration receives the checkout root (`codex plugin marketplace add <checkout>`); Codex resolves `.agents/plugins/marketplace.json`, whose local source points to `.codex-plugin/`.
+- The Codex plugin bundles native TOML agents and `skills/<name>/SKILL.md`. `scripts/install-codex.sh` accepts an optional agents directory; skills go to its sibling `skills/` directory. Without an argument it uses `$CODEX_HOME/{agents,skills}` when set, otherwise `$HOME/.codex/{agents,skills}`.
+- Package/repository identity remains `ldo-ai`; package, Claude metadata, and Codex plugin versions stay synchronized and are checked by package validation. Legacy LDO workflow/runtime compatibility is intentionally removed.
 
 ## Failure behavior and recovery
 
-The Codex installer validates all sources and agent/skill target collisions before writing or removing anything. It updates/removes only marked package-owned agent files and skill `SKILL.md` files, never removes skill directories or their unowned contents, and preserves unrelated files and directories. It refuses live and dangling symlink collisions during complete preflight in both install and uninstall modes. Failures are explicit. Claude Code installation/update remains managed by Claude Code's marketplace/plugin mechanism; plugin skills are discovered natively.
+The Codex shell installer validates sources and target collisions before writing/removing; it updates/removes only marked package-owned files, preserves unrelated files/directories, and refuses live or dangling symlink collisions. The tested Codex 0.161.0 native flow supports marketplace add, plugin install/version update by re-adding the changed local plugin, plugin removal, and marketplace removal; its plugin and marketplace inventory is CLI-owned. Claude installation/update remains managed by the independent Claude marketplace. CI uses a temporary `CODEX_HOME`, invokes no models, and does not access credentials or real user state.
 
 ## Security, privacy, and retention
 
-Install/update mechanics operate only on requested package-owned destinations. No runtime state, task history, or credentials are collected or retained.
+Install/update mechanics operate only on requested package-owned destinations. CI uses isolated temporary Codex state and makes no model calls. No runtime state, task history, or credentials are collected or retained.
 
 ## Non-goals
 

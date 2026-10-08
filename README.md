@@ -19,19 +19,24 @@ Update with `/plugin update ldo@ldo-ai`. The plugin contributes native agents; C
 
 ### Codex
 
-From a checkout, install the three native agent definitions and conditional native skills into the current user's Codex configuration. If `CODEX_HOME` is set, the installer uses its `agents/` and `skills/`; otherwise it uses `~/.codex/`:
+Native marketplace installation is recommended with Codex CLI 0.161.0 or newer. From the repository checkout root, register the marketplace and install the plugin:
+
+```sh
+codex plugin marketplace add /path/to/ldo-ai
+codex plugin add ldo-ai@ldo-ai
+```
+
+The marketplace manifest is `.agents/plugins/marketplace.json`; it installs three Codex agents and five conditional skills from shared package sources. The tested CLI supports removal with `codex plugin remove ldo-ai@ldo-ai` and `codex plugin marketplace remove ldo-ai`. After a package/plugin version bump, rerunning `codex plugin add ldo-ai@ldo-ai` installs the new version; `plugin marketplace upgrade` is for Git marketplaces, not this local-source flow.
+
+#### Shell installer fallback
+
+For Codex CLI versions older than 0.161.0, the shell installer remains available. If `CODEX_HOME` is set, it uses its `agents/` and `skills/`; otherwise it uses `~/.codex/`:
 
 ```sh
 ./scripts/install-codex.sh
 ```
 
-To install into a chosen agents directory, pass its path. The package-owned skills go to the sibling `skills/` directory (for example, `.codex/agents` maps to `.codex/skills`):
-
-```sh
-./scripts/install-codex.sh /path/to/.codex/agents
-```
-
-Run the same command again to update. It manages only marked role TOMLs and each package-owned skill's `SKILL.md`; complete preflight refuses unowned files, directories at owned skill paths, or live/dangling symlink collisions before changing anything. Unrelated files and skill-directory contents are preserved; uninstall removes owned files but leaves directories. It does not edit `AGENTS.md`, Codex settings, or unrelated agents. Remove package-owned files with `./scripts/install-codex.sh --uninstall [agents-directory]`. Restart Codex after installing or updating.
+To install into a chosen agents directory, pass its path. The package-owned skills go to the sibling `skills/` directory (for example, `.codex/agents` maps to `.codex/skills`). Run the same command again to update. It manages only marked role TOMLs and each package-owned skill's `SKILL.md`; preflight refuses unowned files and symlink collisions. Unrelated files and skill-directory contents are preserved. Uninstall with `./scripts/install-codex.sh --uninstall [agents-directory]`.
 
 ## Use
 
@@ -61,6 +66,6 @@ npm run check
 sh -n scripts/install-codex.sh
 ```
 
-`npm test` covers temporary Codex agent/skill install, repeat update, removal, custom homes, collisions, and preservation of unowned files/directories and symlinks. `npm run check` validates native package structure, skill routing, role sets, size ceilings, and absence of legacy runtime paths.
+`npm test` covers the shell-installer lifecycle and, when Codex CLI is installed, native marketplace add, plugin install/version update/inventory/removal, and preservation of unrelated state in a temporary `CODEX_HOME`. CI pins Codex CLI 0.161.0 and runs no model calls. Manual/release Codex model tests, if any, are limited to exact model `gpt-6-luna`; they are not part of CI. `npm run check` validates both Codex manifests, shared bundle contents, synchronized versions, skill routing, size ceilings, and absence of legacy runtime paths.
 
 Source: [github.com/aadegtyarev/ldo-ai](https://github.com/aadegtyarev/ldo-ai)
