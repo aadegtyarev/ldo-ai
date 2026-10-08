@@ -1,10 +1,11 @@
-# Code — structural rules the Reviewer blocks on
+# Code — portable structural guidance
 
-- [2026-08-01] Never swallow an error silently — see agents/coder.md, "Never swallow an error silently", for what counts as handled. A violation is blocking `critical`, not a nit.
-- [2026-08-01] A comment must state something the code can't show itself — see agents/coder.md, "A comment earns its place", for the standard. Violations block as `critical`.
+- Never silently swallow an error; handle it explicitly or allow it to propagate.
+- Comments explain constraints or intent that the code cannot show by itself; do not narrate obvious behavior.
+- Keep validation and installation mechanics separate from host-owned orchestration. This package must not implement agent scheduling or workflow state.
 
 ## Sources
 
-**Never swallow an error silently** (2026-08-01) — `agents/coder.md`; the two `catch` blocks in `workflows/ldo.js` already followed this at the time this contract was written — both log and return an explicit error object.
+**Explicit failure handling and useful comments** — retained portable guidance from the former worker role.
 
-**A comment earns its place** (2026-08-01) — `agents/coder.md`.
+**Host-owned agent execution** — [native Claude Code and Codex surface](surfaces/native-claude-codex.md).
