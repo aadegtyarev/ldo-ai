@@ -7,4 +7,4 @@
 
 ## Sources
 
-**Native host ownership and intentional exclusions** — [native Claude Code and Codex surface](surfaces/native-claude-codex.md); [approved rebuild feature](features/native-claude-codex-rebuild.md).
+**Native host ownership and intentional exclusions** — [native Claude Code and Codex surface](surfaces/native-claude-codex.md).
