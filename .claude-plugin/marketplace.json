@@ -6,8 +6,8 @@
     "url": "https://github.com/aadegtyarev"
   },
   "metadata": {
-    "description": "LDO — Lightweight Dev Orchestrator. Single-plugin marketplace.",
-    "version": "2.52.3"
+    "description": "ldo-ai native Claude Code agents for planning, implementation, and review.",
+    "version": "3.0.0"
   },
   "plugins": [
     {
@@ -16,21 +16,20 @@
         "source": "github",
         "repo": "aadegtyarev/ldo-ai"
       },
-      "description": "Planner, Coder, Reviewer pipeline with a different model per role. The strong model plans and writes; a cheaper one reviews, because a fix round costs more than writing it well once.",
+      "description": "Native Claude Code planner, worker, and reviewer agents; host-controlled delegation with no custom workflow runtime.",
       "homepage": "https://github.com/aadegtyarev/ldo-ai",
       "author": {
         "name": "Alexander Degtyarev"
       },
-      "version": "2.52.3",
-      "category": "orchestration",
+      "version": "3.0.0",
+      "category": "agents",
       "keywords": [
-        "orchestration",
-        "workflow",
-        "code-review",
-        "model-routing",
-        "pipeline"
+        "agents",
+        "planning",
+        "implementation",
+        "code-review"
       ]
     }
   ],
-  "version": "2.52.3"
+  "version": "3.0.0"
 }
