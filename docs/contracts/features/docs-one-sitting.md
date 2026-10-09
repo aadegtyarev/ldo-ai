@@ -4,7 +4,7 @@ Status: ready-for-verification
 
 ## Goal and user-visible behavior
 
-Rewrite the README as one accurate start-to-finish guide for users and contributors, while keeping 3.x release history and linking legacy history at the immutable v3.0.0 tag.
+Rewrite the README as one accurate start-to-finish guide for users and contributors, while keeping 3.x release history and linking legacy history at a verified immutable commit.
 
 ## Scenarios
 
@@ -25,7 +25,7 @@ No changes to code, manifests, versions, runtime, workflows, prompts, skills, or
 - README is English, coherent from purpose through first use, and no more than 100 lines.
 - Include exactly two GitHub-compatible Mermaid diagrams: host-controlled task lifecycle and shared-source packaging.
 - Explain Claude marketplace add/update/remove, Codex Git marketplace install/update/remove and checkout development, practical use, roles/skills, fallback installer safety, boundaries, validation, contribution, license, and source without duplicating catalog prose.
-- CHANGELOG retains 3.x entries verbatim except minimal clarity/format edits and links the complete pre-3.0 history at `https://github.com/aadegtyarev/ldo-ai/blob/v3.0.0/CHANGELOG.md`.
+- CHANGELOG retains 3.x entries verbatim except minimal clarity/format edits and links the complete pre-3.0 history at `https://github.com/aadegtyarev/ldo-ai/blob/34dbb7ec5db08e4bdf69ed35f5f67cf804db5632/CHANGELOG.md`.
 - Every changed/new file is at most 100 lines. Preserve compatibility and security caveats.
 
 ## Acceptance criteria

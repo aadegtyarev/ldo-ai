@@ -28,4 +28,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Legacy history
 
-The complete pre-3.0 changelog is preserved at the immutable [v3.0.0 tag](https://github.com/aadegtyarev/ldo-ai/blob/v3.0.0/CHANGELOG.md).
+The complete pre-3.0 changelog is preserved at this [immutable commit](https://github.com/aadegtyarev/ldo-ai/blob/34dbb7ec5db08e4bdf69ed35f5f67cf804db5632/CHANGELOG.md).

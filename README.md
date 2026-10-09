@@ -8,12 +8,12 @@ Hosts decide whether and when to delegate. The roles are available for use, not 
 
 ```mermaid
 flowchart TD
-  task[Task arrives] --> trivial{Trivial?}
-  trivial -->|Yes| host[Host or user handles task]
+  task[Task arrives] --> trivial{Trivial, local, reversible?}
+  trivial -->|Yes| worker[Worker implements (host-delegated)]
   trivial -->|No| planner[Planner investigates and proposes plan]
   planner --> approval{Host/user approves?}
-  approval -->|No| host
-  approval -->|Yes| worker[Worker implements]
+  approval -->|No| host[Host/user decides next step]
+  approval -->|Yes| worker
   worker --> evidence[Checks and evidence]
   evidence --> reviewer[Reviewer independently reviews]
   reviewer --> decision[Host/user decides next action]
