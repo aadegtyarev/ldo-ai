@@ -1,71 +1,73 @@
 # ldo-ai
 
-> **Incompatible reset:** LDO's custom workflow engine is gone. This release is a Markdown-first set of native agents for Claude Code and Codex, not a workflow runtime.
+`ldo-ai` packages planner, worker, and reviewer guidance for native Claude Code and Codex. This is an incompatible reset: the custom LDO workflow runtime was removed. There is no router, automatic pipeline, Pi support, legacy workflow compatibility, Recorder, or Researcher role.
 
-`ldo-ai` provides focused planner, worker, and reviewer roles. Claude Code and Codex control delegation with their own native agent/subagent mechanisms. There is no Pi product surface, model router, resumable pipeline, compatibility layer, or promise that old workflows continue to work.
+## How work flows
+
+Hosts decide whether and when to delegate. The roles are available for use, not a forced pipeline.
+
+```mermaid
+flowchart TD
+  task[Task arrives] --> trivial{Trivial, local, reversible?}
+  trivial -->|Yes| worker["Worker implements (host-delegated)"]
+  trivial -->|No| planner[Planner investigates and proposes plan]
+  planner --> approval{Host/user approves?}
+  approval -->|No| host[Host/user decides next step]
+  approval -->|Yes| worker
+  worker --> evidence[Checks and evidence]
+  evidence --> reviewer[Reviewer independently reviews]
+  reviewer --> decision[Host/user decides next action]
+  decision -. host-directed follow-up .-> worker
+```
 
 ## Install
 
 ### Claude Code
 
-Add the marketplace and install the native plugin:
+In Claude Code, run:
 
 ```text
 /plugin marketplace add aadegtyarev/ldo-ai
 /plugin install ldo@ldo-ai
 ```
 
-Update with `/plugin update ldo@ldo-ai`. The plugin contributes native agents; Claude Code decides when to delegate. To use a checkout directly during development, start Claude Code with `claude --plugin-dir /path/to/ldo-ai`.
+Update with `/plugin update ldo@ldo-ai`; remove with `/plugin uninstall ldo@ldo-ai`. For checkout development, launch `claude --plugin-dir /path/to/ldo-ai`.
 
-### Codex
+### Codex CLI 0.161.0+
 
-Native marketplace installation is recommended with Codex CLI 0.161.0 or newer. From the repository checkout root, register the marketplace and install the plugin:
+Install from the Git marketplace with:
 
 ```sh
-codex plugin marketplace add /path/to/ldo-ai
+codex plugin marketplace add https://github.com/aadegtyarev/ldo-ai.git
 codex plugin add ldo-ai@ldo-ai
 ```
 
-The marketplace manifest is `.agents/plugins/marketplace.json`; it installs three Codex agents and five conditional skills from shared package sources. The tested CLI supports removal with `codex plugin remove ldo-ai@ldo-ai` and `codex plugin marketplace remove ldo-ai`. After a package/plugin version bump, rerunning `codex plugin add ldo-ai@ldo-ai` installs the new version; `plugin marketplace upgrade` is for Git marketplaces, not this local-source flow.
+Update the marketplace and installed plugin with `codex plugin marketplace upgrade ldo-ai`, then `codex plugin add ldo-ai@ldo-ai`. Remove the plugin and marketplace with `codex plugin remove ldo-ai@ldo-ai` and `codex plugin marketplace remove ldo-ai`. For checkout development, register the local checkout instead of the Git URL: `codex plugin marketplace add /path/to/ldo-ai`; after editing sources, rerun `codex plugin add ldo-ai@ldo-ai`.
 
-#### Shell installer fallback
+The Codex marketplace manifest points to `.codex-plugin/`, which packages three agents and five conditional skills. Both host packages use shared role/skill guidance, with native host-specific adapters:
 
-For Codex CLI versions older than 0.161.0, the shell installer remains available. If `CODEX_HOME` is set, it uses its `agents/` and `skills/`; otherwise it uses `~/.codex/`:
-
-```sh
-./scripts/install-codex.sh
+```mermaid
+flowchart LR
+  sources[Canonical agents/ and skills/] --> claude[Claude native plugin]
+  sources --> codex[Codex native TOML and SKILL.md bundle]
+  sources --> fallback[Guarded Codex shell installer]
+  claude --> claudehost[Claude host discovers roles and skills]
+  codex --> codexhost[Codex host discovers roles and skills]
+  fallback --> codexhome[CODEX_HOME or ~/.codex]
 ```
 
-To install into a chosen agents directory, pass its path. The package-owned skills go to the sibling `skills/` directory (for example, `.codex/agents` maps to `.codex/skills`). Run the same command again to update. It manages only marked role TOMLs and each package-owned skill's `SKILL.md`; preflight refuses unowned files and symlink collisions. Unrelated files and skill-directory contents are preserved. Uninstall with `./scripts/install-codex.sh --uninstall [agents-directory]`.
+### Older Codex CLI: shell fallback
 
-## Use
+Run `./scripts/install-codex.sh`; it writes to `$CODEX_HOME/{agents,skills}` or `~/.codex/{agents,skills}`. An optional agents-directory argument selects another target; skills go in its sibling `skills/` directory. Rerunning updates only package-marked role TOMLs and skill `SKILL.md` files. Preflight refuses unowned files and symlink collisions; unrelated files and directory contents remain. Updates replace local edits to owned files. Remove owned files with `./scripts/install-codex.sh --uninstall [agents-directory]`.
 
-Ask Claude Code for `planner`, `worker`, or `reviewer`; in Codex use `ldo-ai-planner`, `ldo-ai-worker`, or `ldo-ai-reviewer`. The plugin and Codex installer deliver native skills that hosts discover/load conditionally; role prompts provide compact routing triggers. Delegate the parts that fit the task, for example:
+## First task
 
-- “Ask the planner to inspect the repository and propose a small implementation plan. Wait for my approval before coding.”
-- “Have the worker implement the approved plan and run focused tests.”
-- “Ask the reviewer to inspect the diff independently and report blockers with evidence.”
+Ask the planner to inspect the repository and propose a small plan, approve it before asking the worker to implement, then ask the reviewer to inspect the diff and checks independently. Roles: planner plans, worker implements approved work, reviewer checks evidence. The package includes native skills for workflow, decomposition, security, validation, and Git delivery; hosts decide when to load them. The host controls delegation, execution, approvals, and final decisions.
 
-The planner investigates and plans; the worker implements approved work; the reviewer independently checks the diff and evidence. The host remains responsible for delegation, user approval, and final decisions. No role is forced into a fixed pipeline.
+## Contribute
 
-## Boundaries
+Requires Node.js 18+; there are no third-party dependencies. Run `npm test`, `npm run check`, and `sh -n scripts/install-codex.sh`. CI runs no model calls. `npm test` covers the shell installer and, when installed, the Codex marketplace lifecycle in a temporary `CODEX_HOME`; package checks validate manifests, shared bundle contents, versions, routing, size limits, and legacy-path removal.
 
-- No custom JavaScript workflow engine, role router, phase state, resume mechanism, or automated fix loop.
-- No legacy LDO workflow or configuration compatibility; migrate tasks to your host's native agent workflows.
-- No Recorder or Researcher agents, no Pi support, and no automatic model selection.
-- Codex installer updates only `agents/ldo-ai-{planner,worker,reviewer}.toml` and package-owned `skills/ldo-ai-*/SKILL.md` destinations. Unrelated and unowned files are untouched. Updates replace local edits to owned agent or skill files; keep personal skill changes elsewhere.
-- Agent behavior depends on the installed Claude Code or Codex version and its native subagent support.
+There is no legacy LDO workflow or configuration compatibility. Agent behavior depends on host version and native subagent support.
 
-## Validate this package
-
-Requires Node.js 18+ and no third-party dependencies:
-
-```sh
-npm test
-npm run check
-sh -n scripts/install-codex.sh
-```
-
-`npm test` covers the shell-installer lifecycle and, when Codex CLI is installed, native marketplace add, plugin install/version update/inventory/removal, and preservation of unrelated state in a temporary `CODEX_HOME`. CI pins Codex CLI 0.161.0 and runs no model calls. Manual/release Codex model tests, if any, are limited to exact model `gpt-6-luna`; they are not part of CI. `npm run check` validates both Codex manifests, shared bundle contents, synchronized versions, skill routing, size ceilings, and absence of legacy runtime paths.
-
-Source: [github.com/aadegtyarev/ldo-ai](https://github.com/aadegtyarev/ldo-ai)
+The package is MIT licensed; see [LICENSE](LICENSE). Read [CHANGELOG.md](CHANGELOG.md) for release history and [the source repository](https://github.com/aadegtyarev/ldo-ai) for code and contribution context.
