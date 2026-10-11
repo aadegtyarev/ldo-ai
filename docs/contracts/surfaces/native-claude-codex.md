@@ -8,7 +8,7 @@
 
 Users install/update the Claude Code plugin through its unchanged Claude marketplace. For Codex CLI 0.161.0 or newer, users add the checkout root as a native marketplace and install `ldo-ai@ldo-ai`; the marketplace definition is `.agents/plugins/marketplace.json` and the plugin bundle is `.codex-plugin/`. The native plugin and Claude package expose exactly planner, worker, and reviewer roles and five shared skills: workflow, decomposition, security, validation, and Git delivery. Shared Codex TOMLs and skill prompts have one canonical plugin-owned source. Older Codex CLI versions can use `scripts/install-codex.sh`, which writes package-owned agents and skills under `$CODEX_HOME` (or `~/.codex`). Native hosts own skill loading and role dispatch.
 
-Role guidance is identical on both hosts: the reviewer names each blocking defect class and enumerates its affected cases, verifying class closure on re-review; the worker fixes the whole class with a regression test per case; the workflow skill stops delegating and reports to the user after two rejecting reviews of the same change since the user's last decision. These are instructions only, not runtime-enforced counters.
+Role guidance is identical on both hosts: the reviewer does one exhaustive pass reporting every independent finding across all classes, grouped and ranked, names each blocking defect class and enumerates its affected cases, verifying class closure on re-review; the worker fixes the whole class with a regression test per case; the workflow skill stops delegating and reports to the user after two rejecting reviews of the same change since the user's last decision. These are instructions only, not runtime-enforced counters.
 
 ## Interfaces and compatibility
 
