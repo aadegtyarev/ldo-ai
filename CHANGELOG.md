@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.3.1] — 2026-10-11
+
+### Changed
+
+- Reviewer does one exhaustive pass per review, reporting every independent finding across all defect classes, grouped and ranked, instead of stopping at the first blocker.
+
 ## [3.3.0] — 2026-10-11
 
 ### Changed
