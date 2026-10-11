@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.3.0] — 2026-10-11
+
+### Changed
+
+- Reviewer names each blocking defect class and enumerates its affected cases (verifying class closure on re-review); worker fixes the whole class with a regression test per case; the workflow skill stops and reports to the user after two rejecting reviews of the same change.
+
 ## [3.2.0] — 2026-10-09
 
 ### Added
