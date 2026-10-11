@@ -50,9 +50,11 @@ test("native Codex marketplace installs and removes only its plugin state", asyn
       assert.equal(await readFile(path.join(pluginRoot, file), "utf8"), await readFile(path.join(checkout, ".codex-plugin", file), "utf8"));
     }
     const manifest = path.join(checkout, ".codex-plugin/plugin.json");
-    await writeFile(manifest, (await readFile(manifest, "utf8")).replace('"version": "3.2.0"', '"version": "3.2.1"'));
-    assert.equal(run(["plugin", "add", "ldo-ai@ldo-ai", "--json"]).version, "3.2.1");
-    assert.equal(run(["plugin", "list", "--json"]).installed[0].version, "3.2.1");
+    const { version } = JSON.parse(await readFile(manifest, "utf8"));
+    const bumped = version.replace(/\d+$/, (patch) => String(Number(patch) + 1));
+    await writeFile(manifest, (await readFile(manifest, "utf8")).replace(`"version": "${version}"`, `"version": "${bumped}"`));
+    assert.equal(run(["plugin", "add", "ldo-ai@ldo-ai", "--json"]).version, bumped);
+    assert.equal(run(["plugin", "list", "--json"]).installed[0].version, bumped);
     assert.match(await readFile(path.join(home, "config.toml"), "utf8"), /sentinel = "preserve"/);
     assert.equal(await readFile(unrelated, "utf8"), "keep user state\n");
     run(["plugin", "remove", "ldo-ai@ldo-ai", "--json"]);
