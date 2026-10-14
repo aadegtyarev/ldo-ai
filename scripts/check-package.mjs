@@ -2,6 +2,7 @@ import { access, readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { checkPackageVersions } from "./check-package-versions.mjs";
+import { checkMarketplaceMetadata } from "./check-marketplace-metadata.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requiredRoles = ["planner", "worker", "reviewer"];
@@ -20,10 +21,8 @@ const plugin = JSON.parse(await read(".claude-plugin/plugin.json"));
 const marketplace = JSON.parse(await read(".claude-plugin/marketplace.json"));
 const codexPlugin = JSON.parse(await read(".codex-plugin/plugin.json"));
 const codexMarketplace = JSON.parse(await read(".agents/plugins/marketplace.json"));
-if (pkg.name !== "ldo-ai" || plugin.name !== "ldo" || marketplace.name !== "ldo-ai") fail("Package metadata must retain ldo-ai identity");
-if (codexPlugin.name !== "ldo-ai" || codexMarketplace.name !== "ldo-ai") fail("Codex manifests must retain ldo-ai identity");
-const codexListing = codexMarketplace.plugins;
-if (codexListing.length !== 1 || codexListing[0].name !== "ldo-ai" || codexListing[0].source.path !== "./.codex-plugin") fail("Invalid Codex marketplace listing");
+if (pkg.name !== "ldo-ai" || plugin.name !== "ldo" || codexPlugin.name !== "ldo-ai") fail("Package metadata must retain ldo-ai identity");
+checkMarketplaceMetadata(marketplace, codexMarketplace);
 checkPackageVersions(pkg, plugin, marketplace, codexPlugin);
 for (const [directory, extension] of [["agents", ".md"], ["codex/agents", ".toml"], [".codex-plugin/agents", ".toml"]]) {
   const actual = (await readdir(path.join(root, directory))).sort();

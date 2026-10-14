@@ -20,29 +20,66 @@ flowchart TD
   decision -. host-directed follow-up .-> worker
 ```
 
-## Install
+## Native marketplace lifecycle
+
+One repository serves two native marketplaces: Claude Code's GitHub marketplace and Codex CLI's marketplace. Each host owns its plugin state and lifecycle.
 
 ### Claude Code
 
-In Claude Code, run:
+#### Install
 
 ```text
 /plugin marketplace add aadegtyarev/ldo-ai
 /plugin install ldo@ldo-ai
 ```
 
-Update with `/plugin update ldo@ldo-ai`; remove with `/plugin uninstall ldo@ldo-ai`. For checkout development, launch `claude --plugin-dir /path/to/ldo-ai`.
+#### Update
+
+```text
+/plugin update ldo@ldo-ai
+```
+
+#### Uninstall
+
+```text
+/plugin uninstall ldo@ldo-ai
+/plugin marketplace remove ldo-ai
+```
+
+#### Checkout development
+
+Launch `claude --plugin-dir /path/to/ldo-ai` to load a local checkout directly.
 
 ### Codex CLI 0.161.0+
 
-Install from the Git marketplace with:
+#### Install
 
 ```sh
 codex plugin marketplace add https://github.com/aadegtyarev/ldo-ai.git
 codex plugin add ldo-ai@ldo-ai
 ```
 
-Update the marketplace and installed plugin with `codex plugin marketplace upgrade ldo-ai`, then `codex plugin add ldo-ai@ldo-ai`. Remove the plugin and marketplace with `codex plugin remove ldo-ai@ldo-ai` and `codex plugin marketplace remove ldo-ai`. For checkout development, register the local checkout instead of the Git URL: `codex plugin marketplace add /path/to/ldo-ai`; after editing sources, rerun `codex plugin add ldo-ai@ldo-ai`.
+#### Update
+
+Refresh the marketplace, then install the updated plugin:
+
+```sh
+codex plugin marketplace upgrade ldo-ai
+codex plugin add ldo-ai@ldo-ai
+```
+
+#### Uninstall
+
+Remove both host-owned entries:
+
+```sh
+codex plugin remove ldo-ai@ldo-ai
+codex plugin marketplace remove ldo-ai
+```
+
+#### Checkout development
+
+Register the checkout instead of the Git URL with `codex plugin marketplace add /path/to/ldo-ai`; after editing sources, rerun `codex plugin add ldo-ai@ldo-ai`.
 
 The Codex marketplace manifest points to `.codex-plugin/`, which packages three agents and five conditional skills. Both host packages use shared role/skill guidance, with native host-specific adapters:
 
