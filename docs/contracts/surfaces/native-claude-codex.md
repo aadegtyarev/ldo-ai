@@ -6,7 +6,7 @@
 
 ## Observable inputs, outputs, and flows
 
-Users install/update the Claude Code plugin through its unchanged Claude marketplace. For Codex CLI 0.161.0 or newer, users add the checkout root as a native marketplace and install `ldo-ai@ldo-ai`; the marketplace definition is `.agents/plugins/marketplace.json` and the plugin bundle is `.codex-plugin/`. The native plugin and Claude package expose exactly planner, worker, and reviewer roles and five shared skills: workflow, decomposition, security, validation, and Git delivery. Shared Codex TOMLs and skill prompts have one canonical plugin-owned source. Older Codex CLI versions can use `scripts/install-codex.sh`, which writes package-owned agents and skills under `$CODEX_HOME` (or `~/.codex`). Native hosts own skill loading and role dispatch.
+One repository, `aadegtyarev/ldo-ai`, exposes independent native marketplaces for Claude Code and Codex. README provides symmetric install, update, and uninstall instructions; each host owns its plugin and marketplace lifecycle. For Codex CLI 0.161.0 or newer, users add the checkout root as a native marketplace and install `ldo-ai@ldo-ai`; the marketplace definition is `.agents/plugins/marketplace.json` and the plugin bundle is `.codex-plugin/`. Package validation pins both marketplace identities, their native sources/schema, and synchronized package/plugin versions. The native plugin and Claude package expose exactly planner, worker, and reviewer roles and five shared skills: workflow, decomposition, security, validation, and Git delivery. Shared Codex TOMLs and skill prompts have one canonical plugin-owned source. Older Codex CLI versions can use `scripts/install-codex.sh`, which writes package-owned agents and skills under `$CODEX_HOME` (or `~/.codex`). Native hosts own skill loading and role dispatch.
 
 Role guidance is identical on both hosts: the reviewer does one exhaustive pass reporting every independent finding across all classes, grouped and ranked, names each blocking defect class and enumerates its affected cases, verifying class closure on re-review; the worker fixes the whole class with a regression test per case; the workflow skill stops delegating and reports to the user after two rejecting reviews of the same change since the user's last decision. These are instructions only, not runtime-enforced counters.
 
@@ -19,11 +19,11 @@ Role guidance is identical on both hosts: the reviewer does one exhaustive pass 
 
 ## Failure behavior and recovery
 
-The Codex shell installer validates sources and target collisions before writing/removing; it updates/removes only marked package-owned files, preserves unrelated files/directories, and refuses live or dangling symlink collisions. The tested Codex 0.161.0 native flow supports marketplace add, plugin install/version update by re-adding the changed local plugin, plugin removal, and marketplace removal; its plugin and marketplace inventory is CLI-owned. Claude installation/update remains managed by the independent Claude marketplace. CI uses a temporary `CODEX_HOME`, invokes no models, and does not access credentials or real user state.
+The Codex shell installer validates sources and target collisions before writing/removing; it updates/removes only marked package-owned files, preserves unrelated files/directories, and refuses live or dangling symlink collisions. Automated marketplace lifecycle tests use copied local checkouts and isolated temporary profiles (`HOME`/`CLAUDE_CONFIG_DIR` for Claude and `CODEX_HOME` for Codex); they cover install, version update, full host-state removal, and preservation of unrelated sentinel state without model calls or credentials. Manual GitHub-backed lifecycle evidence for this task covers Claude Code 2.1.287 and Codex CLI 0.161.0. CI pins Claude Code 2.1.295 for future runs; Claude 2.1.295 runtime lifecycle verification is not claimed here.
 
 ## Security, privacy, and retention
 
-Install/update mechanics operate only on requested package-owned destinations. CI uses isolated temporary Codex state and makes no model calls. No runtime state, task history, or credentials are collected or retained.
+Install/update mechanics operate only on requested package-owned destinations. Lifecycle tests isolate both hosts in temporary profiles and copied checkouts, make no model calls, access no credentials, and verify unrelated state remains intact. No runtime state, task history, or credentials are collected or retained.
 
 ## Non-goals
 
