@@ -6,7 +6,7 @@ description: Route non-trivial software tasks through evidence, user-approved co
 
 # Development lifecycle
 
-Keep the process proportionate: trivial, local, reversible work goes straight to the worker, and one concern per change keeps reviews small. For non-trivial work:
+Aim for the most result for the least effort: first the 20% of the work that delivers 80% of the result, the rest only if it is still worth it. Keep the process proportionate: trivial, local, reversible work goes straight to the worker, and one concern per change keeps reviews small. For non-trivial work:
 
 1. Slice large requests first (several independent surfaces or outcomes, or more than one reviewable PR; otherwise skip): split them into slices that each touch the fewest surfaces and the least code, give a result the user can check, and ship on their own (contract, PR, checks, review). Agree on the slice list with the user; run steps 2-5 per slice, starting the next only after the previous one is verified.
 2. Reconnaissance: inspect repository guidance, relevant code, and affected surface contracts; report evidence, real risks, and scope. For a designed or changed user-facing surface, offer a prior-art study per `ldo-ai-prior-art`. Do not plan or delegate implementation yet.
