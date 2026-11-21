@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.6.1] — 2026-11-21
+
+### Changed
+
+- Model roles when delegating: plan on the strongest model, implement on a cheaper capable one, review on a different model from the implementer, with review effort scaled to risk; with one model, plan at high effort and review in a fresh context.
+
 ## [3.6.0] — 2026-11-21
 
 ### Changed
