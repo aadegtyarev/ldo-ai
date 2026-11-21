@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.6.3] — 2026-11-21
+
+### Changed
+
+- When project guidance does not name the allowed models, the agent asks the user once which models are available, for what and which are expensive, proposes a choice per role with a reason, and records the answer in the project's agent guidance.
+
 ## [3.6.2] — 2026-11-21
 
 ### Changed
