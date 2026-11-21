@@ -14,6 +14,6 @@ Aim for the most result for the least effort: first the 20% of the work that del
 4. Planner produces the simplest bounded plan; worker implements only approved scope; reviewer independently checks diff and evidence. Review rounds are bounded: after two rejecting reviews of the same change since the user's last decision, stop delegating and report outstanding findings, what each round fixed, current state, and options; wait for the user's decision.
 5. Reconcile durable surface contracts after verification, keeping them compact per the meta-contract. Delete the temporary feature contract only after independent verification and reconciliation; otherwise retain it as `ready-for-verification`.
 
-When delegating, request at least medium reasoning effort where the host exposes it, and high for complex work (planning, review, architecture or a hard implementation).
+When delegating, request at least medium reasoning effort where the host exposes it, and high for complex work (planning, review, architecture or a hard implementation). With several models available, plan on the strongest, implement on a cheaper capable one, and review on a different model from the implementer for a second view; scale review effort with risk. With one model, plan at high effort and review in a fresh context.
 
 Ask before crossing an unapproved product/surface boundary and before outward or irreversible actions. Host-native skill discovery and delegation control loading and execution; do not build a router or workflow runtime.
