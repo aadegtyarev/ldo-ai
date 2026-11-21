@@ -1,0 +1,1 @@
+../../.codex-plugin/skills/ldo-ai-prior-art/SKILL.md

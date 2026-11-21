@@ -24,7 +24,7 @@ skills_target=${target%/*}/skills
 agent_source=$script_dir/../codex/agents
 skill_source=$script_dir/../skills
 owned_agents='planner.toml worker.toml reviewer.toml'
-owned_skills='ldo-ai-workflow ldo-ai-decomposition ldo-ai-security ldo-ai-validation ldo-ai-git-delivery'
+owned_skills='ldo-ai-workflow ldo-ai-decomposition ldo-ai-security ldo-ai-validation ldo-ai-git-delivery ldo-ai-prior-art'
 
 for directory in "$target" "$skills_target"; do
   if [ -L "$directory" ] || { [ -e "$directory" ] && [ ! -d "$directory" ]; }; then

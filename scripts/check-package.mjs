@@ -6,7 +6,7 @@ import { checkMarketplaceMetadata } from "./check-marketplace-metadata.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requiredRoles = ["planner", "worker", "reviewer"];
-const requiredSkills = ["ldo-ai-workflow", "ldo-ai-decomposition", "ldo-ai-security", "ldo-ai-validation", "ldo-ai-git-delivery"];
+const requiredSkills = ["ldo-ai-workflow", "ldo-ai-decomposition", "ldo-ai-security", "ldo-ai-validation", "ldo-ai-git-delivery", "ldo-ai-prior-art"];
 const fail = (message) => { throw new Error(message); };
 const checkSize = (label, text, maxBytes, maxLines) => {
   const bytes = Buffer.byteLength(text);

@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.4.0] — 2026-11-21
+
+### Added
+
+- `ldo-ai-prior-art` skill: before designing a user-facing surface (API, CLI, config, UI, UX, user journey), agents offer to study best-in-class products and their users' pain points, and for UI or flows a clickable prototype; done only when the user agrees, with findings recorded in the feature contract's Prior art section. Workflow, planner, worker and reviewer reference it.
+
 ## [3.3.1] — 2026-10-11
 
 ### Changed

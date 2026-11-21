@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const installer = path.join(root, "scripts/install-codex.sh");
 const roles = ["planner", "worker", "reviewer"];
-const skills = ["ldo-ai-workflow", "ldo-ai-decomposition", "ldo-ai-security", "ldo-ai-validation", "ldo-ai-git-delivery"];
+const skills = ["ldo-ai-workflow", "ldo-ai-decomposition", "ldo-ai-security", "ldo-ai-validation", "ldo-ai-git-delivery", "ldo-ai-prior-art"];
 
 test("Codex install and update touch only package-owned agent files", async () => {
   const targetRoot = await mkdtemp(path.join(os.tmpdir(), "ldo-ai-install-"));
