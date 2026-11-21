@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.7.0] — 2026-11-21
+
+### Changed
+
+- Reviewer reports only issues the diff introduces or makes reachable, with evidence, says "No issues found." when clean, and ends with one verdict line (BLOCK, OK, OK with notes); needless complexity gets concrete examples; re-review checks only whether findings are closed, whether the fix broke what it touched, and whether earlier findings stand.
+- Workflow: sort review findings into fix now, optional, and defer or reject with a reason before sending fixes; re-review only after a material change.
+- Worker says so when a task that needed edits ended with none, instead of reporting success.
+- Planner lists the approved decisions the plan relies on and flags any it would change.
+- Prior art: a link is not evidence; verify sources only for claims that would change the decision and mark what is inferred.
+
 ## [3.6.3] — 2026-11-21
 
 ### Changed
