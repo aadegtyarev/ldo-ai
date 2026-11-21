@@ -6,7 +6,7 @@ description: Use when a task splits a module, extracts a seam, migrates callers,
 
 # Evidence-driven decomposition
 
-- Start from important observable behavior and real change pressure; avoid abstraction, coverage, or file splitting for its own sake.
+- Start from observable behavior and real change pressure; avoid abstraction, coverage, or file splitting for its own sake. If the structure works and nothing needs to change, leave it.
 - Add focused characterization or contract tests proportional to behavior risk and value before moving code. Do not mechanically test every line.
 - Separate structural movement from behavior changes so regressions and review scope stay attributable.
 - Migrate incrementally across a real seam, verify each step, move callers, and remove the old path; avoid permanent parallel implementations.
