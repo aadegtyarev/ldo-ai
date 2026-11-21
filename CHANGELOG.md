@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.6.0] — 2026-11-21
+
+### Changed
+
+- The workflow aims for the most result for the least effort: first the 20% of the work that delivers 80% of the result.
+- Large requests are sliced before contracts: each slice touches the fewest surfaces and the least code, gives a result the user can check, and ships on its own; the next slice starts after the previous one is verified. The planner proposes slices for large requests.
+- Contracts stay compact: about 150 lines for a surface contract and 80 for a feature contract; promises, boundaries, errors and non-goals only, no history, rationale essays, implementation detail or copies; sections readable on their own, and agents read the relevant sections.
+- Validation runs only the checks a change can affect; the full suite only for shared parts or before a release.
+- Delegation asks for at least medium reasoning effort, high for complex planning, review or architecture, never low for implementation or review.
+
 ## [3.5.0] — 2026-11-21
 
 ### Changed
