@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.6.2] — 2026-11-21
+
+### Changed
+
+- No archaeology: code, comments and contracts describe only the current state, without history notes or kept-for-reference code; comments are a short why the code cannot say. The reviewer reports added history notes, dead code and essay comments.
+
 ## [3.6.1] — 2026-11-21
 
 ### Changed
