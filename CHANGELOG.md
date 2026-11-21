@@ -4,8 +4,8 @@
 
 ### Changed
 
-- Proportionality across roles and skills, to stop simple code growing abstractions in the name of safety: the planner plans and the worker writes the simplest change, adding a layer, option or abstraction only when two callers need it now or the contract asks; cases that cannot happen are not handled; class fixes cover the reachable cases.
-- The reviewer blocks only on reachable defects with real harm, unapproved scope, or unjustified complexity (naming the simpler shape); speculative risks and style are suggestions.
+- Proportionality across roles and skills, to stop simple code growing abstractions in the name of safety: the planner plans and the worker writes the simplest change, adding a layer, option or abstraction only for real duplication now, a seam the task needs, or the contract; input from outside the program is always handled; cases that cannot happen are not handled; class fixes cover the reachable cases.
+- The reviewer blocks only on reachable defects with real harm, unapproved scope, or unjustified complexity (naming the simpler shape), always on a weakened protection, and checks each reachable case is tested on re-review; speculative risks and style are suggestions.
 - Security scales to the real exposure: never weaken an existing protection, and do not add layers against threats the deployment does not face.
 - Validation trusts exit codes, looks at rendered UI at phone and desktop sizes, and checks live results after deploys. The workflow keeps one concern per change, gives the user options with a recommendation and does not reopen their decisions, and asks before outward or irreversible actions.
 
