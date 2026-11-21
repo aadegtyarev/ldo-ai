@@ -15,11 +15,11 @@ Use semantic filenames, lowercase kebab-case, without dates. A date may appear i
 
 ## Size and shape
 
-Every agent reads the affected contracts on every task, so their size is a cost paid again and again, and a long contract buries the rules that matter.
+Agents read the affected contracts on every task, so their size is a cost paid again and again, and a long contract buries the rules that matter.
 
-- Keep a surface contract to about 150 lines (10 KB) and a feature contract to about 80 lines. When a surface contract outgrows that, cut detail or split it along a real boundary.
+- Aim for about 150 lines (10 KB, whichever comes first) per surface contract and about 80 lines per feature contract. This is a guideline, not a limit: never drop a promise, boundary, error case or security limit to fit. When a surface contract grows well past it, first remove history, rationale and implementation detail; if it is still long, split it along a real boundary.
 - Write promises, boundaries, errors, security limits and non-goals. Leave out history and changelogs (git keeps them), rationale essays, implementation detail and test lists (the code and tests hold them), and copies of other contracts (link them).
-- Give each section a clear heading and make it readable on its own, so an agent can read only the sections its task touches.
+- Give each section a clear heading and make it readable on its own. Agents read each affected contract's headings, then in full every section touching the changed behavior plus any boundary, security or non-goal section; when unsure, they read it. The reviewer checks the diff against the whole affected contract.
 
 ## Lifecycle
 
