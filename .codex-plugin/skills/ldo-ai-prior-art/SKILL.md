@@ -1,6 +1,6 @@
 ---
 name: ldo-ai-prior-art
-description: Use when a task designs or changes a surface people or other systems use directly — an API, CLI, config format, UI, UX flow or user journey — to offer a study of how the best existing products solve it before designing.
+description: Use during reconnaissance when a task designs a new or substantially redesigned surface people or other systems use directly — an API, CLI, config format, UI, UX flow or user journey — to offer (never run unprompted) a study of how the best existing products solve it.
 ---
 <!-- managed by ldo-ai -->
 
