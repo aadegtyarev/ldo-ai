@@ -33,6 +33,7 @@ Keep contracts concise and specific. Include:
 - Interfaces and constraints
 - Acceptance criteria that can be checked
 - Validation to run
+- Prior art, when the user asked for a prior-art study: references, findings, and the decisions taken
 - Status/date inside the document when useful
 
 ## Required surface-contract sections

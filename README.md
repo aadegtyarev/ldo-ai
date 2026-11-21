@@ -81,7 +81,7 @@ codex plugin marketplace remove ldo-ai
 
 Register the checkout instead of the Git URL with `codex plugin marketplace add /path/to/ldo-ai`; after editing sources, rerun `codex plugin add ldo-ai@ldo-ai`.
 
-The Codex marketplace manifest points to `.codex-plugin/`, which packages three agents and five conditional skills. Both host packages use shared role/skill guidance, with native host-specific adapters:
+The Codex marketplace manifest points to `.codex-plugin/`, which packages three agents and six conditional skills. Both host packages use shared role/skill guidance, with native host-specific adapters:
 
 ```mermaid
 flowchart LR
@@ -99,7 +99,7 @@ Run `./scripts/install-codex.sh`; it writes to `$CODEX_HOME/{agents,skills}` or 
 
 ## First task
 
-Ask the planner to inspect the repository and propose a small plan, approve it before asking the worker to implement, then ask the reviewer to inspect the diff and checks independently. Roles: planner plans, worker implements approved work, reviewer checks evidence. The package includes native skills for workflow, decomposition, security, validation, and Git delivery; hosts decide when to load them. The host controls delegation, execution, approvals, and final decisions.
+Ask the planner to inspect the repository and propose a small plan, approve it before asking the worker to implement, then ask the reviewer to inspect the diff and checks independently. Roles: planner plans, worker implements approved work, reviewer checks evidence. The package includes native skills for workflow, decomposition, security, validation, Git delivery, and prior art (offered before designing an API, CLI, UI or user journey); hosts decide when to load them. The host controls delegation, execution, approvals, and final decisions.
 
 ## Contribute
 

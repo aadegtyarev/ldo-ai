@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const roles = ["planner", "worker", "reviewer"];
-const skills = ["ldo-ai-workflow", "ldo-ai-decomposition", "ldo-ai-security", "ldo-ai-validation", "ldo-ai-git-delivery"];
+const skills = ["ldo-ai-workflow", "ldo-ai-decomposition", "ldo-ai-security", "ldo-ai-validation", "ldo-ai-git-delivery", "ldo-ai-prior-art"];
 
 test("native Codex marketplace installs and removes only its plugin state", async (t) => {
   const cli = process.env.CODEX_CLI || "codex";
